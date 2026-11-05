@@ -249,3 +249,194 @@ test('storage failure is not a successful result and does not re-run the matcher
   assert.equal(s.calls(), 1)
   assert.deepEqual((await s.discoveries.listOwned('owner', {})).items, [])
 })
+
+test('retries only the save after a transient failure and coalesces concurrent recovery', async (t) => {
+  const s = await setup()
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  let writes = 0
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    if (++writes === 1) throw new HttpError(503, 'SYSTEM_ERROR', '一時保存障害', true)
+    return actual(...args)
+  })
+  const receipt = s.receipt('recover')
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+  const recovered = await Promise.all([
+    s.processor.process('owner', receipt.attemptId, s.input),
+    s.processor.process('owner', receipt.attemptId, s.input),
+  ])
+  assert.deepEqual(recovered[0], recovered[1])
+  assert.equal(recovered[0].outcome, 'SAVED_IN_MEMORY')
+  assert.equal(writes, 2)
+  assert.equal(s.calls(), 1)
+  assert.equal((await s.discoveries.listOwned('owner', {})).items.length, 1)
+})
+
+test('recovery preserves the first record when the write succeeded but its reply was lost', async (t) => {
+  const s = await setup()
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  let writes = 0
+  let firstId: string | undefined
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    const saved = await actual(...args)
+    if (++writes === 1) { firstId = saved.discovery.discoveryId; throw new Error('private storage response lost') }
+    return saved
+  })
+  const receipt = s.receipt('lost-reply')
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+  const recovered = await s.processor.process('owner', receipt.attemptId, s.input)
+  assert.equal(recovered.outcome, 'ALREADY_SAVED_IN_MEMORY')
+  assert.equal(recovered.discoveryId, firstId)
+  assert.equal(s.calls(), 1)
+  const records = (await s.discoveries.listOwned('owner', {})).items
+  assert.equal(records.length, 1)
+  assert.equal(records[0].firstClearedAt, new Date(now).toISOString())
+  assert.deepEqual((await s.discoveries.getPhotoOwned('owner', recovered.discoveryId!))?.bytes, s.input.photo.bytes)
+})
+
+test('recovery rejects another owner or altered input and rechecks pause, version and private snapshot', async (t) => {
+  for (const change of ['pause', 'version', 'snapshot']) {
+    const s = await setup()
+    let writes = 0
+    t.mock.method(s.discoveries, 'saveFirstClear', async () => { writes++; throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true) })
+    const receipt = s.receipt('recover')
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+    await assert.rejects(s.processor.process('other', receipt.attemptId, s.input), fails('NOT_FOUND'))
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, { ...s.input, digest: 'changed' }), fails('IDEMPOTENCY_CONFLICT'))
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, { ...s.input,
+      metadata: { ...capture, position: { ...capture.position, latitude: 1 } } }), fails('IDEMPOTENCY_CONFLICT'))
+    if (change === 'pause') s.quest.status = 'paused'
+    if (change === 'version') s.quest.version++
+    if (change === 'snapshot') s.quest.descriptionSnapshot = 'changed'
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails(change === 'pause' ? 'QUEST_UNAVAILABLE' : 'QUEST_CHANGED'))
+    assert.equal(writes, 1)
+    assert.equal(s.calls(), 1)
+    assert.deepEqual((await s.discoveries.listOwned('owner', {})).items, [])
+  }
+})
+
+test('checkpoint byte capacity stops new AI work and is released after recovery', async (t) => {
+  const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+  const s = await setup({ maximumCheckpointBytes: photo.bytes.length })
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  let writes = 0
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    if (++writes === 1) throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true)
+    return actual(...args)
+  })
+  const first = s.receipt('first'), second = s.receipt('second')
+  await assert.rejects(s.processor.process('owner', first.attemptId, s.input), fails('SYSTEM_ERROR'))
+  await assert.rejects(s.processor.process('owner', second.attemptId, s.input), fails('RATE_LIMITED'))
+  assert.equal(s.calls(), 1)
+  const recovered = await s.processor.process('owner', first.attemptId, s.input)
+  await s.discoveries.deleteOwned('owner', recovered.discoveryId!)
+  assert.equal((await s.processor.process('owner', second.attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+  assert.equal(s.calls(), 2)
+})
+
+test('a fatal revocation discards the checkpoint, while an authorization outage can recover without AI', async (t) => {
+  for (const fatal of [true, false]) {
+    let allowed = true, unavailable = false
+    const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+    const s = await setup({ maximumCheckpointBytes: photo.bytes.length, authorize: async () => {
+      if (unavailable) throw new Error('temporary auth outage')
+      return allowed
+    } })
+    const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+    let writes = 0
+    t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+      if (++writes === 1) throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true)
+      return actual(...args)
+    })
+    const receipt = s.receipt('first')
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+    allowed = !fatal; unavailable = !fatal
+    await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails(fatal ? 'UNAUTHENTICATED' : 'AUTH_UNAVAILABLE'))
+    allowed = true; unavailable = false
+    if (fatal) {
+      await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('UNAUTHENTICATED'))
+      assert.equal((await s.processor.process('owner', s.receipt('new').attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+      assert.equal(s.calls(), 2)
+    } else {
+      assert.equal((await s.processor.process('owner', receipt.attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+      assert.equal(s.calls(), 1)
+    }
+  }
+})
+
+test('an expired challenge discards its recovery photo without letting another owner cancel it', async (t) => {
+  const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+  const s = await setup({ maximumCheckpointBytes: photo.bytes.length })
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  let writes = 0, expired = false
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    if (++writes === 1) throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true)
+    return actual(...args)
+  })
+  const owned = s.challenges.getOwned.bind(s.challenges)
+  t.mock.method(s.challenges, 'getOwned', (id: string, uid: string) => expired ? null : owned(id, uid))
+  const receipt = s.receipt('expired')
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+  await assert.rejects(s.processor.process('other', receipt.attemptId, s.input), fails('NOT_FOUND'))
+  await assert.rejects(s.processor.process('owner', s.receipt('blocked').attemptId, s.input), fails('RATE_LIMITED'))
+  expired = true
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('NOT_FOUND'))
+  expired = false
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('NOT_FOUND'))
+  assert.equal((await s.processor.process('owner', s.receipt('fresh').attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+})
+
+test('nonretryable save failure and negative photo results release their reserved photo capacity', async (t) => {
+  const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+  const s = await setup({ maximumCheckpointBytes: photo.bytes.length })
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  let writes = 0
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    if (++writes === 1) throw new HttpError(503, 'SYSTEM_ERROR', '再開できない障害', false)
+    return actual(...args)
+  })
+  const receipt = s.receipt('fatal')
+  for (let index = 0; index < 2; index++) await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+  assert.equal(s.calls(), 1)
+  assert.equal(writes, 1)
+  assert.equal((await s.processor.process('owner', s.receipt('fresh').attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+  const negative = await setup({ maximumCheckpointBytes: photo.bytes.length, matcher: async () => 'WRONG_TARGET' })
+  for (const key of ['a', 'b']) assert.equal((await negative.processor.process('owner', negative.receipt(key).attemptId, negative.input)).outcome, 'WRONG_TARGET')
+})
+
+test('a retry arriving as a save fails shares that execution before a single recovery starts', async (t) => {
+  const s = await setup({ concurrency: 2 })
+  const actual = s.discoveries.saveFirstClear.bind(s.discoveries)
+  const receipt = s.receipt('racing-retry')
+  let writes = 0
+  let racing: ReturnType<typeof s.processor.process> | undefined
+  t.mock.method(s.discoveries, 'saveFirstClear', async (...args: Parameters<typeof actual>) => {
+    if (++writes === 1) {
+      queueMicrotask(() => {
+        racing = s.processor.process('owner', receipt.attemptId, s.input)
+        void racing.catch(() => {})
+      })
+      throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true)
+    }
+    return actual(...args)
+  })
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('SYSTEM_ERROR'))
+  assert(racing)
+  await assert.rejects(racing, fails('SYSTEM_ERROR'))
+  assert.equal(writes, 1)
+  assert.equal((await s.processor.process('owner', receipt.attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+  assert.equal(writes, 2)
+  assert.equal(s.calls(), 1)
+})
+
+test('a temporary authorization outage after MATCH resumes at save without another provider call', async () => {
+  let checks = 0
+  const s = await setup({ authorize: async () => {
+    if (++checks === 3) throw new Error('auth temporarily unavailable after matching')
+    return true
+  } })
+  const receipt = s.receipt('auth-recovery')
+  await assert.rejects(s.processor.process('owner', receipt.attemptId, s.input), fails('AUTH_UNAVAILABLE'))
+  assert.deepEqual((await s.discoveries.listOwned('owner', {})).items, [])
+  assert.equal((await s.processor.process('owner', receipt.attemptId, s.input)).outcome, 'SAVED_IN_MEMORY')
+  assert.equal(s.calls(), 1)
+})

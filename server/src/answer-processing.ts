@@ -4,6 +4,7 @@ import { parseCaptureMetadata } from '../../src/shared/api/validation'
 import type { DemoAnswerStore } from './answers'
 import type { DemoChallengeStore } from './challenges'
 import type { DemoDiscoveryStore } from './discoveries'
+import type { FirstDiscoveryInput } from './discoveries'
 import { evaluateLocation } from './location'
 import type { LocationPolicy } from './location'
 import { preparePhoto } from './photo-input'
@@ -28,28 +29,47 @@ export interface ProcessorOptions {
   answers: DemoAnswerStore; challenges: DemoChallengeStore; discoveries: DemoDiscoveryStore
   currentQuest: (questId: string) => PrivateAnswerVersion | null
   authorize: (uid: string) => Promise<boolean>
-  matcher?: PhotoMatcher; capacity?: number; concurrency?: number; timeoutMs?: number
+  matcher?: PhotoMatcher; capacity?: number; concurrency?: number; timeoutMs?: number; maximumCheckpointBytes?: number
+}
+
+interface ProcessingJob {
+  fingerprint: string; result?: Promise<DemoProcessingResult>; reservedBytes: number
+  retryableSave: boolean; running: boolean; admissionRejected?: boolean
+  checkpoint?: { versionHash: string; input: FirstDiscoveryInput }
 }
 
 export class DemoAnswerProcessor {
-  private readonly jobs = new Map<string, { fingerprint: string; result: Promise<DemoProcessingResult> }>()
+  private readonly jobs = new Map<string, ProcessingJob>()
   private active = 0
+  private checkpointBytes = 0
   private readonly capacity: number
   private readonly concurrency: number
+  private readonly maximumCheckpointBytes: number
 
   constructor(private readonly options: ProcessorOptions) {
     this.capacity = options.capacity ?? 256
     this.concurrency = options.concurrency ?? 1
+    this.maximumCheckpointBytes = options.maximumCheckpointBytes ?? 32 * 1024 * 1024
     if (!Number.isSafeInteger(this.capacity) || this.capacity < 1 || this.capacity > 256 ||
-      !Number.isSafeInteger(this.concurrency) || this.concurrency < 1 || this.concurrency > 4) throw new Error('Invalid demo processing limits.')
+      !Number.isSafeInteger(this.concurrency) || this.concurrency < 1 || this.concurrency > 4 ||
+      !Number.isSafeInteger(this.maximumCheckpointBytes) || this.maximumCheckpointBytes < 1 || this.maximumCheckpointBytes > 32 * 1024 * 1024) throw new Error('Invalid demo processing limits.')
   }
 
   async process(uid: string, attemptId: string, input: ProcessingInput): Promise<DemoProcessingResult> {
     const receipt = this.options.answers.getAcceptedOwned(attemptId, uid)
     const challenge = receipt && this.options.challenges.getOwned(receipt.challengeId, uid)
-    if (!receipt || !challenge) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+    if (!receipt || !challenge) {
+      const missing = new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      // Only a verified receipt owner may discard an expired recovery job.
+      if (receipt) this.failRecovery(attemptId, missing)
+      throw missing
+    }
     if (receipt.digest !== input.digest) throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', '回答の内容が一致しません。')
-    await this.authorize(uid)
+    try { await this.authorize(uid) }
+    catch (error) {
+      if (!retryableSaveError(error)) this.failRecovery(attemptId, error)
+      throw error
+    }
     // Callers pass the unmodified server readAnswerInput output, not a browser
     // digest. Copy before awaiting decoding/matching; later edits cannot alter it.
     const metadata = parseCaptureMetadata(input.metadata)
@@ -58,11 +78,25 @@ export class DemoAnswerProcessor {
     const previous = this.jobs.get(attemptId)
     if (previous) {
       if (previous.fingerprint !== fingerprint) throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', '回答の内容が一致しません。')
-      return { ...await previous.result }
+      if (previous.retryableSave && !previous.running) {
+        if (this.active >= this.concurrency) throw this.busy()
+        this.execute(attemptId, previous, () => this.commit(uid, challenge, previous))
+      }
+      return { ...await previous.result! }
     }
-    if (this.jobs.size >= this.capacity || this.active >= this.concurrency) throw new HttpError(429, 'RATE_LIMITED', '時間をおいて再試行してください。', true, 1)
+    if (this.jobs.size >= this.capacity || this.active >= this.concurrency) throw this.busy()
     const photo = { bytes: Buffer.from(input.photo.bytes), mimeType: input.photo.mimeType }
+    const job: ProcessingJob = { fingerprint, reservedBytes: 0, retryableSave: false, running: false }
+    this.jobs.set(attemptId, job)
+    return { ...await this.execute(attemptId, job,
+      (track) => this.run(uid, challenge, receipt.receivedAt, receipt.result, metadata, photo, track, job)) }
+  }
+
+  private execute(attemptId: string, job: ProcessingJob,
+    work: (track: (matcher: PhotoMatcher) => PhotoMatcher) => Promise<DemoProcessingResult>): Promise<DemoProcessingResult> {
     this.active++
+    job.running = true
+    job.retryableSave = false
     let finished = false
     let sending = false
     const release = () => { if (finished && !sending) this.active-- }
@@ -75,16 +109,24 @@ export class DemoAnswerProcessor {
       void pending.then(settle, settle)
       return pending
     })
-    const result = this.run(uid, challenge, receipt.receivedAt, receipt.result, metadata, photo, track)
+    const result = Promise.resolve().then(() => work(track))
       .catch((error: unknown) => { throw error instanceof HttpError ? error : photoSystemError() })
-    this.jobs.set(attemptId, { fingerprint, result })
-    const complete = () => { finished = true; release() }
+    job.result = result
+    const complete = () => {
+      if (!job.retryableSave) this.discardCheckpoint(job)
+      // Capacity rejection happens before any provider call. It is safe to
+      // admit the same answer again after other checkpoints have been released.
+      if (job.admissionRejected) this.jobs.delete(attemptId)
+      job.running = false
+      finished = true
+      release()
+    }
     void result.then(complete, complete)
-    return { ...await result }
+    return result
   }
 
   private async run(uid: string, challenge: Challenge, receivedAt: number, accepted: { state: string; outcome: unknown },
-    metadata: CaptureMetadata, photo: PhotoInput, track: (matcher: PhotoMatcher) => PhotoMatcher): Promise<DemoProcessingResult> {
+    metadata: CaptureMetadata, photo: PhotoInput, track: (matcher: PhotoMatcher) => PhotoMatcher, job: ProcessingJob): Promise<DemoProcessingResult> {
     if (accepted.state === 'COMPLETED' && (accepted.outcome === 'OUTSIDE_AREA' || accepted.outcome === 'LOCATION_UNCERTAIN')) {
       return { source: 'mock', outcome: accepted.outcome }
     }
@@ -95,6 +137,12 @@ export class DemoAnswerProcessor {
     const location = evaluateLocation(metadata, version.locationPolicy, receivedAt)
     if (location !== 'WITHIN_AREA') return { source: 'mock', outcome: location }
     const candidate = await preparePhoto(photo)
+    if (this.checkpointBytes + candidate.bytes.length > this.maximumCheckpointBytes) {
+      job.admissionRejected = true
+      throw this.busy()
+    }
+    this.checkpointBytes += candidate.bytes.length
+    job.reservedBytes = candidate.bytes.length
     let gateFailure: HttpError | undefined
     const matcher = this.options.matcher
     const guarded = matcher && track(async (value, call) => {
@@ -115,17 +163,53 @@ export class DemoAnswerProcessor {
     } catch (error) { throw gateFailure ?? error }
     // Both negative and matching image results must belong to a still-valid
     // owner and version. No result from a superseded task is committed.
-    await this.authorize(uid)
-    this.assertCurrent(challenge, versionHash)
-    if (decision !== 'MATCH') return { source: 'mock', outcome: decision }
-    // No await between the final synchronous version check and the memory
-    // store's synchronous mutation. A durable adapter needs an atomic commit.
-    const saved = await this.options.discoveries.saveFirstClear(uid, {
+    if (decision !== 'MATCH') {
+      await this.authorize(uid)
+      this.assertCurrent(challenge, versionHash)
+      return { source: 'mock', outcome: decision }
+    }
+    job.checkpoint = { versionHash, input: {
       placeId: version.placeId, questId: version.questId, questVersion: version.version, areaId: version.areaId,
       placeName: version.placeName, descriptionSnapshot: version.descriptionSnapshot,
       revealedLocation: version.revealedLocation, photo: candidate.bytes,
-    }, { location, photo: decision })
-    return { source: 'mock', outcome: saved.created ? 'SAVED_IN_MEMORY' : 'ALREADY_SAVED_IN_MEMORY', discoveryId: saved.discovery.discoveryId }
+    } }
+    return this.commit(uid, challenge, job)
+  }
+
+  private async commit(uid: string, challenge: Challenge, job: ProcessingJob): Promise<DemoProcessingResult> {
+    const checkpoint = job.checkpoint
+    if (!checkpoint) throw photoSystemError(false)
+    try {
+      await this.authorize(uid)
+      this.assertCurrent(challenge, checkpoint.versionHash)
+      // No await between the synchronous version check and memory mutation.
+      // Durable adapters must make the check and write atomic in their DB.
+      const saved = await this.options.discoveries.saveFirstClear(uid, checkpoint.input, { location: 'WITHIN_AREA', photo: 'MATCH' })
+      return { source: 'mock', outcome: saved.created ? 'SAVED_IN_MEMORY' : 'ALREADY_SAVED_IN_MEMORY', discoveryId: saved.discovery.discoveryId }
+    } catch (error) {
+      const failure = error instanceof HttpError ? error : photoSystemError()
+      job.retryableSave = retryableSaveError(failure)
+      throw failure
+    }
+  }
+
+  private discardCheckpoint(job: ProcessingJob): void {
+    this.checkpointBytes -= job.reservedBytes
+    job.reservedBytes = 0
+    job.checkpoint = undefined
+  }
+
+  private failRecovery(attemptId: string, error: unknown): void {
+    const job = this.jobs.get(attemptId)
+    if (!job?.retryableSave) return
+    this.discardCheckpoint(job)
+    job.retryableSave = false
+    job.result = Promise.reject(error)
+    void job.result.catch(() => {})
+  }
+
+  private busy(): HttpError {
+    return new HttpError(429, 'RATE_LIMITED', '時間をおいて再試行してください。', true, 1)
   }
 
   private async authorize(uid: string): Promise<void> {
@@ -158,6 +242,10 @@ export class DemoAnswerProcessor {
         features: [...version.features], locationPolicy: structuredClone(version.locationPolicy) }
     } catch { throw photoSystemError(false) }
   }
+}
+
+function retryableSaveError(error: unknown): boolean {
+  return error instanceof HttpError && error.status === 503 && error.retryable
 }
 
 function hash(text: string, bytes: Buffer): string { return createHash('sha256').update(text).update('\0').update(bytes).digest('hex') }

@@ -177,3 +177,5 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 ## 14. 回答処理の内部接続
 
 [answer-processing.md](answer-processing.md)に、既存受付→GPS→写真照合→開発用本人記録のサーバー内部接続を記録する。所有者/challenge/digestと受信日時を結び、同じ回答の処理を共有し、AI呼出し直前・保存直前に認証と公開状態/版を再確認する。記録成功は内部のSAVED_IN_MEMORY/ALREADY_SAVED_IN_MEMORYで、公開AttemptResultへ変換しない。HTTPルート・client・環境変数は追加せず、現在のPOST/GET結果とmock正解拒否を維持する。実VertexのHTTP起動・永続保存・CORRECTは後続。
+
+照合済み回答の再試行可能な保存障害は、上限付きメモリーcheckpointから同じprocess呼出しで保存だけを再開できる。AIを再実行せず、本人と公開版を再確認する。プロセス再起動後の回復や永続leaseとは区別する。
