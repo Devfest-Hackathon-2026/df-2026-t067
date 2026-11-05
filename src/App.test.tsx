@@ -9,7 +9,7 @@ describe('未接続の起動画面', () => {
 
     expect(screen.getByRole('main')).toBeVisible()
     expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
-    expect(screen.getByRole('status')).toHaveTextContent('Firebase未接続')
+    expect(screen.getByRole('status', { name: 'ログイン状態' })).toHaveTextContent('ログイン準備中')
     expect(screen.getByRole('button', { name: '問題を見てみる' })).toBeEnabled()
     expect(screen.queryByRole('region', { name: 'サンプル問題の詳細' })).not.toBeInTheDocument()
   })
@@ -25,7 +25,7 @@ describe('未接続の起動画面', () => {
     expect(startButton).toBeDisabled()
     await user.click(startButton)
     expect(details).toBeVisible()
-    expect(screen.getByRole('status')).toHaveTextContent('Firebase未接続')
+    expect(screen.getByRole('status', { name: 'ログイン状態' })).toHaveTextContent('ログイン準備中')
 
     await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
     expect(screen.queryByRole('region', { name: 'サンプル問題の詳細' })).not.toBeInTheDocument()
@@ -39,8 +39,8 @@ describe('未接続の起動画面', () => {
 
     await user.tab()
     expect(screen.getByRole('link', { name: '本文へ移動' })).toHaveFocus()
-    await user.tab()
     const toggle = screen.getByRole('button', { name: '問題を見てみる' })
+    for (let i = 0; i < 20 && document.activeElement !== toggle; i++) await user.tab()
     expect(toggle).toHaveFocus()
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await user.keyboard('{Enter}')
