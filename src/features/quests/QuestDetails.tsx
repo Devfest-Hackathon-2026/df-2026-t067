@@ -22,6 +22,7 @@ function getHintIdentity(getHint?: GetHint) {
 function HintItem({ questId, version, index, getHint, onVersionChanged }: {
   questId: string; version: number; index: number; getHint: GetHint; onVersionChanged(): void
 }) {
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
   const [state, setState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error' | 'changed'; text?: string; message?: string }>({ status: 'idle' })
   const controllerRef = useRef<AbortController | null>(null)
@@ -64,7 +65,7 @@ function HintItem({ questId, version, index, getHint, onVersionChanged }: {
   }
 
   return <div className="hint-item">
-    <button type="button" aria-expanded={expanded} onClick={() => {
+    <button ref={toggleRef} type="button" aria-expanded={expanded} onClick={() => {
       if (expanded) {
         if (state.status === 'loading') {
           generation.current++; controllerRef.current?.abort()
@@ -77,7 +78,12 @@ function HintItem({ questId, version, index, getHint, onVersionChanged }: {
     }}>{state.status === 'loading' ? `ヒント${index}を取得中（閉じる）` : expanded ? `ヒント${index}を閉じる` : `ヒント${index}を見る`}</button>
     {expanded && state.status === 'loading' && <p role="status">ヒントを取得しています。</p>}
     {expanded && state.status === 'ready' && <p>{state.text}</p>}
-    {expanded && state.status === 'error' && <div role="alert"><p>{state.message}</p><button type="button" onClick={() => void load()}>ヒント{index}を再試行</button></div>}
+    {expanded && state.status === 'error' && <div role="alert"><p>{state.message}</p>
+      <button type="button" onClick={() => {
+        toggleRef.current?.focus()
+        void load()
+      }}>ヒント{index}を再試行</button>
+    </div>}
     {expanded && state.status === 'changed' && <div role="alert"><p>問題の版が変わりました。古いヒントと挑戦を無効にしました。</p><button type="button" onClick={onVersionChanged}>最新版の問題を読み直す</button></div>}
   </div>
 }
@@ -96,18 +102,23 @@ function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadQuest }: 
 }
 
 function OptionalHintImage({ url, title }: { url: string; title: string }) {
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [attempt, setAttempt] = useState(0)
   return <div className="optional-hint">
-    <button type="button" className="optional-hint-toggle" aria-expanded={expanded}
+    <button ref={toggleRef} type="button" className="optional-hint-toggle" aria-expanded={expanded}
       onClick={() => { setExpanded(value => !value); setStatus('loading') }}>
       {expanded ? 'ヒント画像を閉じる' : 'ヒント画像を見る'}
     </button>
     {expanded && <div className="optional-hint-content" aria-live="polite">
       {status === 'loading' && <p role="status">ヒント画像を読み込み中…</p>}
       {status === 'error' && <div role="alert"><p>ヒント画像を読み込めませんでした。</p>
-        <button type="button" onClick={() => { setStatus('loading'); setAttempt(value => value + 1) }}>再試行</button>
+        <button type="button" onClick={() => {
+          toggleRef.current?.focus()
+          setStatus('loading')
+          setAttempt(value => value + 1)
+        }}>再試行</button>
       </div>}
       <img key={attempt} src={url} alt={`${title}のヒント画像`} className="optional-hint-image"
         style={{ display: status === 'loaded' ? undefined : 'none' }}
