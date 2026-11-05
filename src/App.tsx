@@ -1,12 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { demoQuest, demoAreaLabel } from './features/quests/demoQuest'
+import { demoAreaLabel } from './features/quests/demoQuest'
 import { QuestDetails } from './features/quests/QuestDetails'
 import type { ChallengeSelection } from './features/quests/QuestDetails'
 import { MapPreview } from './features/explore/MapPreview'
 import { Icon } from './components/Icon'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
 import type { PublicQuest } from './shared/api/types'
+import { createApiClient } from './shared/api'
+import type { ApiClient } from './shared/api'
+import { CameraPreview } from './features/capture/CameraPreview'
+import { readDataSource, useQuestConnection, useServerIdentity } from './features/explore/useQuestConnection'
 import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
 import './App.css'
 
@@ -19,9 +23,9 @@ function connectionNotice(auth: AuthSnapshot): { title: string; description: str
     case 'checking':
       return { title: 'ログイン状態を確認中', description: '問題はそのまま閲覧できます。しばらくお待ちください。' }
     case 'signed-out':
-      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。撮影・写真判定・記録保存は準備中です。' }
+      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。写真判定・記録保存は準備中です。' }
     case 'signed-in':
-      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。撮影・写真判定・記録保存は準備中です。' }
+      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。写真判定・記録保存は準備中です。' }
   }
 }
 
@@ -32,6 +36,7 @@ type AppProps = {
   areaLabel?: string
   questPicker?: ReactNode
   apiMode?: boolean
+  apiClient?: ApiClient
 }
 
 function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<boolean> {
@@ -63,11 +68,23 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
   })
 }
 
-export default function App({ authClient: providedClient, onStartChallenge, quest = demoQuest, areaLabel = demoAreaLabel, questPicker, apiMode = false }: AppProps = {}) {
+export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, apiMode = false }: AppProps = {}) {
   const [isQuestOpen, setIsQuestOpen] = useState(false)
   const questCard = useRef<HTMLDivElement>(null)
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
+  const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
+  const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(), expectedDataMode: apiMode || source === 'local-api' ? 'demo' : undefined }), [providedApi, authClient, source, apiMode])
+  const connection = useQuestConnection(externalQuest ? 'preview' : source, api)
+  const content = connection.result.status === 'ready' ? connection.result.value : null
+  const quest = externalQuest ?? (content ? (({ areaLabel: _area, ...dto }) => dto)(content) : null)
+  const areaLabel = externalAreaLabel ?? content?.areaLabel ?? demoAreaLabel
+  const serverIdentity = useServerIdentity(apiMode || source === 'local-api', api, auth)
+  const uid = auth.status === 'signed-in' ? auth.user.uid : null
+  const canUseCamera = uid !== null && (!(apiMode || source === 'local-api') || serverIdentity.result?.status === 'ready')
+  const [cameraOwner, setCameraOwner] = useState<{ auth: AuthSnapshot; confirmation: typeof serverIdentity.result; questId: string; version: number } | null>(null)
+  const closeCamera = useCallback(() => setCameraOwner(null), [])
+  const cameraVisible = canUseCamera && cameraOwner !== null && cameraOwner.auth === auth && cameraOwner.confirmation === serverIdentity.result && cameraOwner.questId === quest?.questId && cameraOwner.version === quest.version
   const [pending, setPending] = useState<{ client: AuthClient; kind: 'sign-in' | 'sign-out' } | null>(null)
   const pendingRef = useRef(false)
   const lifecycle = useRef(0)
@@ -80,7 +97,7 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
   const notice = connectionNotice(auth)
 
   useLayoutEffect(() => {
-    if (selectedQuest.current.questId !== quest.questId || selectedQuest.current.version !== quest.version) {
+    if (selectedQuest.current?.questId !== quest?.questId || selectedQuest.current?.version !== quest?.version) {
       selectionGeneration.current += 1
     }
     selectedQuest.current = quest
@@ -124,7 +141,7 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
         if (lifecycle.current === operation) setFeedback({ error: true, text: 'ログイン状態を確認できませんでした。問題の閲覧を続けられます。' })
         return
       }
-      if (lifecycle.current !== operation || selectionGeneration.current !== generation || !openRef.current || selectedQuest.current.questId !== selectedId || selectedQuest.current.version !== selectedVersion) return
+      if (lifecycle.current !== operation || selectionGeneration.current !== generation || !openRef.current || selectedQuest.current?.questId !== selectedId || selectedQuest.current?.version !== selectedVersion) return
       if (onStartChallenge) await onStartChallenge(selection)
     }
     catch (error) {
@@ -138,6 +155,7 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
 
   async function logout() {
     if (visiblePending) return
+    closeCamera()
     setFeedback(null)
     setPending({ client: authClient, kind: 'sign-out' })
     try { await authClient.signOut() }
@@ -156,7 +174,7 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
           <span className="brand-copy">全国観光謎アプリ<small>謎から、旅へ。</small></span>
         </div>
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
-          <a className="nav-active" href="#explore-title" aria-current="page"><Icon name="map" />謎を探す</a>
+          <a className="nav-active" href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" />謎を探す</a>
           <button type="button" disabled><Icon name="book" />自分の記録<span>準備中</span></button>
         </nav>
         <div className="account-area">
@@ -180,11 +198,12 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
               <h1 id="explore-title">全国から謎を探す</h1>
               <p className="explore-description">気になる謎を選んで、次の旅のきっかけに。</p>
             </div>
-            <span className="preview-label"><span className="status-dot" />開発用プレビュー</span>
+            <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
           </div>
 
           <div className="explore-workspace">
-            <MapPreview selected={isQuestOpen} showMarker={!apiMode} onSelectQuest={() => {
+            <MapPreview selected={isQuestOpen && quest !== null} disabled={!quest} areaLabel={areaLabel} showMarker={!apiMode} onSelectQuest={() => {
+              closeCamera()
               setIsQuestOpen(true)
               questCard.current?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
             }} />
@@ -194,15 +213,19 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
               <p className="rail-description">ヒントを頼りに、街の新しい一面を見つけよう。</p>
               {questPicker}
               <div ref={questCard}>
-                <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
-                  disabled={visiblePending !== null || (auth.status !== 'signed-out' && auth.status !== 'signed-in') || (auth.status === 'signed-in' && !onStartChallenge)}
-                  buttonLabel={visiblePending === 'sign-in' ? '処理中…' : auth.status === 'signed-in' ? '挑戦を開始する' : 'Googleログインして挑戦する'}
-                  note={auth.status === 'signed-in' && !onStartChallenge ? '挑戦開始先はまだ接続されていません。問題の閲覧を続けられます。'
+                {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
+                  disabled={visiblePending !== null || (auth.status !== 'signed-out' && auth.status !== 'signed-in') || (auth.status === 'signed-in' && (onStartChallenge ? false : !canUseCamera || cameraVisible))}
+                  buttonLabel={visiblePending === 'sign-in' ? '処理中…' : auth.status === 'signed-in' ? (onStartChallenge ? '挑戦を開始する' : cameraVisible ? '撮影中' : serverIdentity.result?.status === 'loading' ? 'ログインの確認中…' : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : '撮影を始める') : 'Googleログインして挑戦する'}
+                  note={auth.status === 'signed-in' && !onStartChallenge ? serverIdentity.result?.status === 'ready' ? 'ログインを確認しました。写真はこの画面で確認するだけです。' : serverIdentity.result?.status === 'loading' ? 'ログインを確認しています…' : '問題の閲覧は続けられます。ログイン確認後に撮影できます。'
                     : auth.status === 'signed-in' ? 'ログイン済みです。挑戦開始先へ選んだ問題を渡します。'
                       : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
                         : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
                           : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
-                  feedback={feedback} onToggle={() => { const next = !openRef.current; selectionGeneration.current += 1; openRef.current = next; setIsQuestOpen(next) }} onStart={login} />
+                  feedback={feedback} onToggle={() => { const next = !openRef.current; selectionGeneration.current += 1; openRef.current = next; if (!next) closeCamera(); setIsQuestOpen(next) }} onStart={(selection) => { if (onStartChallenge) return login(selection); if (auth.status === 'signed-in' && canUseCamera && quest) setCameraOwner({ auth, confirmation: serverIdentity.result, questId: selection.questId, version: selection.expectedVersion }); else return login(selection) }}>
+                    {auth.status === 'signed-in' && serverIdentity.result?.status === 'error' && <div className="auth-feedback"><p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></div>}
+                    {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
+                  </QuestDetails>
+                  : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>
               <div className="browse-note"><span className="browse-note-icon"><Icon name="compass" /></span><div><strong>まずは、気になる謎をひとつ。</strong><p>問題の閲覧にログインは必要ありません。</p></div></div>
               <div className="demo-note"><span className="demo-note-dot" /><p>{apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
@@ -213,7 +236,7 @@ export default function App({ authClient: providedClient, onStartChallenge, ques
       </main>
       <footer className="site-footer"><span>謎を見つけて、街と出会う。</span><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
-        <a href="#explore-title" aria-current="page"><Icon name="map" /><span>謎を探す</span></a>
+        <a href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" /><span>謎を探す</span></a>
         <button type="button" disabled><Icon name="book" /><span>自分の記録<small>準備中</small></span></button>
       </nav>
     </>

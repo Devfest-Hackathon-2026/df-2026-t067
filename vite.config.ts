@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-const apiProxy = { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: false } }
+const apiProxy = { '/api': { target: 'http://127.0.0.1:8787' } }
 
 export default defineConfig({
   plugins: [react()],

@@ -27,7 +27,7 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
 }
 
 export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
-  const api = useMemo(() => providedApi ?? createApiClient(), [providedApi])
+  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo' }), [providedApi])
   const [selectedId, setSelectedId] = useState('')
   const [selectedAreaId, setSelectedAreaId] = useState('')
   const [retry, setRetry] = useState(0)

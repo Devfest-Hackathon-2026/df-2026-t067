@@ -33,7 +33,7 @@ npm run check
 
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)と別パッケージの[ローカルAPI](server/README.md)へWeb画面を接続し、公開問題一覧・詳細・地域名を取得します。APIが利用できない場合は再試行を案内し、固定デモ問題へ切り替えません。APIモードでは静的地図の固定マーカーを隠し、位置とは連動しません。写真判定・保存は未実装です。Google認証のブラウザ側は別途接続済みです。
+A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)と別パッケージの[ローカルAPI](server/README.md)へWeb画面を接続し、公開問題一覧・詳細・地域名を取得します。APIが利用できない場合は再試行を案内し、固定デモ問題へ切り替えません。APIモードでは静的地図の固定マーカーを隠し、位置とは連動しません。A担当の[サーバーでのログイン確認](docs/local-api.md)と、C担当の[撮影・写真確認](docs/camera-preview.md)も維持します。GPS・写真送信・判定・保存は未実装です。
 
 ## A担当のローカルAPIを試す
 
@@ -68,6 +68,7 @@ npm --prefix server run check
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
 | [B担当：旅行者の地図・問題閲覧](docs/b-development.md) | T01/T02の現状、次の小さい実装単位、A/Cへの確認事項 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
+| [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
 | [今回の土台の範囲](docs/foundation.md) | 作ったもの、実装判断、完了条件 |
 | [公式参考資料](docs/sources.md) | 技術的な制約の確認先 |
 | [AGENTS.md](AGENTS.md) | 全員のCodexが参照する共通ルール |

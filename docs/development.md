@@ -1,6 +1,6 @@
 # 共同開発・初期設定ガイド
 
-最小Webアプリの起動と、4人で同じ土台を使う手順。React・TypeScript・Viteの共通画面と、設定時に使えるGoogleログインを用意した。Mapsとアプリのサーバーは未接続。クラウドの管理設定は別作業であり、このガイドの手順では変更しない。
+最小Webアプリの起動と、4人で同じ土台を使う手順。React・TypeScript・Viteの共通画面と、設定時に使えるGoogleログインを用意した。開発用モードではローカルAPIから架空の1問を取得できる。Maps接続とクラウドの管理設定は別作業であり、このガイドの手順では変更しない。
 
 ## 1. 全員が同じ手順で起動する
 
@@ -15,15 +15,16 @@ cd df-2026-t067
 
 既に取得している人は、その`df-2026-t067`フォルダを開く。親の`hackason`フォルダでは実行しない。
 
-**土台がmainに未マージの間だけ**、試すために次のブランチへ切り替える。手元に未保存の変更がある場合は先に担当者と確認し、上書きしない。
+既存の作業場所を更新する場合は、未保存の変更がないことを確認してからmainを取得する。他の人の変更を上書きしない。
 
 ```sh
 git status
 git fetch origin
-git switch codex/feat/web-foundation
+git switch main
+git pull --ff-only
 ```
 
-資料PR #1はmainへ取り込み済み。WebアプリPR #3、共通API PR #4、Firebase認証PRは順に重ねている。未マージの変更を試す場合は対象PRのブランチを使い、勝手にマージしない。取り込み後は全員が最新mainから作業する。
+資料PR #1、WebアプリPR #3、共通API PR #4、Firebase認証PR #5、旅行者UI PR #6、ローカルAPI PR #7はmainへ取り込み済み。未マージの変更を試す場合は対象PRのブランチを使い、勝手にマージしない。新しい作業は最新mainからブランチを作る。
 
 ### 1-2. Nodeとnpmを確認する
 
@@ -47,7 +48,9 @@ npm ci
 npm run dev
 ```
 
-[http://localhost:5173/](http://localhost:5173/)を開く。「開発用プレビュー」「Firebase未接続」が表示され、サンプル問題を開閉できれば起動確認は完了。Firebase未設定時はGoogleログインのボタンが無効。設定する場合は[認証ガイド](firebase-auth.md)に従い、localhostで確認する。終了は **Ctrl+C**。
+[http://localhost:5173/](http://localhost:5173/)を開く。既定モードでは地図のプレビューと架空の問題が表示され、問題を開閉できれば起動確認は完了。Firebase未設定時は「ログイン準備中」と表示し、ログインのボタンは無効。設定する場合は[認証ガイド](firebase-auth.md)に従い、localhostで確認する。終了は **Ctrl+C**。
+
+画面からAPIを試す場合は、[ローカルAPI接続手順](local-api.md)に従い、明示した`local-api`モードと別ターミナルのAPIを起動する。設定なしの起動を実API接続成功と扱わない。サーバーの変更時は`npm --prefix server run check`も実行する。
 
 匿名閲覧には環境変数やクラウドCLIは不要。Googleログインを使う場合だけ`.env.example`を`.env.local`へコピーし、6項目を入力する。実設定と元のJSONをGitへ含めない。`VITE_`で始まる値はブラウザへ公開されるため、秘密鍵やAI認証情報を入れない。[Vite公式説明](https://vite.dev/guide/env-and-mode)
 
@@ -166,7 +169,7 @@ Google認証設定は[S2](sources.md)、Storageの課金条件は[S9](sources.md
 
 ## 5. 現在の検証と、実装後の検証
 
-この土台の`npm run check`はローカルの型・静的検査・画面テスト・ビルドを対象にする。Google認証・Maps・GPS・カメラ・AI・保存の実接続と実機は未検証。GitHub Actionsが使えないため、ローカルの検証結果と別メンバーの確認をPRへ残す。GitHub Pagesへの公開設定も作らない。
+この土台の`npm run check`はローカルの型・静的検査・画面テスト・ビルドを対象にする。Google認証のブラウザ側の確認範囲は[認証ガイド](firebase-auth.md)、開発用APIの確認範囲は[接続手順](local-api.md)を参照する。Maps・GPS・カメラ・AI・保存の実接続と実機は未検証。GitHub Actionsが使えないため、ローカルの検証結果と別メンバーの確認をPRへ残す。GitHub Pagesへの公開設定も作らない。
 
 最初の実機目標は1問を写真回答して本人の記録に残せること。続けて[受け入れ条件](acceptance.md)で境界・権限・二重送信・休止・障害を確認する。GPSや画像判定の技術検証を画面完成後まで先延ばしにしない。
 

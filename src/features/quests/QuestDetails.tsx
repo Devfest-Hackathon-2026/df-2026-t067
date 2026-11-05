@@ -2,6 +2,7 @@ import type { PublicQuest } from '../../shared/api/types'
 import { Icon } from '../../components/Icon'
 import type { createApiClient } from '../../shared/api/client'
 import { useId } from 'react'
+import type { ReactNode } from 'react'
 
 export type ChallengeSelection = Parameters<ReturnType<typeof createApiClient>['createChallenge']>[0]
 
@@ -16,9 +17,10 @@ interface QuestDetailsProps {
   feedback?: { error: boolean; text: string } | null
   onToggle(): void
   onStart(selection: ChallengeSelection): void | Promise<unknown>
+  children?: ReactNode
 }
 
-export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart }: QuestDetailsProps) {
+export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children }: QuestDetailsProps) {
   const detailsId = `quest-details-${useId().replaceAll(':', '')}`
   return (
     <article className={'quest-card' + (open ? ' is-open' : '')} aria-labelledby={`${detailsId}-title`}>
@@ -44,6 +46,7 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
               {buttonLabel}
             </button>
             <p id={`${detailsId}-note`} className="unavailable-note">{note}</p>
+            {children}
             {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
           </section>
         )}

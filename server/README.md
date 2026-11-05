@@ -71,9 +71,9 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 
 `false`は失効・ユーザー無効化の追加照会を行わない指定。**失効の即時検出は未実装**。このルートは認証の確認専用で、Googleログイン成功だけで自治体所属・role・編集権限を付けない。
 
-このSDK版では、明示projectIdでの通常のID token検証は公開署名証明書を取得する経路を使い、ADCやサービスアカウントファイルは読み込まない。実サービスでの検証には署名証明書へのネットワーク接続が必要。資格情報ファイルや`.env*`を読み取るコード・dotenv・鍵fixtureは追加していない。SDKの他の管理操作を利用できるという意味ではない。インストール済み`base-auth.d.ts`の`verifyIdToken`宣言、`base-auth.js`、`token-verifier.js`、`utils/index.js`、`app/credential-internal.js`でもこの経路を確認した。
+このSDK版では、明示projectIdでの通常のID token検証は公開署名証明書を取得する経路を使い、ADCやサービスアカウントファイルは読み込まない。実サービスでの検証には署名証明書へのネットワーク接続が必要。`.env.local`の読み込みはNodeの起動オプションに任せ、SDK用の資格情報ファイル・dotenv・鍵fixtureは追加していない。SDKの他の管理操作を利用できるという意味ではない。インストール済み`base-auth.d.ts`の`verifyIdToken`宣言、`base-auth.js`、`token-verifier.js`、`utils/index.js`、`app/credential-internal.js`でもこの経路を確認した。
 
-実プロジェクトIDは利用者が実行時の`FIREBASE_PROJECT_ID`へ渡す。コード・ドキュメント・テストに実値を入れない。この作業では実アカウント・実ID token・既存の資格情報・外部のFirebase JSONを使用していない。
+実プロジェクトIDは利用者が実行時の`FIREBASE_PROJECT_ID`へ渡す。コード・ドキュメント・テストに実値を入れない。2026-11-05に実Googleアカウントと実ID tokenを使った認証確認の正常系を検証した。アカウント情報・uid・token・実設定値を資料やログへ記録せず、資格情報ファイルや外部のFirebase JSONをサーバーへ読み込ませない。
 
 ## 検証
 
@@ -103,6 +103,6 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.0.0.1:8787`へ転送し、既存`createApiClient()`の同一originパスを保つ。ブラウザから別originへ直接接続するための広いCORSは追加していない。画面では一覧・詳細・地域名を取得し、失敗時に固定デモへfallbackしない。
 
-共通clientにはまだ`/session`のメソッドがない。追加する場合は既存の`getIdToken`を使う認証済み呼び出しとし、uid以外のclaimを公開しない。
+共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実ChromeでGoogleログイン、実ID tokenのサーバー検証、再読み込み後の認証復元と再確認、ログアウトを確認済み。詳細は[確認記録](../docs/local-api.md#確認)を参照する。
 
-完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、本番・Emulator拒否。**実Firestore／データ保存、実Firebase tokenのE2E、地図・GPS・写真判定、組織認可、デプロイは別作業・未検証**。
+完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、本番・Emulator拒否。**実Firestore／データ保存、地図・GPS・写真判定、組織認可、デプロイは別作業・未検証**。
