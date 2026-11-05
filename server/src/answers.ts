@@ -5,10 +5,11 @@ import { HttpError } from './errors'
 import type { LocationDecision } from './location'
 
 interface AnswerOptions { capacity?: number; requestsPerMinute?: number; concurrentUploads?: number; now?: () => number }
-interface Receipt { ownerUid: string; digest: string; result: AttemptResult }
+export interface AcceptedAnswerReceipt { challengeId: string; digest: string; receivedAt: number; result: AttemptResult }
+interface Receipt extends AcceptedAnswerReceipt { ownerUid: string }
 
-// Only digests and ownership are retained. No image or location can be fetched
-// from this development-only store. There is deliberately no judging worker.
+// Only bounded receipt metadata is retained, never images or GPS positions.
+// The HTTP handler does not start the optional internal processing service.
 export class DemoAnswerStore {
   private readonly records = new Map<string, Receipt>()
   private readonly index = new Map<string, string>()
@@ -68,7 +69,9 @@ export class DemoAnswerStore {
         : { state: 'RECEIVED', outcome: null, nextAction: 'WAIT' }),
     })
     if (this.records.has(result.attemptId)) throw this.full()
-    this.records.set(result.attemptId, { ownerUid, digest, result })
+    const receivedAt = this.now()
+    if (!Number.isSafeInteger(receivedAt) || Math.abs(receivedAt) > 8_640_000_000_000_000) throw this.full()
+    this.records.set(result.attemptId, { ownerUid, challengeId, digest, receivedAt, result })
     this.index.set(index, result.attemptId)
     return { ...result }
   }
@@ -76,6 +79,14 @@ export class DemoAnswerStore {
   getOwned(attemptId: string, ownerUid: string): AttemptResult | null {
     const receipt = this.records.get(attemptId)
     return receipt?.ownerUid === ownerUid ? { ...receipt.result } : null
+  }
+
+  // Server-only context for the optional processing service. HTTP responses
+  // continue to expose only getOwned's result summary, never this context.
+  getAcceptedOwned(attemptId: string, ownerUid: string): AcceptedAnswerReceipt | null {
+    const receipt = this.records.get(attemptId)
+    return receipt?.ownerUid === ownerUid ? { challengeId: receipt.challengeId, digest: receipt.digest,
+      receivedAt: receipt.receivedAt, result: { ...receipt.result } } : null
   }
 
   private full(): HttpError { return new HttpError(503, 'SYSTEM_ERROR', '処理を完了できませんでした。') }

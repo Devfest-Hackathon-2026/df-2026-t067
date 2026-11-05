@@ -111,6 +111,8 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 **画面送信・判定workerは未接続でRECEIVEDから進まない。** 写真4MiB、本文受信5秒、同時4件、利用者10要求/60秒、受付256件の開発用制限を置く。画像は実デコード・正規化し、ヘッダーだけの偽画像を成功扱いにしない。詳細は[回答受付API](../docs/answer-intake.md)を参照する。
 
+[開発用の内部回答処理](../docs/answer-processing.md)は既存受付・GPS・照合・メモリー記録をつなぐが、このHTTP受付や環境変数からは起動しない。実Vertex・実保存・CORRECTへ自動接続しない。
+
 GPSを試すときは`QUEST_LOCATION_MODE=demo`をAPIに指定する。未指定/offなら従来の受付のみ。合成範囲・試作用上限で範囲外と位置不確実を200の不合格結果として返し、位置条件の通過は未判定の受付を維持する。既存回答は再送時に鮮度を再評価しない。設定、起動手順と未検証は[GPS判定](../docs/gps-validation.md)を参照する。
 
 ## 画像検証と照合部品

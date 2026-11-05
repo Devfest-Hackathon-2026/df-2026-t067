@@ -89,6 +89,14 @@ export class DemoDiscoveryStore implements DiscoveryRepository {
     return record?.uid === uid ? structuredClone(record.discovery) : null
   }
 
+  // Internal first-clear lookup. Never expose another owner's place index or
+  // use a public quest response as the source of private place identifiers.
+  findByPlaceOwned(uid: string, placeId: string): Discovery | null {
+    const id = this.places.get(JSON.stringify([uid, placeId]))
+    const record = id && this.records.get(id)
+    return record ? structuredClone(record.discovery) : null
+  }
+
   async getPhotoOwned(uid: string, discoveryId: string): Promise<DiscoveryPhoto | null> {
     const record = this.records.get(discoveryId)
     return record?.uid === uid ? { bytes: Buffer.from(record.photo), contentType: 'image/jpeg' } : null
