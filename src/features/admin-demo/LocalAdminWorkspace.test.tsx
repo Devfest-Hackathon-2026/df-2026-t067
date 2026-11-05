@@ -32,6 +32,7 @@ it('requires verified membership, cancels an old organization read, and shows re
     getIdToken: async () => 'demo-token',
   }
   let finishEditor!: (value: Response) => void
+  let publishedVersion: number | null = 1
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const path = String(input)
     if (path === '/api/v1/session') return json({ uid: 'demo-user' })
@@ -40,7 +41,19 @@ it('requires verified membership, cancels an old organization read, and shows re
       { orgId: 'demo-publish', label: '公開の架空自治体', role: 'publisher', areaId: 'demo-area' },
     ])
     if (path.startsWith('/api/v1/orgs/demo-edit/quests')) return new Promise((resolve) => { finishEditor = resolve })
-    if (path.startsWith('/api/v1/orgs/demo-publish/quests')) return page([quest])
+    if (path === '/api/v1/orgs/demo-publish/quests/local-quest/pause') {
+      if (publishedVersion === 1) {
+        publishedVersion = 2
+        return new Response(JSON.stringify({ error: { code: 'QUEST_CHANGED', retryable: false } }), {
+          status: 409, headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'demo' },
+        })
+      }
+      publishedVersion = null
+      return json({ ...quest, status: 'paused', draftRevision: 3, publishedVersion })
+    }
+    if (path.startsWith('/api/v1/orgs/demo-publish/quests')) {
+      return page([publishedVersion === null ? { ...quest, publishedVersion, status: 'paused', draftRevision: 3 } : { ...quest, publishedVersion }])
+    }
     if (path.startsWith('/api/v1/orgs/demo-publish/reports')) return page([{
       reportId: 'demo-report', source: 'mock', orgId: 'demo-publish', questId: 'local-quest',
       questVersion: 1, category: 'UNSAFE_GUIDANCE', text: '架空の報告本文', receivedAt: '2026-11-06T00:00:00Z',
@@ -60,6 +73,26 @@ it('requires verified membership, cancels an old organization read, and shows re
   expect(await screen.findByText(quest.draft.content.title)).toBeVisible()
   await act(async () => finishEditor(page([{ ...quest, orgId: 'demo-edit', draft: { ...quest.draft, content: { ...quest.draft.content, title: '古い応答' } } }])))
   expect(screen.queryByText('古い応答')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '公開を休止' }))
+  await user.click(screen.getByRole('button', { name: 'キャンセル' }))
+  const pauseCalls = () => fetcher.mock.calls.filter(([path]) => String(path).endsWith('/pause'))
+  expect(pauseCalls()).toHaveLength(0)
+  await user.click(screen.getByRole('button', { name: '公開を休止' }))
+  await user.type(screen.getByLabelText('休止理由'), '架空の撮影確認')
+  await user.click(screen.getByRole('button', { name: 'この公開版を休止する' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('公開版が変わりました')
+  expect(pauseCalls()).toHaveLength(1)
+  await user.click(screen.getByRole('button', { name: '最新の問題一覧を確認' }))
+  await user.click(await screen.findByRole('button', { name: '公開を休止' }))
+  await user.type(screen.getByLabelText('休止理由'), '架空の撮影確認')
+  await user.click(screen.getByRole('button', { name: 'この公開版を休止する' }))
+  expect(await screen.findByText('開発用の公開を休止しました。')).toBeVisible()
+  expect(await screen.findByText(/問題 local-quest・休止中・下書き版 3/)).toBeVisible()
+  expect(screen.queryByRole('button', { name: '公開を休止' })).not.toBeInTheDocument()
+  expect(pauseCalls().map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+    { expectedPublishedVersion: 1, reason: '架空の撮影確認' },
+    { expectedPublishedVersion: 2, reason: '架空の撮影確認' },
+  ])
   await user.click(screen.getByRole('button', { name: '問題報告' }))
   expect(await screen.findByText('架空の報告本文')).toBeVisible()
   const reportCall = fetcher.mock.calls.find(([path]) => String(path).startsWith('/api/v1/orgs/demo-publish/reports'))
