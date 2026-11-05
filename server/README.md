@@ -117,7 +117,7 @@ GPSを試すときは`QUEST_LOCATION_MODE=demo`をAPIに指定する。未指定
 
 ルートのVitestは`src/`だけを対象にし、Node標準テストとビルド済みテストを重複実行しない。サーバー依存はルートlockfileへ移さず、独立したパッケージとして扱う。API契約は[docs/api.md](../docs/api.md#9-ローカルapiの土台)、実装判断は[docs/decisions.md](../docs/decisions.md)にも記録した。
 
-Web画面は[開発用モード](../docs/local-api.md)で架空の1問を取得できる。Viteの`/api`だけを`http://127.0.0.1:8787`へ開発proxyし、既存`createApiClient()`の同一originパスを保つ。ブラウザから別originへ直接接続するための広いCORSは追加しない。ルートの`dev:api`は`.env.local`を読み込む起動コマンドで、明示的なデモ指定を引き続き必要とする。
+Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.0.0.1:8787`へ転送し、既存`createApiClient()`の同一originパスを保つ。ブラウザから別originへ直接接続するための広いCORSは追加していない。画面では一覧・詳細・地域名を取得し、失敗時に固定デモへfallbackしない。
 
 共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実ChromeでGoogleログイン、実ID tokenのサーバー検証、再読み込み後の認証復元と再確認、ログアウトを確認済み。詳細は[確認記録](../docs/local-api.md#確認)を参照する。
 
