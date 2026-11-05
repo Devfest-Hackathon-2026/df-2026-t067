@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { demoQuest } from './features/quests/demoQuest'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
 import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
@@ -25,7 +25,70 @@ export default function App({ authClient: providedClient }: { authClient?: AuthC
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const [pending, setPending] = useState<'sign-in' | 'sign-out' | null>(null)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const notice = connectionNotice(auth)
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+  }
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    if (photoUrl) URL.revokeObjectURL(photoUrl)
+  }, [photoUrl])
+
+  async function openCamera() {
+    setCameraError(null)
+    setPhotoUrl(null)
+    setCameraOpen(true)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported')
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+    } catch (error) {
+      setCameraError(error instanceof DOMException && error.name === 'NotAllowedError'
+        ? 'カメラの使用が許可されませんでした。ブラウザの設定で許可してから、もう一度お試しください。'
+        : 'カメラを起動できませんでした。カメラを利用できる環境か確認して、もう一度お試しください。')
+      stopCamera()
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError('カメラ映像を準備できません。少し待ってから撮影してください。')
+      return
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setCameraError('写真を作成できませんでした。もう一度撮影してください。')
+        return
+      }
+      setPhotoUrl(URL.createObjectURL(blob))
+      stopCamera()
+    }, 'image/jpeg', 0.9)
+  }
+
+  function closeCamera() {
+    stopCamera()
+    setCameraOpen(false)
+    setCameraError(null)
+    setPhotoUrl(null)
+  }
 
   async function login() {
     if (pending || auth.status !== 'signed-out') return
@@ -111,19 +174,36 @@ export default function App({ authClient: providedClient }: { authClient?: AuthC
                   <button
                     type="button"
                     className="primary-button"
-                    disabled={auth.status !== 'signed-out' || pending !== null}
-                    onClick={login}
+                    disabled={(auth.status !== 'signed-out' && auth.status !== 'signed-in') || pending !== null}
+                    onClick={auth.status === 'signed-in' ? openCamera : login}
                     aria-describedby="login-unavailable"
                   >
-                    {auth.status === 'signed-in' ? 'ログイン済み・撮影機能は準備中'
+                    {auth.status === 'signed-in' ? 'ログイン済み・撮影画面を試す'
                       : pending === 'sign-in' ? 'Googleログイン中…' : 'Googleログインして挑戦する'}
                   </button>
                   <p id="login-unavailable" className="unavailable-note">
-                    {auth.status === 'signed-in' ? '選んだ問題を表示しています。撮影機能ができるまでお待ちください。'
+                    {auth.status === 'signed-in' ? '架空の問題です。写真はこの画面で確認するだけで、送信・保存されません。'
                       : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
                         : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
                           : 'Googleログインの準備ができていません。現在は挑戦を開始できません。'}
                   </p>
+                  {auth.status === 'signed-in' && !cameraOpen && (
+                    <button type="button" className="primary-button" onClick={openCamera}>撮影を始める</button>
+                  )}
+                  {cameraOpen && (
+                    <section className="camera-panel" aria-label="写真撮影と確認">
+                      <h4>{photoUrl ? '写真を確認' : '写真を撮影'}</h4>
+                      {photoUrl ? <img className="photo-preview" src={photoUrl} alt="撮影した写真のプレビュー" />
+                        : <video ref={videoRef} className="camera-video" autoPlay playsInline muted aria-label="カメラ映像" />}
+                      {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+                      <p className="sample-note">撮影した写真はこの画面で確認するだけです。送信・保存は行いません。</p>
+                      <div className="camera-actions">
+                        {!photoUrl && <button type="button" className="primary-button" onClick={capturePhoto} disabled={Boolean(cameraError)}>撮影する</button>}
+                        {photoUrl && <button type="button" className="secondary-button" onClick={openCamera}>撮り直す</button>}
+                        <button type="button" className="secondary-button" onClick={closeCamera}>撮影を終了</button>
+                      </div>
+                    </section>
+                  )}
                   {feedback && (
                     <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>
                   )}
