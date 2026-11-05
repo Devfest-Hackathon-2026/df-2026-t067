@@ -79,7 +79,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 - `materials`はA03に対応。`requiresBoat`（船上・海上）と`requiresPaidFacility`（有料施設内）は必須のbooleanで、falseは画面の未選択状態。料金priceと撮影制約photoNoteは挑戦前用。`content`はA04の項目でhintsは3要素。未完成の空欄を保存でき、保存成功は公開可能との判定ではない。
 - `afterClear`はクリア後用の`access / hours / promoComment / explanation`。管理APIで保存・復元するが、PublicQuest・通常ヒントへ追加しない。アクセス/時間/コメントは2000文字、解説は4000文字まで。
 - 旧`availableModes / requiredModes`と`materials.access / materials.hours`は受け付けない。旧入力を黙って変換・破棄せず400で拒否する。動作中の旧APIと新しいclientを混ぜない。サーバー再起動では開発用の記録・下書きが消えるため、保持が必要な入力は先に担当者が退避する。
-- `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft', shootingAreaStatus:'unconfigured' | 'configured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
+- `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft' | 'review_pending', shootingAreaStatus:'unconfigured' | 'configured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
 - 上限はHTTP本文64 KiB、名称/タイトル200文字、本文/根拠/メモ4000文字、各ヒント/その他素材欄2000文字。開発用の入力保護で、本番O-03を確定しない。下書きは自治体100件・全体1000件で新規作成を停止する。
 - 更新は**draft全体の置換**。現在のrevisionを指定し、成功時に1増える。同時保存は片方だけが成功し、もう片方は409 `DRAFT_CONFLICT`。画面の編集中データを保持して最新版を取得し、人が差分を確認してから再保存する。競合時の自動上書きは禁止。
 - 新規作成は自動再送しない。通信断ではまず一覧を確認して二重作成を避ける。再起動時の消失、保存容量、通信失敗を永続保存成功と表示しない。
@@ -110,3 +110,7 @@ PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル
 ### A05の写真試験
 
 [testManagedQuestの接続口](admin-photo-tests.md)を追加した。保存済みのreference素材・確認済み特徴を使い、試験写真と権利説明・revision・キーを渡す。古い版や所属取消では結果を返さず、同じキーのAI再実行を抑える。通常起動はmatcher未接続503。Dはこの結果を旅行者のクリアや公開資格に流用せず、未接続・失敗・一致候補を区別して接続する。Web271/server201テスト・型/lint/build成功、実Vertexの追加送信はしていない。
+
+### A06への確認依頼
+
+`submitManagedQuestReview(orgId, questId, expectedDraftRevision)`を保存済みの版で呼ぶ。`missing`が空なら`review_pending`へ進み、値があれば対応する入力欄へ戻る。[確認項目と状態遷移](api.md#17-dの下書き確認依頼)を参照。提出後の保存は同じ下書きを新しい版の`draft`へ戻す。試験合格と公開担当者の承認は別工程。

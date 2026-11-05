@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
+import type { AssetPurpose, CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, ReviewField, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
 import { parseManagedAsset, parseManagedQuestDraft, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { HttpError, invalidInput } from './errors'
+import { draftPhotoFeatures } from './photo-match'
 
 export class DemoAdminStore {
   private readonly quests = new Map<string, ManagedQuest>()
@@ -36,7 +37,7 @@ export class DemoAdminStore {
   }
   update(orgId: string, questId: string, input: UpdateManagedQuest): ManagedQuest {
     const quest = this.forUpdate(orgId, questId, input.expectedDraftRevision)
-    const updated = { ...quest, draftRevision: quest.draftRevision + 1, draft: this.checkedDraft(orgId, input.draft) }
+    const updated: ManagedQuest = { ...quest, status: 'draft', draftRevision: quest.draftRevision + 1, draft: this.checkedDraft(orgId, input.draft) }
     this.quests.set(questId, updated)
     return structuredClone(updated)
   }
@@ -49,24 +50,50 @@ export class DemoAdminStore {
     const parsed = parseUpdateShootingAreas(input)
     const quest = this.forUpdate(orgId, questId, parsed.expectedDraftRevision)
     this.shootingAreas.set(questId, parsed.zones)
-    this.quests.set(questId, { ...quest, draftRevision: quest.draftRevision + 1,
+    this.quests.set(questId, { ...quest, status: 'draft', draftRevision: quest.draftRevision + 1,
       shootingAreaStatus: parsed.zones.length ? 'configured' : 'unconfigured' })
     return this.getShootingAreas(orgId, questId)
   }
-  private forUpdate(orgId: string, questId: string, expectedRevision: number): ManagedQuest {
+  submitReview(orgId: string, questId: string, expectedRevision: number): ReviewSubmission {
+    const quest = this.getAtRevision(orgId, questId, expectedRevision)
+    const { materials, content, referenceAssetId, hintAssetId } = quest.draft
+    const missing: ReviewField[] = []
+    if (!materials.name.trim()) missing.push('materials.name')
+    if (!materials.evidence.trim()) missing.push('materials.evidence')
+    if (!materials.photoRights.trim()) missing.push('materials.photoRights')
+    if (!referenceAssetId || !this.hasAsset(orgId, referenceAssetId, 'reference')) missing.push('referenceAssetId')
+    if (hintAssetId && !this.hasAsset(orgId, hintAssetId, 'public_hint')) missing.push('hintAssetId')
+    if (quest.shootingAreaStatus !== 'configured') missing.push('shootingAreas')
+    if (!content.title.trim()) missing.push('content.title')
+    if (!content.question.trim()) missing.push('content.question')
+    if (content.hints.some((hint) => !hint.trim())) missing.push('content.hints')
+    if (!draftPhotoFeatures(content.verifiedFeatures)) missing.push('content.verifiedFeatures')
+    const status = missing.length ? 'draft' : 'review_pending'
+    const updated: ManagedQuest = { ...quest, status }
+    if (status !== quest.status) this.quests.set(questId, structuredClone(updated))
+    return { quest: updated, missing }
+  }
+  getAtRevision(orgId: string, questId: string, expectedRevision: number): ManagedQuest {
     const quest = this.get(orgId, questId)
     if (quest.draftRevision !== expectedRevision) {
       throw new HttpError(409, 'DRAFT_CONFLICT', '別の編集が保存されています。下書きを取得し直してください。')
     }
+    return quest
+  }
+  private forUpdate(orgId: string, questId: string, expectedRevision: number): ManagedQuest {
+    const quest = this.getAtRevision(orgId, questId, expectedRevision)
     if (!Number.isSafeInteger(quest.draftRevision + 1)) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版を更新できません。')
     return quest
+  }
+  private hasAsset(orgId: string, assetId: string, purpose: AssetPurpose): boolean {
+    const asset = this.assetLookup?.(assetId) ?? this.assets.get(assetId)
+    return asset?.orgId === orgId && asset.purpose === purpose
   }
   private checkedDraft(orgId: string, input: ManagedQuestDraft): ManagedQuestDraft {
     const draft = parseManagedQuestDraft(input)
     for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint']] as const) {
       if (assetId === null) continue
-      const asset = this.assetLookup?.(assetId) ?? this.assets.get(assetId)
-      if (!asset || asset.orgId !== orgId || asset.purpose !== purpose) invalidInput()
+      if (!this.hasAsset(orgId, assetId, purpose)) invalidInput()
     }
     return draft
   }

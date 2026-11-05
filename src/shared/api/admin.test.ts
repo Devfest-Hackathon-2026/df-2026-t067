@@ -63,3 +63,13 @@ it('requires authentication and validates revisions before attempting admin writ
   await expect(api.updateManagedQuest('demo-org', 'draft-a', { expectedDraftRevision: 0, draft: parseManagedQuestDraft(draft) })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
   expect(requested).toBe(false)
 })
+
+it('binds review responses to the requested revision and rejects inconsistent readiness', async () => {
+  const pending = { quest: { ...quest, status: 'review_pending' }, missing: [] }
+  const withResult = (body: unknown) => createApiClient({ fetch: async () => json(body), getIdToken: async () => 'token', expectedDataMode: 'demo' })
+  expect(await withResult(pending).submitManagedQuestReview('demo-org', 'draft-a', 1)).toEqual(pending)
+  const incomplete = { quest, missing: ['referenceAssetId'] }
+  expect(await withResult(incomplete).submitManagedQuestReview('demo-org', 'draft-a', 1)).toEqual(incomplete)
+  await expect(withResult(pending).submitManagedQuestReview('demo-org', 'draft-a', 2)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  await expect(withResult({ ...pending, missing: ['referenceAssetId'] }).submitManagedQuestReview('demo-org', 'draft-a', 1)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+})

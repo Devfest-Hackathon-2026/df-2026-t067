@@ -89,7 +89,7 @@
 | GET /orgs/:orgId/assets/:assetId/photo | 編集・公開 | 自組織の認証付きJPEG。public_hint用途でも自動公開しない |
 | POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 登録済みの素材と根拠から下書き生成。自動公開しない |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
-| POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | 確認待ちへ。素材・利用条件の不足を示す |
+| POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
 | POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開 |
 | POST /orgs/:orgId/quests/:questId/pause | 公開・運営 | 理由を記録し、新規挑戦と進行中の確定を禁止 |
 
@@ -187,3 +187,9 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 ## 16. Dの写真判定試験
 
 [admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。結果は開発用の写真照合だけで、訪問記録・CORRECT・公開資格を作らない。通常起動のmatcherは未設定503で、main/envから実Vertexへ接続する変更は含めない。
+
+## 17. Dの下書き確認依頼
+
+共通clientの`submitManagedQuestReview(orgId, questId, expectedDraftRevision)`は、保存済みの版に対して確認を依頼する。編集者と公開担当者が自組織の下書きに使える。応答は200の`ReviewSubmission`で、`quest`に管理用の最新版、`missing`に不足項目のフィールド名を返す。古い版は409 `DRAFT_CONFLICT`。
+
+開発用の確認対象は対象名、根拠、写真権利の説明、同組織の参考素材、撮影範囲、タイトル、問題文、3本のヒント、試験と同じ条件を満たす確認済み特徴。任意のヒント画像を指定した場合は組織と用途も確認する。不足があれば`draft`、揃えば`review_pending`。同じ版の再送で版番号は進まない。本文・素材ID・撮影範囲を編集すると新しい版の`draft`へ戻る。確認待ちは開発用の私的な状態で、試験合格・公開承認は後段で扱う。

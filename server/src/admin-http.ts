@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parseOrgMembership, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parseOrgMembership, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import type { OrgMembership } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
 import { DemoAdminStore } from './admin'
@@ -32,9 +32,9 @@ export function createAdminHandler(options: {
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
-    const testRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/test$/.exec(path)
-    if (!isMemberships && !route && !assetRoute && !shootingRoute && !testRoute) return false
-    const allowed = testRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
+    const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review)$/.exec(path)
+    if (!isMemberships && !route && !assetRoute && !shootingRoute && !actionRoute) return false
+    const allowed = actionRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -46,19 +46,27 @@ export function createAdminHandler(options: {
       options.send(response, 200, paginate(memberships, params, 'memberships:' + uid, (item) => item.orgId))
       return true
     }
-    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute ?? testRoute)![1]))
+    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute ?? actionRoute)![1]))
     let membership = requireMember(memberships, orgId)
-    if (testRoute) {
+    if (actionRoute) {
       validateQuery(params, [])
-      const questId = parseId(decodeURIComponent(testRoute[2]))
+      const questId = parseId(decodeURIComponent(actionRoute[2]))
       store.get(orgId, questId)
+      if (actionRoute[3] === 'submit-review') {
+        const body = await readJsonObject(request)
+        requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
+        if (response.destroyed) return true
+        try {
+          const { expectedDraftRevision } = parseSubmitReview(body)
+          options.send(response, 200, store.submitReview(orgId, questId, expectedDraftRevision))
+        } catch (error) { if (error instanceof ContractError) invalidInput(); throw error }
+        return true
+      }
       await handlePhotoTest(request, response, { store: photoTests, assets: options.assets, options: options.photoTest,
         acquire: options.acquirePhotoTest, uid, orgId, questId, send: options.send,
         recheck: async (expectedRevision) => {
           requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
-          const current = store.get(orgId, questId)
-          if (current.draftRevision !== expectedRevision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
-          return current
+          return store.getAtRevision(orgId, questId, expectedRevision)
         } })
       return true
     }

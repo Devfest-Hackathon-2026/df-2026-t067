@@ -124,6 +124,60 @@ test('revocation while a write is being read prevents the eventual save', async 
   await expectError(await fetch(base + basePath, { method: 'POST', headers, body: JSON.stringify({ draft }) }), 403, 'FORBIDDEN')
 })
 
+test('review submission reports missing fields and returns an edited submission to draft', async (t) => {
+  const admin = new DemoAdminStore({ assets: [{ assetId: 'ref', orgId: membership.orgId, purpose: 'reference' }] })
+  const initial = admin.create(membership, draft)
+  const { base } = await startServer(t, { ...options(), admin })
+  const path = base + basePath + '/' + initial.questId
+  const submit = (expectedDraftRevision: number) => fetch(path + '/submit-review', {
+    method: 'POST', headers, body: JSON.stringify({ expectedDraftRevision }),
+  })
+  const incomplete = await submit(1)
+  assert.equal(incomplete.status, 200)
+  assert.deepEqual(await incomplete.json(), {
+    quest: initial, missing: ['materials.photoRights', 'referenceAssetId', 'shootingAreas', 'content.question', 'content.hints', 'content.verifiedFeatures'],
+  })
+  const complete: ManagedQuestDraft = {
+    ...draft, referenceAssetId: 'ref', materials: { ...draft.materials, photoRights: '合成画像' },
+    content: { ...draft.content, question: 'どの図形でしょう？', hints: ['形', '色', '背景'], verifiedFeatures: '赤い図形' },
+  }
+  admin.update(membership.orgId, initial.questId, { expectedDraftRevision: 1, draft: complete })
+  admin.updateShootingAreas(membership.orgId, initial.questId, { expectedDraftRevision: 2,
+    zones: [{ latitude: 0, longitude: 0, radiusMeters: 20 }] })
+  const pending = { ...admin.get(membership.orgId, initial.questId), status: 'review_pending' }
+  const submissions = await Promise.all([submit(3), submit(3)])
+  for (const response of submissions) {
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { quest: pending, missing: [] })
+  }
+  await expectError(await fetch(base + '/api/v1/quests/' + initial.questId), 404, 'NOT_FOUND')
+  const api = createApiClient({ fetch: (input, init) => fetch(base + String(input), init),
+    getIdToken: async () => 'owner', expectedDataMode: 'demo' })
+  assert.deepEqual(await api.getManagedQuest(membership.orgId, initial.questId), pending)
+  const edited = await api.updateManagedQuest(membership.orgId, initial.questId, { expectedDraftRevision: 3, draft: complete })
+  assert.equal(edited.status, 'draft')
+  assert.equal((await api.submitManagedQuestReview(membership.orgId, initial.questId, 4)).quest.status, 'review_pending')
+  admin.updateShootingAreas(membership.orgId, initial.questId, { expectedDraftRevision: 4, zones: [] })
+  await expectError(await submit(3), 409, 'DRAFT_CONFLICT')
+  assert.equal(admin.get(membership.orgId, initial.questId).status, 'draft')
+})
+
+test('review submission rejects cross-org quests and membership revoked during the request', async (t) => {
+  const admin = new DemoAdminStore()
+  const initial = admin.create(membership, draft)
+  const path = basePath + '/' + initial.questId + '/submit-review'
+  let checks = 0
+  const { base } = await startServer(t, { ...options(), admin, memberships: async () => ++checks === 1 ? [membership] : [] })
+  await expectError(await fetch(base + path, {
+    method: 'POST', headers, body: JSON.stringify({ expectedDraftRevision: 1 }),
+  }), 403, 'FORBIDDEN')
+  const other = await startServer(t, { ...options(), admin, memberships: async () => [{ ...membership, orgId: 'other-org' }] })
+  await expectError(await fetch(other.base + path.replace('demo-org', 'other-org'), {
+    method: 'POST', headers, body: JSON.stringify({ expectedDraftRevision: 1 }),
+  }), 404, 'NOT_FOUND')
+  assert.equal(admin.get(membership.orgId, initial.questId).status, 'draft')
+})
+
 test('demo capacity preserves existing edits, returned values are detached, and restart clears drafts', () => {
   const store = new DemoAdminStore()
   const first = store.create(membership, draft)

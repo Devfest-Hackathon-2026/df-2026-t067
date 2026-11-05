@@ -1,4 +1,4 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePhotoTestMetadata, parsePhotoTestResult, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePhotoTestMetadata, parsePhotoTestResult, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
 import type { AssetPurpose, ManagedQuestDraft, PhotoTestMetadata, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
@@ -322,6 +322,16 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), {
         ...call, authenticated: true, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
+    },
+    async submitManagedQuestReview(orgId: string, questId: string, expectedDraftRevision: number, call: CallOptions = {}) {
+      const body = adminInput(parseSubmitReview, { expectedDraftRevision })
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/submit-review', (data) => {
+        const result = parseReviewSubmission(data)
+        const { quest } = result
+        if (quest.orgId !== orgId || quest.questId !== questId || quest.draftRevision !== expectedDraftRevision ||
+          (quest.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('reviewSubmission.identity')
+        return result
+      }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },
     async getSession(call: CallOptions = {}) {
       return request('/session', parseSessionIdentity, { ...call, authenticated: true })
