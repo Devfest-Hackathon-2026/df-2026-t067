@@ -1,6 +1,8 @@
 import { createAdminHandler } from './admin-http'
 import type { MembershipLookup } from './admin-http'
 import type { DemoAdminStore } from './admin'
+import { createDiscoveryHandler } from './discoveries-http'
+import type { DiscoveryRepository } from './discoveries'
 import { randomUUID } from 'node:crypto'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -21,6 +23,7 @@ export interface ServerOptions {
   mode: 'demo'
   admin?: DemoAdminStore
   memberships?: MembershipLookup
+  discoveries?: DiscoveryRepository
   nodeEnv?: string
   verifier?: IdTokenVerifier
   challenges?: DemoChallengeStore
@@ -55,6 +58,7 @@ export function createServer(options: ServerOptions) {
   const answers = options.answers ?? new DemoAnswerStore()
   const adminHandler = createAdminHandler({ store: options.admin, memberships: options.memberships,
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
+  const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
     // Keep POST bodies paused while authentication runs. Only bounded readers
     // consume them; ignored/error bodies are drained after handling.
@@ -85,6 +89,7 @@ export function createServer(options: ServerOptions) {
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const { path, params } = requestTarget(request)
+    if (await discoveryHandler(request, response, path, params)) return
     if (await adminHandler(request, response, path, params)) return
     const hintPath = /^\/api\/v1\/quests\/([^/]+)\/hints\/([^/]+)$/.exec(path)
     const isDetail = path.startsWith('/api/v1/quests/')
