@@ -100,3 +100,5 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 ### PR #30の管理画面との対応
 
 A03の2条件はmaterials.requiresBoat/requiresPaidFacility、アクセス・時間・コメント・解説はafterClearへ明示的にまとめる。管理プレビューは共通のShootingConditions/AfterClearContent型を参照する。画面の自動保存・所属ログイン・実公開はこの契約追加で有効にならない。PublicQuestの通常レスポンスは今回変更しない。
+
+PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル261テスト、`npm --prefix server run check`は159テスト、両方の型/lint/buildが成功。新項目の作成/更新/GET復元、旧項目の拒否、公開GETへの非混入を確認した。自己レビュー・相対リンク・差分検査も実施。実Googleでの管理操作、実自治体所属、永続保存、実公開、実スマートフォン、第三者レビューは未実施。
