@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "npm run build && npm start",
     "start": "node dist/server/src/main.js",
+    "vertex:trial": "node --env-file-if-exists=../.env.local dist/server/src/vertex-trial-cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint --config .oxlintrc.json --deny-warnings src test",
     "test": "tsc -p tsconfig.test.json && node --test dist-test/server/test/*.test.js",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "firebase-admin": "14.5.0",
+    "google-auth-library": "11.3.3",
     "sharp": "0.35.5"
   },
   "devDependencies": {

@@ -59,3 +59,10 @@ export interface Page<T> { items: T[]; nextCursor: string | null }
 export type Decoder<T> = (input: unknown) => T
 
 export interface QuestHint { questId: string; version: number; index: number; text: string }
+
+export const DISCOVERY_PHOTO_MAX_BYTES = 2 * 1024 * 1024
+export interface DeletionReceipt { deletionId: string }
+export interface DeletionStatus extends DeletionReceipt {
+  state: 'pending' | 'completed' | 'failed'
+  retryable: boolean
+}

@@ -1,5 +1,6 @@
 import type { PhotoMatcher } from './photo-match'
 import { photoSystemError } from './photo-match'
+import { HttpError } from './errors'
 
 export interface VertexMatchRequest {
   systemInstruction: { parts: Array<{ text: string }> }
@@ -31,7 +32,10 @@ function verdict(response: unknown) {
   const candidate: unknown = response.candidates[0]
   if (!record(candidate) || candidate.finishReason !== 'STOP' || blocked(candidate.safetyRatings) || !record(candidate.content) || !Array.isArray(candidate.content.parts) || candidate.content.parts.length !== 1) throw photoSystemError()
   const part: unknown = candidate.content.parts[0]
-  if (!record(part) || Object.keys(part).join(',') !== 'text' || typeof part.text !== 'string' || Buffer.byteLength(part.text) > 512) throw photoSystemError()
+  if (!record(part) || Object.keys(part).some((key) => !['text', 'thought', 'thoughtSignature'].includes(key)) ||
+    (part.thought !== undefined && part.thought !== false) ||
+    (part.thoughtSignature !== undefined && (typeof part.thoughtSignature !== 'string' || part.thoughtSignature.length > 8192)) ||
+    typeof part.text !== 'string' || Buffer.byteLength(part.text) > 512) throw photoSystemError()
   // An exact single-field JSON object also rejects conflicting duplicate keys,
   // code fences, extra authority fields, prose and tool calls.
   const match = /^[ \t\r\n]*\{[ \t\r\n]*"verdict"[ \t\r\n]*:[ \t\r\n]*"(match|mismatch|uncertain)"[ \t\r\n]*\}[ \t\r\n]*$/.exec(part.text)
@@ -55,7 +59,10 @@ export function createVertexPhotoMatcher(transport?: VertexTransport): PhotoMatc
       },
     }
     let result: unknown
-    try { result = await transport(request, call) } catch { throw photoSystemError() }
+    try { result = await transport(request, call) } catch (error) {
+      if (call.signal.aborted) throw new DOMException('写真の確認を中止しました。', 'AbortError')
+      throw photoSystemError(error instanceof HttpError ? error.retryable : true)
+    }
     if (call.signal.aborted) throw new DOMException('写真の確認を中止しました。', 'AbortError')
     return verdict(result)
   }

@@ -101,6 +101,9 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .camera-status { margin-top: 10px; color: var(--ui-muted); font-size: 12px; }
 .camera-actions { display: grid; gap: 10px; margin-top: 14px; }
 .camera-actions .secondary-button { min-height: 44px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); padding: 9px 12px; color: var(--ui-ink); background: var(--ui-surface); font-size: 12px; }
+.camera-map-reference { margin-top: 12px; }
+.camera-map-reference a { display: inline-block; min-height: 44px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); padding: 9px 12px; color: var(--ui-ink); background: var(--ui-surface); font-size: 12px; text-decoration: none; }
+.camera-map-reference a:hover { background: #f5f7f1; }
 .quest-card-content { padding: 21px; min-width: 0; }
 .quest-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .area-label { display: inline-flex; align-items: center; gap: 3px; color: var(--ui-muted); font-size: 12px; }
