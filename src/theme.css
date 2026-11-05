@@ -1,0 +1,79 @@
+/* neobrutalism: UI presentation only; no application state or API changes. */
+:root {
+  --ui-bg: #faf8f1;
+  --ui-surface: #ffffff;
+  --ui-ink: #1d1d1b;
+  --ui-muted: #52524b;
+  --ui-control-line: #1d1d1b;
+  --ui-line: #1d1d1b;
+  --ui-accent: #ffe66b;
+  --ui-accent-ink: #1d1d1b;
+  --ui-accent-hover: #ffde3d;
+  --ui-tint: #c7ed93;
+  --ui-blue: #c5e8f5;
+  --ui-badge: #f7b6b3;
+  --ui-soft: #fff3bb;
+  --ui-disabled: #e9e8e2;
+  --ui-disabled-line: #8b8b82;
+  --ui-focus: #244ed8;
+  --ui-error: #a12626;
+  --ui-radius: 6px;
+  --ui-border-width: 2px;
+  --ui-shadow: 6px 6px 0 #1d1d1b;
+  --ui-control-shadow: 3px 3px 0 #1d1d1b;
+  --ui-hover-shadow: 4px 4px 0 #1d1d1b;
+  --ui-hover-shift: -1px;
+  --ui-press: 3px;
+  --ui-press-scale: 1;
+  --ui-weight-display: 800;
+  --ui-weight-strong: 700;
+  --ui-weight-control: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  color: var(--ui-ink);
+  background: var(--ui-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.7;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 5px; }
+input, textarea, select { accent-color: var(--ui-ink); }
+input::placeholder, textarea::placeholder { color: var(--ui-muted); opacity: 1; }
+:where(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button) {
+  border: var(--ui-border-width) solid var(--ui-line);
+  border-radius: var(--ui-radius);
+  box-shadow: var(--ui-control-shadow);
+  min-height: 44px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font-weight: var(--ui-weight-control);
+  transition: transform 100ms ease-out, box-shadow 100ms ease-out, background-color 140ms ease-out;
+}
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):disabled {
+  background: var(--ui-disabled);
+  color: var(--ui-muted);
+  border-color: var(--ui-disabled-line);
+  box-shadow: none;
+  opacity: 1;
+}
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:active {
+  transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale));
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:hover { transform: translate(var(--ui-hover-shift), var(--ui-hover-shift)); box-shadow: var(--ui-hover-shadow); }
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:active { transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale)); box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):is(:hover, :active) { transform: none !important; transition: none !important; }
+  .map-canvas { transition: none !important; }
+}
+
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button) { border-color: var(--ui-control-line); }

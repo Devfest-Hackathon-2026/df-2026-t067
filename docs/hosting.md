@@ -67,3 +67,11 @@ npm exec --yes --package=firebase-tools@15.35.0 -- firebase deploy --only hostin
 2026-11-05、mainの `2f7924d`（PR #14まで）を取り込み、同じ共有URLへ再公開した。自治体向けの `/admin-demo` と、撮影時のGPS情報を端末内に保持する変更を含む。公開用の `preview` モードを維持し、ローカルのサーバーAPIは公開していない。
 
 `npm run check` は型検査・lint・179テスト・ビルドが成功。公開した8ファイル全てがHTTPS 200で検証済み成果物とSHA-256で一致し、`/admin-demo` の直接アクセスも成功。実Chromeで旅行者画面と自治体向けデモの表示を確認した。実Google認証の完了操作、GPS取得、実スマートフォンでの撮影はこの更新作業では試していない。
+
+## Neobrutalism版への更新記録
+
+2026-11-05、mainの `7f25f25`（UI更新のPR #21）から公開用にビルドし、同じ共有URLへ再公開した。旅行者画面と `/admin-demo` をNeobrutalismへ統一した版で、既存のFirebase Web設定と `VITE_QUEST_DATA_SOURCE=preview` を引き継いだ。更新先はHostingだけで、ローカルAPI・Firestore・Storage・Functionsの公開や設定変更は行っていない。
+
+`npm run check` は型検査・lint・223テスト・ビルドが成功。公開対象の8ファイル全てがHTTPS 200でローカル成果物とSHA-256で一致し、`/` と `/admin-demo` の直接アクセスも成功した。実ChromeでPC・スマホ幅の計5表示を確認し、Neobrutalismの配色、問題の開閉、ゲスト閲覧状態、Googleログイン用ボタンが有効であることを確認した。
+
+実Google認証の完了、実スマートフォンの撮影・GPS取得は今回未検証。MinimalismとGlassmorphismの比較案はローカルにのみ保持し、公開していない。
