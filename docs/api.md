@@ -173,3 +173,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 `ManagedQuestDraft.materials`はname/evidence・requiresBoat/requiresPaidFacility・price/photoNote/photoRights。旧6交通手段と旧materialsのaccess/hoursは廃止して拒否する。クリア後用のaccess/hours/promoComment/explanationは必須の`afterClear`へ分離し、管理APIで作成/更新/取得する。空文字は未完成下書きとして保存でき、条件の真偽値を文字列から補正しない。
 
 共有型はShootingConditions/AfterClearContent。管理プレビューの型もこれを参照する。PublicQuest/通常ヒント/未クリア用データへafterClearを追加せず、登録・本人記録・公開のAPIを混同しない。詳しいpayloadと旧clientからの注意は[接続手順](team-api-handoffs.md)を参照。
+
+## 14. 回答処理の内部接続
+
+[answer-processing.md](answer-processing.md)に、既存受付→GPS→写真照合→開発用本人記録のサーバー内部接続を記録する。所有者/challenge/digestと受信日時を結び、同じ回答の処理を共有し、AI呼出し直前・保存直前に認証と公開状態/版を再確認する。記録成功は内部のSAVED_IN_MEMORY/ALREADY_SAVED_IN_MEMORYで、公開AttemptResultへ変換しない。HTTPルート・client・環境変数は追加せず、現在のPOST/GET結果とmock正解拒否を維持する。実VertexのHTTP起動・永続保存・CORRECTは後続。
