@@ -93,6 +93,11 @@ describe('local camera preview', () => {
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
     expect(media.stop).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
+    const mapLink = screen.getByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })
+    expect(mapLink).toHaveAttribute('href', expect.stringContaining('mlat=35&mlon=135'))
+    expect(mapLink).toHaveAttribute('target', '_blank')
+    expect(mapLink).toHaveAttribute('rel', 'noreferrer')
+    expect(screen.getByText(/座標がOpenStreetMapに送られます/)).toBeInTheDocument()
     expect(media.getCurrentPosition).toHaveBeenCalledExactlyOnceWith(expect.any(Function), expect.any(Function),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     expect(media.toBlob.mock.calls[0].slice(1)).toEqual(['image/jpeg', .9])
@@ -110,8 +115,10 @@ describe('local camera preview', () => {
     expect(media.toBlob).toHaveBeenCalledTimes(1)
     expect(media.drawImage.mock.invocationCallOrder[0]).toBeLessThan(media.getCurrentPosition.mock.invocationCallOrder[0])
     expect(screen.getByText('撮影地を取得しています…')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })).not.toBeInTheDocument()
     act(() => media.getCurrentPosition.mock.calls[0][0](position()))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
+    expect(screen.getByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })).toHaveAttribute('href', 'https://www.openstreetmap.org/?mlat=35&mlon=135#map=18/35/135')
   })
 
   it('releases the photo before retaking and stops the second camera on exit', async () => {
@@ -126,6 +133,7 @@ describe('local camera preview', () => {
     await loadFrame(second)
     expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo')
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })).not.toBeInTheDocument()
     view.unmount()
     expect(stopSecond).toHaveBeenCalledTimes(1)
   })
@@ -216,6 +224,7 @@ describe('local camera preview', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(code === 1 ? '許可されませんでした' : '取得できませんでした')
     expect(document.body).not.toHaveTextContent('private-location-details')
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })).not.toBeInTheDocument()
     expect(media.toBlob).toHaveBeenCalledTimes(1)
     expect(media.getCurrentPosition).toHaveBeenCalledTimes(1)
     await media.user.click(screen.getByRole('button', { name: '位置情報を再試行' }))
