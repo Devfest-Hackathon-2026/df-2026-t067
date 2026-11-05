@@ -1,7 +1,8 @@
 import { ContractError, parseCaptureMetadata } from '../../src/shared/api/validation'
 import { HttpError, invalidInput } from './errors'
 
-export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
+import type { CaptureZone } from '../../src/shared/api/admin'
+export type { CaptureZone } from '../../src/shared/api/admin'
 export interface LocationPolicy {
   zones: readonly CaptureZone[]
   maxAccuracyMeters: number

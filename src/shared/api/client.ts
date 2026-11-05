@@ -1,5 +1,5 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseOrgAssetMetadata, parseOrgMembership, parseUpdateManagedQuest, parseUploadedOrgAsset } from './admin'
-import type { AssetPurpose, ManagedQuestDraft, UpdateManagedQuest } from './admin'
+import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import type { AssetPurpose, ManagedQuestDraft, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
@@ -56,7 +56,7 @@ export interface AreaQuery {
 }
 interface RequestOptions extends CallOptions {
   authenticated?: boolean
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   body?: BodyInit
   headers?: HeadersInit
   attempt?: boolean
@@ -223,6 +223,15 @@ export function createApiClient(options: ApiClientOptions = {}) {
     try { return parse(input) }
     catch (error) { if (error instanceof ContractError) throw new ApiError('INVALID_INPUT'); throw error }
   }
+  function shootingAreas(orgId: string, questId: string, expectedRevision?: number) {
+    return (data: unknown) => {
+      const areas = parseManagedShootingAreas(data)
+      if (areas.orgId !== orgId || areas.questId !== questId ||
+        (expectedRevision !== undefined && areas.draftRevision !== expectedRevision) ||
+        (areas.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('ShootingAreas.identity')
+      return areas
+    }
+  }
 
   function orgAsset(orgId: string, assetId?: string, purpose?: AssetPurpose) {
     return (data: unknown) => {
@@ -275,6 +284,15 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getManagedQuest(orgId: string, questId: string, call: CallOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), { ...call, authenticated: true })
+    },
+    async getShootingAreas(orgId: string, questId: string, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/shooting-areas', shootingAreas(orgId, questId), { ...call, authenticated: true })
+    },
+    async updateShootingAreas(orgId: string, questId: string, input: UpdateShootingAreas, call: CallOptions = {}) {
+      const body = adminInput(parseUpdateShootingAreas, input)
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/shooting-areas', shootingAreas(orgId, questId, body.expectedDraftRevision + 1), {
+        ...call, authenticated: true, method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
     },
     async createManagedQuest(orgId: string, input: ManagedQuestDraft, call: CallOptions = {}) {
       const draft = adminInput(parseManagedQuestDraft, input)
