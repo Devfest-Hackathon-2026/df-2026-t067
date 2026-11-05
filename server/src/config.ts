@@ -9,6 +9,7 @@ export interface ServerConfig {
   demoAdminAssets?: true
   demoAdminPhotoTest?: true
   demoDraftSuggestions?: true
+  demoReports?: true
 }
 
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
@@ -54,6 +55,10 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   if (env.QUEST_DISCOVERIES_MODE !== undefined && env.QUEST_DISCOVERIES_MODE !== 'off') {
     if (env.QUEST_DISCOVERIES_MODE !== 'memory') throw new Error('QUEST_DISCOVERIES_MODE must be off or memory.')
     config.demoDiscoveries = true
+  }
+  if (env.QUEST_REPORTS_MODE !== undefined && env.QUEST_REPORTS_MODE !== 'off') {
+    if (env.QUEST_REPORTS_MODE !== 'memory') throw new Error('QUEST_REPORTS_MODE must be off or memory.')
+    config.demoReports = true
   }
   if (env.QUEST_DEMO_DISCOVERY_OWNER_UID !== undefined) {
     const uid = env.QUEST_DEMO_DISCOVERY_OWNER_UID

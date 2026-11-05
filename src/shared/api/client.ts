@@ -1,10 +1,11 @@
 import { parseDraftRevisionRequest, parseDraftSuggestion, parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
 import type { AssetPurpose, ManagedQuestDraft, PauseManagedQuest, PhotoTestMetadata, PublishManagedQuest, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
-import type { AttemptResult, CaptureMetadata, Decoder } from './types'
+import type { AttemptResult, CaptureMetadata, Decoder, ReportInput } from './types'
 import {
   ContractError, parseAttemptResult, parseCaptureMetadata, parseChallenge,
-  parseDeletionReceipt, parseDeletionStatus, parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseSessionIdentity,
+  parseDeletionReceipt, parseDeletionStatus, parseDiscovery, parseManagedReport, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint,
+  parseReportInput, parseReportReceipt, parseSessionIdentity,
 } from './validation'
 
 const ERROR_CODES = [
@@ -285,6 +286,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
     async listManagedQuests(orgId: string, query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests' + queryString(query), (data) => parsePage(data, managed(orgId)), { ...call, authenticated: true })
     },
+    async listManagedReports(orgId: string, query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/reports' + queryString(query), (data) => parsePage(data, (item) => {
+        const report = parseManagedReport(item)
+        if (report.orgId !== orgId || (report.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('report.identity')
+        return report
+      }), { ...call, authenticated: true })
+    },
     async getManagedQuest(orgId: string, questId: string, call: CallOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), { ...call, authenticated: true })
     },
@@ -410,6 +418,17 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getAttempt(attemptId: string, call: CallOptions = {}) {
       return request('/attempts/' + id(attemptId), decodeAttempt, { ...call, authenticated: true, attempt: true })
+    },
+    async submitReport(input: ReportInput & { idempotencyKey: string }, call: CallOptions = {}) {
+      const { idempotencyKey, ...values } = input
+      const report = adminInput(parseReportInput, values)
+      if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(idempotencyKey)) throw new ApiError('INVALID_INPUT')
+      return request('/reports', (data) => {
+        const receipt = parseReportReceipt(data)
+        if (receipt.source === 'mock' && options.expectedDataMode !== 'demo') throw new ContractError('report.source')
+        return receipt
+      }, { ...call, authenticated: true, method: 'POST', body: JSON.stringify(report),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey } })
     },
     async listDiscoveries(query: ListQuery = {}, call: CallOptions = {}) {
       return request('/me/discoveries' + queryString(query), (data) => parsePage(data, parseDiscovery), { ...call, authenticated: true, records: true })

@@ -56,6 +56,10 @@ export interface Discovery {
   revealedLocation: Position
 }
 export interface Page<T> { items: T[]; nextCursor: string | null }
+export const REPORT_CATEGORIES = ['PHOTO_UNAVAILABLE', 'MATCHING_PROBLEM', 'UNSAFE_GUIDANCE'] as const
+export interface ReportInput { questId: string; category: typeof REPORT_CATEGORIES[number]; text: string }
+export interface ReportReceipt { reportId: string; source: 'mock' | 'real' }
+export interface ManagedReport extends ReportReceipt, ReportInput { orgId: string; questVersion: number; receivedAt: string }
 export type Decoder<T> = (input: unknown) => T
 
 export interface QuestHint { questId: string; version: number; index: number; text: string }

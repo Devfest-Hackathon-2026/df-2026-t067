@@ -1,7 +1,7 @@
-import { ATTEMPT_OUTCOMES, ATTEMPT_STATES } from './types'
+import { ATTEMPT_OUTCOMES, ATTEMPT_STATES, REPORT_CATEGORIES } from './types'
 import type {
   AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
-  Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, SessionIdentity,
+  ManagedReport, Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, ReportInput, ReportReceipt, SessionIdentity,
 } from './types'
 
 export class ContractError extends Error {
@@ -175,6 +175,26 @@ export function parseDiscovery(input: unknown): Discovery {
 export function parsePage<T>(input: unknown, parseItem: Decoder<T>): Page<T> {
   const d = object(input, ['items', 'nextCursor'], 'Page')
   return { items: list(d.items, parseItem, 'items'), nextCursor: d.nextCursor === null ? null : text(d.nextCursor, 'nextCursor') }
+}
+
+export function parseReportInput(input: unknown): ReportInput {
+  const d = object(input, ['questId', 'category', 'text'], 'report')
+  const questId = text(d.questId, 'report.questId')
+  const message = text(d.text, 'report.text').trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(questId) || message.length > 1000) throw new ContractError('report')
+  return { questId, category: oneOf(d.category, REPORT_CATEGORIES, 'report.category'), text: message }
+}
+
+export function parseReportReceipt(input: unknown): ReportReceipt {
+  const d = object(input, ['reportId', 'source'], 'reportReceipt')
+  return { reportId: text(d.reportId, 'reportId'), source: oneOf(d.source, ['mock', 'real'], 'source') }
+}
+
+export function parseManagedReport(input: unknown): ManagedReport {
+  const d = object(input, ['reportId', 'source', 'questId', 'category', 'text', 'orgId', 'questVersion', 'receivedAt'], 'managedReport')
+  return { ...parseReportInput({ questId: d.questId, category: d.category, text: d.text }),
+    ...parseReportReceipt({ reportId: d.reportId, source: d.source }), orgId: text(d.orgId, 'orgId'),
+    questVersion: integer(d.questVersion, 'questVersion', 1), receivedAt: utcDate(d.receivedAt, 'receivedAt') }
 }
 
 export function parseQuestHint(input: unknown): QuestHint {

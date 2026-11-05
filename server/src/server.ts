@@ -9,19 +9,21 @@ import type { DiscoveryRepository } from './discoveries'
 import { randomUUID } from 'node:crypto'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parsePage, parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
+import { ContractError, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseReportInput } from '../../src/shared/api/validation'
 import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
 import { createDemoLocationValidation } from './demo-location'
 import { DemoChallengeStore } from './challenges'
-import { readChallengeInput } from './json-body'
+import { readChallengeInput, readJsonObject } from './json-body'
 import { answerKey, readAnswerInput } from './answer-input'
+import { readIdempotencyKey } from './idempotency-key'
 import { DemoAnswerStore } from './answers'
 import { evaluateLocation } from './location'
 import type { LocationValidation } from './location'
 import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
+import { DemoReportStore } from './reports'
 
 export interface ServerOptions {
   mode: 'demo'
@@ -29,6 +31,7 @@ export interface ServerOptions {
   adminAssets?: DemoAssetStore
   adminPhotoTest?: AdminPhotoTestOptions
   suggestDraft?: FixtureDraftSuggester
+  demoReports?: true
   memberships?: MembershipLookup
   discoveries?: DiscoveryRepository
   nodeEnv?: string
@@ -66,9 +69,10 @@ function positiveRouteNumber(value: string): number {
 export function createServer(options: ServerOptions) {
   assertDemoMode(options.mode, options.nodeEnv ?? process.env.NODE_ENV)
   assertNoAuthEmulator(process.env)
-  const { areas, quests, hints } = createDemoData()
+  const { areas, quests, hints, reportOrganizations } = createDemoData()
   const challenges = options.challenges ?? new DemoChallengeStore()
   const answers = options.answers ?? new DemoAnswerStore()
+  const reports = options.demoReports ? new DemoReportStore() : undefined
   const admin = options.admin ?? new DemoAdminStore({ assetLookup: (assetId) => options.adminAssets?.metadata(assetId) })
   const findPublicQuest = (questId: string) => admin.getPublished(questId)?.quest ?? quests.find((item) => item.questId === questId)
   function assertCurrentAnswerQuest(questId: string, version: number): void {
@@ -81,7 +85,7 @@ export function createServer(options: ServerOptions) {
     return publication?.quest.version === version ? publication.zones : undefined
   }) : options.locationValidation
   const adminHandler = createAdminHandler({ store: admin, assets: options.adminAssets, memberships: options.memberships,
-    photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid), suggestDraft: options.suggestDraft,
+    photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid), suggestDraft: options.suggestDraft, reports,
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
   const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
@@ -120,12 +124,13 @@ export function createServer(options: ServerOptions) {
     const hintImagePath = /^\/api\/v1\/quests\/([^/]+)\/hint-image$/.exec(path)
     const isDetail = path.startsWith('/api/v1/quests/')
     const isStart = path === '/api/v1/challenges'
+    const isReport = path === '/api/v1/reports'
     const answerPath = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
     const attemptPath = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
     if (isDetail && !hintPath && !hintImagePath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || answerPath || attemptPath
+    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || isReport || answerPath || attemptPath
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-    const method = isStart || answerPath ? 'POST' : 'GET'
+    const method = isStart || isReport || answerPath ? 'POST' : 'GET'
     if (request.method !== method) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -189,6 +194,21 @@ export function createServer(options: ServerOptions) {
       if (quest.version !== input.expectedVersion) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
       const result = challenges.start(uid, quest)
       send(response, result.created ? 201 : 200, result.challenge)
+    } else if (isReport) {
+      const uid = await authenticate(request)
+      validateQuery(params, [])
+      if (!reports) throw new HttpError(503, 'SYSTEM_ERROR', '報告の保存先が未接続です。')
+      const key = readIdempotencyKey(request)
+      const body = await readJsonObject(request)
+      if (response.destroyed) return
+      let input
+      try { input = parseReportInput(body) }
+      catch (error) { if (error instanceof ContractError) invalidInput(); throw error }
+      const orgId = reportOrganizations.get(input.questId)
+      const fixture = orgId && quests.find((quest) => quest.questId === input.questId)
+      const target = fixture ? { orgId, questVersion: fixture.version } : admin.getReportTarget(input.questId)
+      if (!target?.orgId) throw new HttpError(404, 'NOT_FOUND', '報告できる問題が見つかりません。')
+      send(response, 202, reports.submit(uid, key, input, { orgId: target.orgId, questVersion: target.questVersion }))
     } else if (path === '/health') {
       validateQuery(params, [])
       send(response, 200, {
