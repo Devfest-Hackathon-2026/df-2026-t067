@@ -11,9 +11,9 @@ import { DemoAnswerStore } from '../src/answers'
 import { DemoChallengeStore } from '../src/challenges'
 import { HttpError } from '../src/errors'
 import { expectError, startServer } from './helpers'
+import sharp from 'sharp'
+import { syntheticPng as png, otherSyntheticPng } from './photo-fixtures'
 
-// Generated one-pixel PNG, not a user photo or a real location.
-const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jvX0AAAAASUVORK5CYII=', 'base64')
 const verifier = { verify: async (token: string) => {
   if (token !== 'owner' && token !== 'other') throw new HttpError(401, 'UNAUTHENTICATED', 'ログインが必要です。')
   return { uid: token }
@@ -53,6 +53,11 @@ test('an answer is received without judging, storing a photo, or disclosing priv
   assert.deepEqual(await restored.json(), receipt)
 })
 
+test('a matching image header is not sufficient to accept broken pixel data', async (t) => {
+  const { submit } = await setup(t)
+  await expectError(await submit(form(capture, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))), 400, 'INVALID_INPUT')
+})
+
 test('same bytes and normalized metadata reuse one receipt across concurrent retries', async (t) => {
   const { submit } = await setup(t)
   const reordered = { position: { measuredAt: capture.position.measuredAt, accuracyMeters: 0, longitude: 0, latitude: 0 }, capturedAt: capture.capturedAt }
@@ -60,13 +65,19 @@ test('same bytes and normalized metadata reuse one receipt across concurrent ret
   assert.deepEqual(responses.map((r) => r.status), [202, 202])
   const first = await responses[0].json()
   assert.deepEqual(await responses[1].json(), first)
-  const changed = Buffer.from(png)
-  changed[changed.length - 1] ^= 1
-  await expectError(await submit(form(capture, changed)), 409, 'IDEMPOTENCY_CONFLICT')
+  await expectError(await submit(form(capture, otherSyntheticPng)), 409, 'IDEMPOTENCY_CONFLICT')
   await expectError(await submit(form({ ...capture, position: { ...capture.position, latitude: 1 } })), 409, 'IDEMPOTENCY_CONFLICT')
   assert.deepEqual(await (await submit()).json(), first)
   const second = parseAttemptResult(await (await submit(form(), 'new-key')).json())
   assert.notEqual(second.attemptId, (first as { attemptId: string }).attemptId)
+})
+
+test('normalization does not merge different raw photos under the same idempotency key', async (t) => {
+  const { submit } = await setup(t)
+  const first = await sharp(png).jpeg().withExif({ IFD0: { Artist: 'synthetic A' } }).toBuffer()
+  const second = await sharp(png).jpeg().withExif({ IFD0: { Artist: 'synthetic B' } }).toBuffer()
+  assert.equal((await submit(form(capture, first, 'image/jpeg'))).status, 202)
+  await expectError(await submit(form(capture, second, 'image/jpeg')), 409, 'IDEMPOTENCY_CONFLICT')
 })
 
 test('a different user cannot submit to a challenge or read its receipt', async (t) => {
