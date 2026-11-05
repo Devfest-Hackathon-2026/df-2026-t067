@@ -54,3 +54,17 @@ MATCH後は、公開版のfingerprintと記録snapshot・正規化JPEGをメモ�
 2026-11-06：`npm --prefix server run check`は173テスト・型/lint/build成功。合成画像でGPS→代替照合→メモリー保存→実ローカルHTTPの本人記録/写真取得を確認した。別人拒否・同時再送/初回不変・既存記録時のAI省略・取消後の遅い送信/保存の拒否・認証失効・休止/改版/同一版の私的情報変更・保存失敗を検証した。Web/共有型/依存は変更せず、PR #34の261テスト・型/lint/build成功を再利用。自己レビューを実施し、第三者レビュー・実Vertexの追加送信・実Googleでの回答処理・実スマホ・実写真精度・永続保存は未検証。
 
 同日の保存再開追加後、server checkは182テスト・型/lint/build成功。一時保存障害/保存後応答断・照合後の認証確認障害からの回復、障害確定中の同時再送、再開前の失効/休止/改版/入力違い、写真予約の上限と成功/致命的失敗での解放を確認した。初回の保存再開・challenge失効・障害確定中の再送の赤テストを確認して修正した。Web/共有型/依存は引き続き差分がなく261件の検証を再利用。自己レビューを実施し、実サービスと第三者レビューの未確認範囲は維持する。
+
+## Firestoreでの回答確定
+
+`commitVerifiedAnswer` は認証済みworkerが、所有者・回答ID・入力digest・処理リースIDを渡して使う。workerは先に非公開の正規化JPEGを `answer-photos/{attemptId}/record.jpg` に用意し、対象版・`WITHIN_AREA`・`MATCH`・対象ID・画像のgenerationを `COMMITTING` の回答に記録する。画像の存在・書き込み結果の確認はworker側の責務。
+
+トランザクションは回答、本人の挑戦、現在の公開版、非公開の `questVersions/{questId}:{version}`、本人の初回記録を読み直す。期限切れまたは別リース、休止・改版、版や対象が一致しない照合済みデータは確定できない。`uid` と `placeId` から決めたキーで初回日時・写真参照・クリア後の情報を作成し、同じトランザクションで回答を `CORRECT` にする。既存の初回記録は上書きせず `ALREADY_CLEARED`。確定済みの同じ回答は、所有者とdigestを確認して保存済み結果を返す。外部AI・Storageの操作はトランザクションの外で行う。
+
+クライアントアクセスを拒否したローカルFirestoreエミュレーターで、別問題から同じ場所への同時確定、同一回答の再送、別人の分離、休止・改版・リース交代・不正な照合済みデータを検証する。専用のエミュレーターを `demo-t067-finalization`、`127.0.0.1:8688` で起動した場合は次のコマンドで実行できる。[Firestoreエミュレーターの接続方法と差異](https://firebase.google.com/docs/emulator-suite/connect_firestore)
+
+```sh
+QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 npm --prefix server run check
+```
+
+HTTPと通常起動からの呼び出し、永続受付・リース取得と照合済みデータの書き込み、Storageの書き込み・参照・孤立画像の清掃、実Firestoreの検証は残件。現在の開発用HTTPはこの処理を呼ばない。
