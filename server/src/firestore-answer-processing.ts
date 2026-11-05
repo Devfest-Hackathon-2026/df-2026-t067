@@ -1,0 +1,242 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
+import type { AttemptResult } from '../../src/shared/api/types'
+import { ContractError, parseAttemptResult, parseDiscovery } from '../../src/shared/api/validation'
+import { HttpError, invalidInput } from './errors'
+import { parseId } from './query'
+
+interface AnswerIdentity {
+  uid: string
+  attemptId: string
+  digest: string
+}
+
+interface LeasedAnswer extends AnswerIdentity { leaseId: string }
+interface MatchProof { placeId: string; version: number; location: 'WITHIN_AREA'; photo: 'MATCH' }
+interface ClaimOptions { leaseDurationMs: number; retryVerification?: boolean }
+type WorkStep = 'verify' | 'prepare-photo' | 'commit'
+type AnswerClaim =
+  | { kind: 'claimed'; leaseId: string; step: WorkStep; questId: string; version: number; placeId: string }
+  | { kind: 'busy' }
+  | { kind: 'verification-expired' }
+  | { kind: 'completed'; result: AttemptResult }
+
+// Firestore can retry transaction callbacks. The worker performs photo IO and
+// model calls only after the transaction returns its assigned work step.
+export async function claimAnswerWork(db: Firestore, input: AnswerIdentity, options: ClaimOptions): Promise<AnswerClaim> {
+  const { leaseDurationMs, retryVerification } = options
+  if (!Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) invalidInput()
+  const leaseId = randomUUID()
+  return withOwnedAnswer<AnswerClaim>(db, input, async (tx, receipt, data) => {
+    if (data.state === 'COMPLETED') return { kind: 'completed', result: completedResult(data, input.attemptId) }
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    const lease = readLease(data)
+    const step = workStep(data, current, lease !== undefined)
+    const now = receipt.readTime.toMillis()
+    if (lease && lease.expiresAt.toMillis() > now) return { kind: 'busy' }
+    if (data.state === 'PROCESSING' && retryVerification !== true) return { kind: 'verification-expired' }
+    const expiresAt = Timestamp.fromMillis(now + leaseDurationMs)
+    tx.update(receipt.ref, { state: step === 'verify' ? 'PROCESSING' : data.state, lease: { id: leaseId, expiresAt } })
+    return { kind: 'claimed', leaseId, step, questId: current.questId, version: current.version, placeId: current.placeId }
+  })
+}
+
+export async function recordAnswerMatch(db: Firestore, input: LeasedAnswer, proof: MatchProof): Promise<void> {
+  if (typeof proof?.placeId !== 'string' || !Number.isSafeInteger(proof.version) || proof.version < 1 ||
+    proof.location !== 'WITHIN_AREA' || proof.photo !== 'MATCH') invalidInput()
+  parseId(proof.placeId)
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    requireLiveLease(receipt, data, input.leaseId)
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    if (current.version !== proof.version) throw questChanged()
+    if (current.placeId !== proof.placeId) throw processingError()
+    if (data.state === 'IMAGE_EVALUATED' || data.state === 'COMMITTING') {
+      workStep(data, current, true)
+      return
+    }
+    if (data.state !== 'PROCESSING' || data.checkpoint !== undefined) throw processingError(true)
+    const { placeId, version, location, photo } = proof
+    tx.update(receipt.ref, { state: 'IMAGE_EVALUATED', checkpoint: { placeId, version, location, photo } })
+  })
+}
+
+// The worker has already written this specific generation of the private JPEG.
+export async function recordAnswerPhoto(db: Firestore, input: LeasedAnswer, generation: string): Promise<void> {
+  if (!validGeneration(generation)) invalidInput()
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    requireLiveLease(receipt, data, input.leaseId)
+    if (data.state !== 'IMAGE_EVALUATED' && data.state !== 'COMMITTING') throw processingError(true)
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    assertMatchCheckpoint(data, current)
+    if (data.state === 'COMMITTING') {
+      if (preparedGeneration(data) !== generation) throw conflict()
+      return
+    }
+    tx.update(receipt.ref, { state: 'COMMITTING', 'checkpoint.generation': generation })
+  })
+}
+
+export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): Promise<AttemptResult> {
+  const { uid, attemptId, leaseId } = input
+  validateLeaseId(leaseId)
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    if (data.state === 'COMPLETED') return completedResult(data, attemptId)
+    if (data.state !== 'COMMITTING') throw processingError(true)
+    requireLiveLease(receipt, data, leaseId)
+    const current = await readCurrentVersion(db, tx, data, uid)
+    const { questId, version, placeId, snapshot } = current
+    assertMatchCheckpoint(data, current)
+    const generation = preparedGeneration(data)
+    const discoveryId = createHash('sha256').update(JSON.stringify([uid, placeId])).digest('hex')
+    const discovery = db.collection('discoveries').doc(discoveryId)
+    const existing = (await tx.get(discovery)).data()
+    if (existing) {
+      if (existing.uid !== uid || existing.placeId !== placeId || existing.discoveryId !== discoveryId ||
+        !(existing.firstClearedAt instanceof Timestamp) || !validGeneration(existing.photoObject?.generation) ||
+        typeof existing.photoObject.path !== 'string' ||
+        !/^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(existing.photoObject.path)) throw processingError()
+    } else {
+      const areaId = storedId(snapshot.areaId)
+      if (typeof snapshot.placeName !== 'string' || !snapshot.placeName.trim() || snapshot.placeName.length > 200 ||
+        typeof snapshot.descriptionSnapshot !== 'string' || snapshot.descriptionSnapshot.length > 4000) throw processingError()
+      const record = parseDiscovery({
+        discoveryId, placeId, questId, questVersion: version, placeName: snapshot.placeName,
+        descriptionSnapshot: snapshot.descriptionSnapshot, revealedLocation: snapshot.revealedLocation,
+        ownerPhoto: `/api/v1/me/discoveries/${discoveryId}/photo`, firstClearedAt: receipt.readTime.toDate().toISOString(),
+      })
+      tx.create(discovery, {
+        ...record, uid, areaId, firstClearedAt: FieldValue.serverTimestamp(),
+        photoObject: { path: `answer-photos/${attemptId}/record.jpg`, generation },
+      })
+    }
+    const result: AttemptResult = { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
+      optionalDiscoveryId: discoveryId, source: 'real', nextAction: 'VIEW_DISCOVERY' }
+    tx.update(receipt.ref, { state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete() })
+    return result
+  })
+}
+
+async function withOwnedAnswer<T>(db: Firestore, input: AnswerIdentity,
+  work: (tx: Transaction, receipt: DocumentSnapshot, data: DocumentData) => Promise<T>): Promise<T> {
+  const { uid, attemptId, digest } = input
+  if (typeof uid !== 'string' || !uid.trim() || uid.length > 128 || typeof attemptId !== 'string' ||
+    typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) invalidInput()
+  const attempt = db.collection('attempts').doc(parseId(attemptId))
+  try {
+    return await db.runTransaction(async (tx) => {
+      const receipt = await tx.get(attempt)
+      const data = receipt.data()
+      if (!data || data.uid !== uid) throw notFound()
+      if (data.digest !== digest) throw conflict()
+      return work(tx, receipt, data)
+    })
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw processingError(!(error instanceof ContractError))
+  }
+}
+
+async function readCurrentVersion(db: Firestore, tx: Transaction, data: DocumentData, uid: string) {
+  const questId = storedId(data.questId)
+  const challengeId = storedId(data.challengeId)
+  const version: unknown = data.version
+  if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) throw processingError()
+  const [challenge, quest, publishedVersion] = await tx.getAll(
+    db.collection('challenges').doc(challengeId),
+    db.collection('quests').doc(questId),
+    db.collection('questVersions').doc(`${questId}:${version}`),
+  )
+  const accepted = challenge.data()
+  if (!accepted || accepted.uid !== uid || accepted.questId !== questId || accepted.version !== version) throw notFound()
+  const publication = quest.data()
+  if (!publication || publication.publishedVersion === null || publication.status === 'paused') {
+    throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
+  }
+  const activeVersion: unknown = publication.publishedVersion
+  if (typeof activeVersion !== 'number' || !Number.isSafeInteger(activeVersion) || activeVersion < 1 ||
+    !['draft', 'review_pending', 'published'].includes(publication.status)) throw processingError()
+  if (activeVersion !== version) throw questChanged()
+  const snapshot = publishedVersion.data()
+  if (!snapshot) throw processingError()
+  return { questId, version, snapshot, placeId: storedId(snapshot.placeId) }
+}
+
+function workStep(data: DocumentData, current: Pick<MatchProof, 'placeId' | 'version'>, hasLease: boolean): WorkStep {
+  switch (data.state) {
+    case 'RECEIVED':
+    case 'PROCESSING':
+      if (hasLease !== (data.state === 'PROCESSING') || data.checkpoint !== undefined) throw processingError()
+      return 'verify'
+    case 'IMAGE_EVALUATED':
+    case 'COMMITTING':
+      if (!hasLease) throw processingError()
+      assertMatchCheckpoint(data, current)
+      if (data.state === 'IMAGE_EVALUATED') return 'prepare-photo'
+      preparedGeneration(data)
+      return 'commit'
+    default:
+      throw processingError()
+  }
+}
+
+function assertMatchCheckpoint(data: DocumentData, current: Pick<MatchProof, 'placeId' | 'version'>): void {
+  const checkpoint = data.checkpoint
+  if (checkpoint?.location !== 'WITHIN_AREA' || checkpoint.photo !== 'MATCH' ||
+    checkpoint.version !== current.version || checkpoint.placeId !== current.placeId) throw processingError()
+  if (data.state === 'IMAGE_EVALUATED' && checkpoint.generation !== undefined) throw processingError()
+}
+
+function preparedGeneration(data: DocumentData): string {
+  const generation: unknown = data.checkpoint?.generation
+  if (!validGeneration(generation)) throw processingError()
+  return generation
+}
+
+function completedResult(data: DocumentData, attemptId: string): AttemptResult {
+  const result = parseAttemptResult(data.result)
+  if (result.attemptId !== attemptId || result.source !== 'real' || result.state !== 'COMPLETED') throw processingError()
+  return result
+}
+
+function readLease(data: DocumentData): { id: string; expiresAt: Timestamp } | undefined {
+  if (data.lease === undefined) return undefined
+  if (!(data.lease?.expiresAt instanceof Timestamp)) throw processingError()
+  return { id: storedId(data.lease.id), expiresAt: data.lease.expiresAt }
+}
+
+function requireLiveLease(receipt: DocumentSnapshot, data: DocumentData, leaseId: string): void {
+  validateLeaseId(leaseId)
+  const lease = readLease(data)
+  if (lease?.id !== leaseId || lease.expiresAt.toMillis() <= receipt.readTime.toMillis()) throw processingError(true)
+}
+
+function validateLeaseId(leaseId: string): void {
+  if (typeof leaseId !== 'string') invalidInput()
+  parseId(leaseId)
+}
+
+function storedId(value: unknown): string {
+  if (typeof value !== 'string') throw processingError()
+  try { return parseId(value) } catch { throw processingError() }
+}
+
+function validGeneration(value: unknown): value is string {
+  return typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
+}
+
+function notFound(): HttpError {
+  return new HttpError(404, 'NOT_FOUND', '見つかりません。')
+}
+
+function conflict(): HttpError {
+  return new HttpError(409, 'IDEMPOTENCY_CONFLICT', '回答の内容が一致しません。')
+}
+
+function questChanged(): HttpError {
+  return new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+}
+
+function processingError(retryable = false): HttpError {
+  return new HttpError(503, 'SYSTEM_ERROR', '回答の処理を完了できませんでした。', retryable)
+}
