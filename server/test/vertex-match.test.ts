@@ -58,3 +58,21 @@ test('an absent or failed transport never calls a fallback provider or leaks its
     return true
   })
 })
+
+test('a final text part can carry an opaque thinking signature, but thought content is never a verdict', async () => {
+  const base = response('match').candidates[0]
+  const withPart = (part: unknown) => ({ candidates: [{ ...base, content: { parts: [part] } }] })
+  const matcher = createVertexPhotoMatcher(async () => withPart({ text: '{"verdict":"match"}', thought: false, thoughtSignature: 'opaque-signature' }))
+  assert.equal(await matcher(await input(), { signal: new AbortController().signal }), 'MATCH')
+  for (const part of [
+    { text: '{"verdict":"match"}', thought: true },
+    { text: '{"verdict":"match"}', thoughtSignature: 123 },
+    { text: '{"verdict":"match"}', functionCall: {} },
+  ]) await assert.rejects(createVertexPhotoMatcher(async () => withPart(part))(await input(), { signal: new AbortController().signal }), { code: 'SYSTEM_ERROR' })
+})
+
+test('parent cancellation remains AbortError through the Vertex matcher', async () => {
+  const controller = new AbortController()
+  const matcher = createVertexPhotoMatcher(async () => { controller.abort(); throw new Error('aborted transport') })
+  await assert.rejects(matcher(await input(), { signal: controller.signal }), { name: 'AbortError' })
+})

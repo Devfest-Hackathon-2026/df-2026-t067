@@ -54,7 +54,7 @@ PowerShellでは2行目を`$env:QUEST_DATA_MODE='demo'; $env:NODE_ENV='developme
 
 サーバーには[開発用の回答受付・本人照会API](docs/answer-intake.md)を追加しました。写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。[GPS demoモード](docs/gps-validation.md)を明示すると、範囲外と位置不確実を区別できます。範囲内でも写真判定は未接続でRECEIVEDのままです。画面送信・画像保存は未接続です。
 
-回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。Vertexの実通信・モデル/リージョン設定・照合workerは未接続で、実写真照合や保存の成功を返す段階ではありません。
+回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。[Vertex試験](docs/vertex-trial.md)ではADCでの実通信・永続回数制限と合成画像専用CLIを使えます。回答APIの照合worker・記録保存は未接続で、旅行者の実写真でクリアを返す段階ではありません。
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
