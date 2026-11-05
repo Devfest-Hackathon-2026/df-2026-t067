@@ -164,7 +164,7 @@ describe('Google sign-in from the selected quest', () => {
     let resolveSignIn!: () => void
     vi.mocked(client.signInWithGoogle).mockImplementation(() => new Promise<void>((resolve) => { resolveSignIn = resolve }))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
-    await user.click(screen.getByRole('button', { name: 'デモの謎を地図から見る' }))
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
     await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
     await waitFor(() => expect(resolveSignIn).toBeDefined())
     await user.click(screen.getByRole('button', { name: '問題を閉じる' }))

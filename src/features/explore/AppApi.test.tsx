@@ -59,7 +59,7 @@ describe('explicit local API integration', () => {
     const fetcher = vi.fn<typeof fetch>(() => new Promise((done) => { resolve = done }))
     const { auth, user } = mount(fetcher)
     expect(screen.getByRole('status', { name: '問題の読み込み' })).toHaveTextContent('問題を読み込んでいます')
-    expect(screen.getByRole('button', { name: 'デモの謎を地図から見る' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'デモの謎を地図から見る' })).not.toBeInTheDocument()
     await act(async () => resolve(json(apiQuest)))
     const details = await openQuest(user)
     expect(details).toHaveTextContent(apiQuest.clue)

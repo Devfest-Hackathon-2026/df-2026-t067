@@ -1,13 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import App from '../../App'
+import type { AuthClient } from '../auth/authTypes'
 import { ApiError, createApiClient } from '../../shared/api/client'
 import type { Page, PublicArea, PublicQuest } from '../../shared/api/types'
 
-type Api = Pick<ReturnType<typeof createApiClient>, 'listQuests' | 'getQuest' | 'listAreas'>
+type Api = Pick<ReturnType<typeof createApiClient>, 'listQuests' | 'getQuest' | 'listAreas' | 'getHint'>
 type Result = {
   api: Api; selection: string; areaSelection: string; retry: number
   state: 'loading' | 'ready' | 'empty' | 'error'
   choices: PublicQuest[]; areas: PublicArea[]; quest?: PublicQuest; area?: PublicArea; missing?: boolean
+}
+
+function readSelectionFromUrl() {
+  const params = new URLSearchParams(window.location.search)
+  return { areaId: params.get('area') ?? '', questId: params.get('quest') ?? '' }
+}
+
+function writeSelectionToUrl(areaId: string, questId: string, mode: 'push' | 'replace') {
+  const url = new URL(window.location.href)
+  if (areaId) url.searchParams.set('area', areaId)
+  else url.searchParams.delete('area')
+  if (questId) url.searchParams.set('quest', questId)
+  else url.searchParams.delete('quest')
+  window.history[mode === 'push' ? 'pushState' : 'replaceState'](window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
 async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal: AbortSignal) {
@@ -26,13 +41,26 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
   return items
 }
 
-export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
+export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { api?: Api; syncUrl?: boolean; authClient?: AuthClient }) {
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo' }), [providedApi])
-  const [selectedId, setSelectedId] = useState('')
-  const [selectedAreaId, setSelectedAreaId] = useState('')
+  const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
+  const [selectedId, setSelectedId] = useState(initialSelection.questId)
+  const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
   const [retry, setRetry] = useState(0)
+  const [staleQuest, setStaleQuest] = useState<{ questId: string; version: number } | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const catalog = useRef<{ api: Api; choices: Map<string, PublicQuest[]>; areas?: PublicArea[] } | null>(null)
+
+  useEffect(() => {
+    if (!syncUrl) return
+    const onPopState = () => {
+      const selection = readSelectionFromUrl()
+      setSelectedAreaId(selection.areaId)
+      setSelectedId(selection.questId)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [syncUrl])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -64,11 +92,21 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
         }
         if (signal.aborted) return
         if (!choices.length) {
+          if (selectedId) {
+            if (syncUrl) writeSelectionToUrl(selectedAreaId, '', 'replace')
+            setSelectedId('')
+            return
+          }
           setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'empty', choices, areas })
           return
         }
         setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'loading', choices, areas })
         const id = choices.some((item) => item.questId === selectedId) ? selectedId : choices[0].questId
+        if (id !== selectedId) {
+          if (syncUrl) writeSelectionToUrl(selectedAreaId, id, 'replace')
+          setSelectedId(id)
+          return
+        }
         const quest = await api.getQuest(id, { signal })
         signal.throwIfAborted()
         if (quest.questId !== id) throw new ApiError('INVALID_RESPONSE')
@@ -80,7 +118,7 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
       } finally { clearTimeout(deadline) }
     })()
     return () => { clearTimeout(deadline); controller.abort() }
-  }, [api, selectedId, selectedAreaId, retry])
+  }, [api, selectedId, selectedAreaId, retry, syncUrl])
 
   const current = result?.api === api && result.selection === selectedId && result.areaSelection === selectedAreaId && result.retry === retry ? result : null
   const state = current?.state ?? 'loading'
@@ -92,7 +130,11 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
   const picker = <div className="api-quest-picker">
     <label htmlFor="api-area-select">地域を選択</label>
     <select id="api-area-select" value={selectedAreaId}
-      onChange={(event) => { setSelectedAreaId(event.target.value); setSelectedId('') }}>
+      onChange={(event) => {
+        const areaId = event.target.value
+        if (syncUrl) writeSelectionToUrl(areaId, '', 'push')
+        setSelectedAreaId(areaId); setSelectedId('')
+      }}>
       <option value="">全国</option>
       {selectedAreaId && !availableAreas.some((item) => item.areaId === selectedAreaId)
         && <option value={selectedAreaId}>選択中の地域（一覧にありません）</option>}
@@ -101,15 +143,21 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
     <label htmlFor="api-quest-select">公開APIの問題を選択</label>
     <select id="api-quest-select" aria-label="公開APIの問題を選択" value={selectedQuestId}
       disabled={!choices.length}
-      onChange={(event) => setSelectedId(event.target.value)}>
+      onChange={(event) => {
+        const questId = event.target.value
+        if (syncUrl) writeSelectionToUrl(selectedAreaId, questId, 'push')
+        setSelectedId(questId)
+      }}>
       {!choices.length && <option value="">{state === 'loading' ? '問題を読み込み中' : '選べる問題がありません'}</option>}
       {choices.map((item) => <option key={item.questId} value={item.questId}>{item.title}</option>)}
     </select>
-    <p>問題と地域名は公開APIから取得しています。地図は静的なプレビューで、問題の位置を示しません。</p>
+    <p>問題と地域名は公開APIから取得しています。架空の問題の位置は地図に表示しません。</p>
   </div>
 
   return state === 'ready' && current?.quest
-    ? <App quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode
+    ? <App authClient={authClient} quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode getHint={api.getHint}
+        questStale={staleQuest?.questId === current.quest.questId && staleQuest.version === current.quest.version}
+        onHintVersionStale={() => setStaleQuest({ questId: current.quest!.questId, version: current.quest!.version })}
         onReloadQuest={() => { catalog.current = null; setRetry((value) => value + 1) }} />
     : <main className="api-load-state" aria-live="polite">
       <p className="eyebrow">公開APIデモ</p>

@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicArea, PublicQuest } from '../../shared/api/types'
+import type { AuthClient } from '../auth/authTypes'
 import { ApiQuestApp } from './ApiQuestApp'
 import { ApiError } from '../../shared/api/client'
 
@@ -14,15 +15,136 @@ const areas: PublicArea[] = [
 ]
 const page = <T,>(items: T[]) => ({ items, nextCursor: null })
 
+beforeEach(() => {
+  window.history.replaceState(null, '', '/')
+})
+
+afterEach(() => {
+  window.history.replaceState(null, '', '/')
+})
+
 function apiFixture() {
   return {
     listQuests: vi.fn().mockResolvedValue(page([{ ...first, title: '一覧表示用タイトル' }, second])),
     getQuest: vi.fn(async (id: string, _options?: { signal?: AbortSignal }) => id === first.questId ? first : second),
     listAreas: vi.fn().mockResolvedValue(page(areas)),
+    getHint: vi.fn().mockResolvedValue({ questId: first.questId, version: first.version, index: 1, text: 'テストヒント' }),
+  }
+}
+
+function signedOutAuth(): AuthClient {
+  const snapshot = { status: 'signed-out' as const, user: null }
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {}, signInWithGoogle: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}), getIdToken: vi.fn(async () => null),
   }
 }
 
 describe('APIから問題を表示', () => {
+  it('URLの地域・問題を復元し、初期読み込みでは履歴を追加しない', async () => {
+    window.history.replaceState(null, '', '/?campaign=spring&area=area-b&quest=quest-b#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    expect(api.listQuests).toHaveBeenCalledWith({ areaId: 'area-b', limit: 100, cursor: undefined }, expect.anything())
+    expect(window.location.search).toBe('?campaign=spring&area=area-b&quest=quest-b')
+    expect(window.location.hash).toBe('#map')
+    expect(window.history.length).toBe(before)
+  })
+
+  it('409で古いヒントと挑戦を止め、既存再読込を案内する', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, hintCount: 2, optionalHintImage: 'https://example.test/public-hint.jpg' }
+    const api = apiFixture()
+    const latest = { ...quest, version: quest.version + 1 }
+    api.getQuest.mockResolvedValueOnce(quest).mockResolvedValue(latest)
+    api.getHint.mockRejectedValueOnce(new ApiError('QUEST_CHANGED', { status: 409 }))
+      .mockResolvedValue({ questId: latest.questId, version: latest.version, index: 1, text: '最新版ヒント' })
+    render(<ApiQuestApp api={api} syncUrl={false} authClient={signedOutAuth()} />)
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
+    expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.queryByRole('button', { name: 'ヒント1を見る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'ヒント画像を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
+    await user.click(screen.getByRole('button', { name: '最新版の問題を読み直す' }))
+    await waitFor(() => expect(api.getQuest).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByText('最新版ヒント')).toBeVisible()
+  })
+
+  it('地域・問題操作を履歴に積み、戻る・進むを選択へ反映する', async () => {
+    window.history.replaceState(null, '', '/?keep=yes&view=list#top')
+    const user = userEvent.setup()
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-a' ? page([first])
+      : query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    render(<ApiQuestApp api={api} syncUrl />)
+    await screen.findByRole('heading', { name: first.title })
+    await user.selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), 'area-b')
+    await screen.findByRole('heading', { name: second.title })
+    expect(window.location.search).toBe('?keep=yes&view=list&area=area-b&quest=quest-b')
+    await user.selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), '')
+    await screen.findByRole('heading', { name: first.title })
+    expect(window.location.search).toBe('?keep=yes&view=list&quest=quest-a')
+
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.addEventListener('popstate', () => resolve(), { once: true })
+        window.history.back()
+      })
+    })
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-b')
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.addEventListener('popstate', () => resolve(), { once: true })
+        window.history.forward()
+      })
+    })
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('')
+    expect(window.location.hash).toBe('#top')
+  })
+
+  it('0件の地域ではURLから問題IDを除く', async () => {
+    window.history.replaceState(null, '', '/?source=link&area=area-b&quest=gone#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([]) : page([first]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: '公開問題はありません' })).toBeVisible()
+    expect(window.location.search).toBe('?source=link&area=area-b')
+    expect(window.history.length).toBe(before)
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), '')
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(window.location.search).toBe('?source=link&quest=quest-a')
+  })
+
+  it('一覧に存在しないURL問題を実在する先頭問題へ置換する', async () => {
+    window.history.replaceState(null, '', '/?campaign=spring&area=area-b&quest=gone#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    await waitFor(() => expect(window.location.search).toBe('?campaign=spring&area=area-b&quest=quest-b'))
+    expect(screen.getByRole('combobox', { name: '公開APIの問題を選択' })).toHaveValue(second.questId)
+    expect(api.getQuest).toHaveBeenCalledWith(second.questId, expect.anything())
+    expect(window.location.hash).toBe('#map')
+    expect(window.history.length).toBe(before)
+  })
+
   it.each(['areas', 'quests', 'detail'] as const)('%s取得が止まったら10秒で再試行へ戻り、遅い応答を捨てる', async (stage) => {
     vi.useFakeTimers()
     let unmount: (() => void) | undefined

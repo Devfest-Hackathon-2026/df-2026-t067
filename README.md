@@ -6,7 +6,7 @@
 
 ## 現在の状態
 
-2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、既存のローカル公開APIから架空の問題一覧・詳細・地域名を取得して表示します。Googleログイン・ログアウト・状態復元に対応しています。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。地図は静的プレビューで、Google Maps接続・写真とGPSの送信・判定・記録保存は未実装です。撮影時のGPS情報はC担当の実装で画面内に保持します。
+2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、既存のローカル公開APIから架空の問題一覧・詳細・地域名を取得して表示します。Googleログイン・ログアウト・状態復元に対応しています。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。全国地図はGoogle Maps JavaScript APIを設定した場合に表示します。[設定手順](docs/google-maps.md)を参照してください。写真とGPSの送信・判定・記録保存は未実装です。撮影時のGPS情報はC担当の実装で画面内に保持します。
 
 設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。共有用の開発プレビューを **[https://tour-513804.web.app/](https://tour-513804.web.app/)** で公開しています。URLを開くだけで閲覧でき、閲覧にログインは不要です。更新方法と公開範囲は [Firebase Hostingの手順](docs/hosting.md) を参照してください。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
