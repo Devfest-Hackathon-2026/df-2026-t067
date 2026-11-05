@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { FIREBASE_ENV_NAMES } from '../features/auth/config'
 
 const fetchRequest = vi.fn()
 const xhrRequest = vi.fn()
@@ -9,6 +10,8 @@ const watchPosition = vi.fn()
 const requestCamera = vi.fn()
 
 beforeEach(() => {
+  // .env.localの実設定を単体テストへ持ち込まず、明示したテスト用設定だけを使う。
+  for (const name of FIREBASE_ENV_NAMES) vi.stubEnv(name, '')
   vi.stubGlobal('fetch', fetchRequest)
   vi.spyOn(XMLHttpRequest.prototype, 'open').mockImplementation(xhrRequest)
   vi.stubGlobal('navigator', Object.assign(Object.create(navigator), {

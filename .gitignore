@@ -11,6 +11,7 @@
 service-account*.json
 credentials*.json
 google-services.json
+firebase-web-config*.json
 GoogleService-Info.plist
 
 # 依存関係とビルドの成果物

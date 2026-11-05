@@ -23,7 +23,7 @@
 
 | ID | 提案・理由 |
 |---|---|
-| P-01 | React/TypeScript/Vite＋Firebase＋Maps。React/TypeScript/Viteとnpmは最小Webアプリの実装判断として採用し、版を固定した。Firebase SDK・Maps接続は未実装で、残る構成・実設定は提案のまま。 |
+| P-01 | React/TypeScript/Vite＋Firebase＋Maps。React/TypeScript/Viteとnpmは最小Webアプリの実装判断として採用し、版を固定した。Firebase Auth SDKをGoogleログインに追加。Mapsとアプリのサーバー接続は未実装。残る構成は提案のまま。 |
 | P-02 | AIはサーバーからGoogle Cloud側のGemini（Vertex AI経由を第一候補）。クレジット適用は未確認。 |
 | P-03 | 未クリアは探索エリア単位のマーカー。通常レスポンスに正解を含めず、最後の明示ヒントでは対象名・撮影案内を開ける。 |
 | P-04 | 自治体は招待・所属確認。編集と公開の役割を分け、初期は同一人の兼任も可。 |
@@ -62,5 +62,6 @@
 | 2026-11-05 | 4人が同じ手順で起動できる最小Webアプリを別ブランチで追加。React/TypeScript/Vite・npmを実装担当の判断で採用。実認証・判定・保存には進まない | 土台の実装。範囲と完了条件は[foundation.md](foundation.md) |
 | 2026-11-05 | [Issue #2](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/2)の「4人の分担がわかりにくい」を受け、共同開発ガイドに担当範囲・成果物・最初の作業・受け渡しを追記 | 役割の具体化案。実メンバーの割当とチーム確認はO-07で継続 |
 | 2026-11-05 | A担当の最初の実装として、旅行者向け共通型・境界検証・HTTPクライアントを追加。既存のTypeScriptとFetchを使い依存は追加しない | サーバー・認証・AI・保存は未接続。詳細は[APIの初期実装](api.md#8-最初の共通api実装) |
+| 2026-11-05 | ユーザー提供のWeb設定でFirebase AuthenticationとGoogleログインを追加。実設定は.env.localのみ。ポップアップで元の問題を保持し、状態復元とログアウトを用意 | 実Chromeでログイン・復元・ログアウト確認。写真判定・保存・管理APIは次の作業 |
 
 今後は変更のPR番号、理由、関連する要求ID、テストIDを追記する。PRの承認と実装・本番稼働の完了を区別する。

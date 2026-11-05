@@ -1,6 +1,6 @@
 # 共同開発・初期設定ガイド
 
-最小Webアプリの起動と、4人で同じ土台を使う手順。現在はReact・TypeScript・Viteの画面だけで、Firebase SDK・Maps・サーバーは未接続。クラウドの管理設定は別作業であり、このガイドの手順では変更しない。
+最小Webアプリの起動と、4人で同じ土台を使う手順。React・TypeScript・Viteの共通画面と、設定時に使えるGoogleログインを用意した。Mapsとアプリのサーバーは未接続。クラウドの管理設定は別作業であり、このガイドの手順では変更しない。
 
 ## 1. 全員が同じ手順で起動する
 
@@ -23,7 +23,7 @@ git fetch origin
 git switch codex/feat/web-foundation
 ```
 
-このPRは資料PR #1のブランチに重ねる。資料PRもこのPRも勝手にマージしない。両方が取り込まれた後は、全員が最新の`main`から自分の作業ブランチを作る。
+資料PR #1はmainへ取り込み済み。WebアプリPR #3、共通API PR #4、Firebase認証PRは順に重ねている。未マージの変更を試す場合は対象PRのブランチを使い、勝手にマージしない。取り込み後は全員が最新mainから作業する。
 
 ### 1-2. Nodeとnpmを確認する
 
@@ -47,9 +47,9 @@ npm ci
 npm run dev
 ```
 
-[http://127.0.0.1:5173/](http://127.0.0.1:5173/)を開く。「開発用プレビュー」「Firebase未接続」が表示され、サンプル問題を開閉できれば起動確認は完了。Googleログインのボタンは無効のままで正しい。終了は **Ctrl+C**。
+[http://localhost:5173/](http://localhost:5173/)を開く。「開発用プレビュー」「Firebase未接続」が表示され、サンプル問題を開閉できれば起動確認は完了。Firebase未設定時はGoogleログインのボタンが無効。設定する場合は[認証ガイド](firebase-auth.md)に従い、localhostで確認する。終了は **Ctrl+C**。
 
-`.env`のコピー・APIキー・Firebase CLI・Google Cloud CLIはこの土台の起動には不要。`.env.example`は今後のブラウザ用設定の空の例で、入力してもFirebase接続は始まらない。`VITE_`で始まる値はブラウザへ公開されるため、秘密鍵やAI認証情報を入れない。[Vite公式説明](https://vite.dev/guide/env-and-mode)
+匿名閲覧には環境変数やクラウドCLIは不要。Googleログインを使う場合だけ`.env.example`を`.env.local`へコピーし、6項目を入力する。実設定と元のJSONをGitへ含めない。`VITE_`で始まる値はブラウザへ公開されるため、秘密鍵やAI認証情報を入れない。[Vite公式説明](https://vite.dev/guide/env-and-mode)
 
 変更したら、次で一括確認する。
 
@@ -71,7 +71,7 @@ npm run check
 
 他の人の変更を取得して`package-lock.json`が変わった場合も`npm ci`を行う。依存を変更する担当者だけが`npm install`を使い、`package.json`と`package-lock.json`を同じPRに入れる。`node_modules/`と`dist/`はコミットしない。
 
-macOSの任意の補助パッケージ`fsevents`は、追加のインストールスクリプトを実行しない設定にしている。この状態で起動・検証を確認済み。依存を追加してスクリプトの確認が出た場合は、共通基盤の担当者が確認する。[npm公式説明](https://docs.npmjs.com/cli/v11/commands/npm-install-scripts/)
+`fsevents`・`@firebase/util`・`protobufjs`の追加インストールスクリプトは実行しない設定にしている。この状態で起動・検証を確認済み。依存を追加してスクリプトの確認が出た場合は、共通基盤の担当者が確認する。[npm公式説明](https://docs.npmjs.com/cli/v11/commands/npm-install-scripts/)
 
 ### 1-4. 編集する場所と次の作業
 
