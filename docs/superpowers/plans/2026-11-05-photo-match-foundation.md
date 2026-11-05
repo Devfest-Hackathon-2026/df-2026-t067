@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 26.7.0 / npm 11.19.0 / 既存TypeScript。sharp 0.35.5をserverのみへexact pin、追加install scriptなし。
 
-**Spec:** docs/architecture.md §4/5、FR-06/07、AT-06/09/10/21/22。進捗Issue #19。クラウド設定チャットの回答ではモデル・リージョン・試験費用・画像送信承認は未定、Vertex認証/API準備も未完了/未確認。Firebaseの請求接続や予算通知をVertex試験の許可・強制上限と混同しない。
+**Spec:** docs/architecture.md §4/5、FR-06/07、AT-06/09/10/21/22。進捗Issue #19。クラウド設定チャットへ確認し、最新のPR #23で小規模試験の条件とテキスト接続確認が共有された。実画像送信・回数の自動制限・本番運用の完了とは扱わない。
 
 ## Global Constraints
 
@@ -44,6 +44,6 @@ Files: server/src/answer-input.ts、server/test/answers.test.ts、location-http.
 - [x] 既存受付を実画像検証へ接続し、合成fixtureを正しくデコードできる画像へ揃えた。ヘッダーだけの画像が202になる失敗を確認してから400へ修正し、raw bytesのキー競合・所有者・GPSを維持した。
 - [x] server check（111件）/Web check（223件）・型/lint/build、別フォルダのnpm ci --ignore-scriptsとnative JPEG処理、既存依存の版維持、重要な差分を単独レビューした。
 
-相対リンク・秘密情報除外も確認し、別PRとIssue #19で共有する。新PRはマージしない。実Vertex通信・実写真・保存は未検証/未接続とする。クラウド設定は指定された既存チャットへ問い合わせ、未決の回答を受けたため独断で確定していない。
+相対リンク・秘密情報除外も確認し、別PRとIssue #19で共有する。新PRはマージしない。このPRでの実Vertex通信・実写真・保存は未検証/未接続。クラウド設定は指定された既存チャットへ問い合わせ、最新の完了報告と未マージPR #23を確認した。後続のtransport実装は試験の既使用回数と画像送信条件を引き継ぐ。
 
 PR作成前に並行更新のmain 7f3ceb2（UIのPR #21と公開記録の#22）を取り込み、Web checkの223テスト・型/lint/buildが成功。server・共通API・依存はその統合で変わらず、server 111件の検証結果を再利用する。
