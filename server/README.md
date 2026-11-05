@@ -101,7 +101,7 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 ルートのVitestは`src/`だけを対象にし、Node標準テストとビルド済みテストを重複実行しない。サーバー依存はルートlockfileへ移さず、独立したパッケージとして扱う。API契約は[docs/api.md](../docs/api.md#9-ローカルapiの土台)、実装判断は[docs/decisions.md](../docs/decisions.md)にも記録した。
 
-Web画面との接続は後続作業。必要になったらViteの`/api`を`http://127.0.0.1:8787`へ開発proxyし、既存`createApiClient()`の同一originパスを保つ。今回proxyやUIのデータ接続は追加していない。ブラウザから別originへ直接接続するための広いCORSは追加しない。
+Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.0.0.1:8787`へ転送し、既存`createApiClient()`の同一originパスを保つ。ブラウザから別originへ直接接続するための広いCORSは追加していない。画面では一覧・詳細・地域名を取得し、失敗時に固定デモへfallbackしない。
 
 共通clientにはまだ`/session`のメソッドがない。追加する場合は既存の`getIdToken`を使う認証済み呼び出しとし、uid以外のclaimを公開しない。
 

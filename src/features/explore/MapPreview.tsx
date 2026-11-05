@@ -3,7 +3,7 @@ import japanOverview from '../../assets/japan-overview.svg'
 import japanOverviewWide from '../../assets/japan-overview-wide.svg'
 import { Icon } from '../../components/Icon'
 
-export function MapPreview({ selected, onSelectQuest }: { selected: boolean; onSelectQuest: () => void }) {
+export function MapPreview({ selected, onSelectQuest, showMarker = true }: { selected: boolean; onSelectQuest: () => void; showMarker?: boolean }) {
   const [zoom, setZoom] = useState(1)
   return (
     <div className="map-preview">
@@ -14,11 +14,11 @@ export function MapPreview({ selected, onSelectQuest }: { selected: boolean; onS
       <div className="map-viewport">
         <div className="map-canvas" style={{ transform: 'scale(' + zoom + ')' }}>
           <picture><source media="(min-width: 641px)" srcSet={japanOverviewWide} /><img className="map-image" src={japanOverview} alt="日本周辺の簡略地図" draggable={false} /></picture>
-          <button type="button" className={'quest-pin' + (selected ? ' is-selected' : '')}
+          {showMarker && <button type="button" className={'quest-pin' + (selected ? ' is-selected' : '')}
             aria-label="デモの謎を地図から見る" aria-pressed={selected} onClick={onSelectQuest}>
             <span className="pin-halo"><span className="pin-face"><Icon name="pin" /></span></span>
             <span className="pin-caption">架空のみなと町</span>
-          </button>
+          </button>}
         </div>
       </div>
       <div className="map-zoom" aria-label="地図の表示操作">
