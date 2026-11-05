@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { parseCaptureMetadata } from '../../shared/api'
 import type { CaptureMetadata } from '../../shared/api/types'
+import { DemoAnswerSubmission } from './DemoAnswerSubmission'
+import type { DemoAnswerContext } from './DemoAnswerSubmission'
 
-export function CameraPreview({ onClose }: { onClose: () => void }) {
+export function CameraPreview({ onClose, answer }: { onClose: () => void; answer?: DemoAnswerContext }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const photoRef = useRef<string | null>(null)
@@ -12,10 +14,11 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
   const capturing = useRef(false)
   const [attempt, setAttempt] = useState(0)
   const [phase, setPhase] = useState<'opening' | 'live' | 'capturing' | 'photo' | 'error'>('opening')
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<CaptureMetadata | null>(null)
   const [locating, setLocating] = useState(false)
+  const photoUrl = photo?.url
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -115,7 +118,7 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
           // The photo owns the view now; ignore a delayed play() result.
           generation.current++
           stopCamera()
-          setPhotoUrl(url)
+          setPhoto({ url, blob })
           setPhase('photo')
           capturing.current = false
         } catch { fail('写真を表示できませんでした。再試行してください。') }
@@ -159,7 +162,7 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
   function restart() {
     dispose()
     setLocating(false)
-    setPhotoUrl(null)
+    setPhoto(null)
     setError(null)
     setMetadata(null)
     capturedAtRef.current = null
@@ -170,7 +173,9 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
   return (
     <section className="camera-panel" aria-label="写真撮影と確認">
       <h4>{photoUrl ? '写真を確認' : '写真を撮影'}</h4>
-      <p className="sample-note">撮影時に現在地を1回取得します。写真・位置情報・撮影と測位の時刻はこの画面内だけで保持し、送信・保存・AI判定は行いません。</p>
+      <p className="sample-note">{answer
+        ? '撮影時に現在地を1回取得します。「写真と位置をデモ送信」を押すと、写真・位置・精度・時刻を開発用のローカルAPIへ送ります。受付と位置条件の確認までを試せます。'
+        : '撮影時に現在地を1回取得します。写真・位置情報・撮影と測位の時刻はこの画面内だけで保持し、送信・保存・AI判定は行いません。'}</p>
       {photoUrl ? <img className="photo-preview" src={photoUrl} alt="撮影した写真のプレビュー" />
         : <video ref={videoRef} className="camera-video" autoPlay playsInline muted aria-label="カメラ映像"
           onLoadedData={ready} onCanPlay={ready} onError={() => fail('カメラ映像を表示できませんでした。再試行してください。')} />}
@@ -188,6 +193,7 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
         <p className="sample-note">リンクを開くと撮影地の座標がGoogleマップに送られます。</p>
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
+      {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} />}
       <div className="camera-actions">
         {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}
         {photoUrl && !metadata && <button type="button" className="primary-button" onClick={requestLocation} disabled={locating}>{locating ? '撮影地を取得中…' : '位置情報を再試行'}</button>}
