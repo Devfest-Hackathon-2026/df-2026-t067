@@ -115,4 +115,4 @@ submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempot
 
 409のQUEST_CHANGED / QUEST_UNAVAILABLE、503のSYSTEM_ERRORも、正しいAttemptResultなら回答IDを保って返す。エラー封筒はApiError（code / status / requestId / retryable / retryAfterSeconds）へ変換し、サーバーのmessageは表示用エラーへ転記しない。実APIからのsource: mockは拒否する。
 
-この実装にはサーバー、Googleログイン、AI判定、データ保存、自治体編集API、ヒント取得APIは含まれない。既存の架空プレビューへの自動接続も行わない。
+共通API自体にはサーバー、AI判定、データ保存、自治体編集API、ヒント取得APIは含まれない。Googleログインは[認証ガイド](firebase-auth.md)の別実装で、getIdTokenを介して接続できる。架空の問題を実サーバーへ送信して成功扱いにする処理は追加しない。

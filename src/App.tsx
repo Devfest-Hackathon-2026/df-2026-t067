@@ -1,9 +1,53 @@
-import { useState } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { demoQuest } from './features/quests/demoQuest'
+import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
+import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
 import './App.css'
 
-export default function App() {
+function connectionNotice(auth: AuthSnapshot): { title: string; description: string } {
+  switch (auth.status) {
+    case 'unconfigured':
+      return { title: 'Firebase未接続', description: '画面確認用のプレビューです。ログイン・写真判定・記録の保存は、まだ利用できません。' }
+    case 'unavailable':
+      return { title: 'Googleログインを利用できません', description: auth.message }
+    case 'checking':
+      return { title: 'ログイン状態を確認中', description: '問題はそのまま閲覧できます。しばらくお待ちください。' }
+    case 'signed-out':
+      return { title: 'Googleログインを利用できます', description: '問題はログインなしで閲覧できます。撮影・写真判定・記録保存は準備中です。' }
+    case 'signed-in':
+      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。撮影・写真判定・記録保存は準備中です。' }
+  }
+}
+
+export default function App({ authClient: providedClient }: { authClient?: AuthClient } = {}) {
   const [isQuestOpen, setIsQuestOpen] = useState(false)
+  const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
+  const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
+  const [pending, setPending] = useState<'sign-in' | 'sign-out' | null>(null)
+  const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
+  const notice = connectionNotice(auth)
+
+  async function login() {
+    if (pending || auth.status !== 'signed-out') return
+    setFeedback(null)
+    setPending('sign-in')
+    try { await authClient.signInWithGoogle() }
+    catch (error) {
+      const safe = error instanceof AuthError ? error : new AuthError('unknown')
+      setFeedback({ error: safe.code !== 'cancelled', text: safe.message })
+    } finally { setPending(null) }
+  }
+
+  async function logout() {
+    if (pending) return
+    setFeedback(null)
+    setPending('sign-out')
+    try { await authClient.signOut() }
+    catch (error) {
+      const safe = error instanceof AuthError ? error : new AuthError('unknown')
+      setFeedback({ error: true, text: safe.message })
+    } finally { setPending(null) }
+  }
 
   return (
     <>
@@ -11,6 +55,11 @@ export default function App() {
       <header className="site-header">
         <span className="brand">全国観光謎アプリ <small>（仮称）</small></span>
         <span className="preview-label">開発用プレビュー</span>
+        {auth.status === 'signed-in' && (
+          <button type="button" className="secondary-button" disabled={pending !== null} onClick={logout}>
+            {pending === 'sign-out' ? 'ログアウト中…' : 'ログアウト'}
+          </button>
+        )}
       </header>
 
       <main id="main" className="page" tabIndex={-1}>
@@ -24,8 +73,8 @@ export default function App() {
         </section>
 
         <aside className="connection-notice" role="status">
-          <strong>Firebase未接続</strong>
-          <p>画面確認用のプレビューです。ログイン・写真判定・記録の保存は、まだ利用できません。</p>
+          <strong>{notice.title}</strong>
+          <p>{notice.description}</p>
         </aside>
 
         <section className="explore" aria-labelledby="explore-title">
@@ -59,18 +108,34 @@ export default function App() {
                   <h4>この場所はどこ？</h4>
                   <p>{demoQuest.clue}</p>
                   <p className="sample-note">{demoQuest.visitConditions}</p>
-                  <button type="button" className="primary-button" disabled aria-describedby="login-unavailable">
-                    Googleログインして挑戦する
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={auth.status !== 'signed-out' || pending !== null}
+                    onClick={login}
+                    aria-describedby="login-unavailable"
+                  >
+                    {auth.status === 'signed-in' ? 'ログイン済み・撮影機能は準備中'
+                      : pending === 'sign-in' ? 'Googleログイン中…' : 'Googleログインして挑戦する'}
                   </button>
                   <p id="login-unavailable" className="unavailable-note">
-                    Googleログインは準備中です。現在は挑戦を開始できません。
+                    {auth.status === 'signed-in' ? '選んだ問題を表示しています。撮影機能ができるまでお待ちください。'
+                      : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
+                        : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
+                          : 'Googleログインの準備ができていません。現在は挑戦を開始できません。'}
                   </p>
+                  {feedback && (
+                    <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>
+                  )}
                 </section>
               )}
             </article>
           </div>
         </section>
       </main>
+      {!isQuestOpen && feedback && (
+        <p className="page auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>
+      )}
 
       <footer className="site-footer">
         掲載内容は開発用サンプルです。実在の自治体・観光スポットの問題ではありません。
