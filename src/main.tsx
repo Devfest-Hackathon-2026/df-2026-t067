@@ -7,8 +7,13 @@ if (window.location.pathname === '/admin-demo') {
   void import('./features/admin-demo/AdminDemo').then(({ default: AdminDemo }) => {
     root.render(<StrictMode><AdminDemo /></StrictMode>)
   })
-} else {
+} else if (import.meta.env.DEV) {
   void import('./features/quests/ApiQuestApp').then(({ ApiQuestApp: App }) => {
+    root.render(<StrictMode><App /></StrictMode>)
+  })
+} else {
+  // Hosting has no local API server. Preserve its existing offline preview.
+  void import('./App').then(({ default: App }) => {
     root.render(<StrictMode><App /></StrictMode>)
   })
 }
