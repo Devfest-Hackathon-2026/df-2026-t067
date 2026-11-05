@@ -8,7 +8,7 @@
 
 2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、地図のデザインプレビューから架空のサンプル問題を選べます。Googleログイン・ログアウト・状態復元に対応し、[撮影と写真確認の画面](docs/camera-preview.md)を追加しました。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。Google Maps接続・GPS・写真送信・判定・記録保存は未実装です。
 
-設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。クラウド設定・デプロイ・公開URLはこの実装に含みません。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
+設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。共有用の開発プレビューを **[https://tour-513804.web.app/](https://tour-513804.web.app/)** で公開しています。URLを開くだけで閲覧でき、閲覧にログインは不要です。更新方法と公開範囲は [Firebase Hostingの手順](docs/hosting.md) を参照してください。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
 ## まず起動する
 

@@ -33,3 +33,7 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Firebase Hosting CLIのローカルキャッシュ
+.firebase/
+firebase-debug.log*
