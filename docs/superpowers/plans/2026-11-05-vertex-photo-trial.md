@@ -30,6 +30,8 @@ Files: server/src/vertex-trial-cli.ts、server/README.md、docs/vertex-trial.md�
 - [x] 明示initと合成match/mismatch/uncertainだけのCLIを追加。個人写真・URL・任意プロジェクトを受け取らない。生成設定を調整可能にする代わりに、承認済み試験値をtransportで固定する。
 - [x] server check（139件・型/lint/build）成功。Webは今回変更せず、PR #26マージ前の230件・型/lint/buildを再利用する。
 - [x] 同一台帳で合成画像4回（1回失敗を含む）を送信し、MATCH/WRONG_TARGET/IMAGE_UNCERTAINを確認。初回テキスト分と合わせて5/20回。初回uncertain失敗の原因は確定できず、診断付き1回で200/STOP/約2.2秒の成功を確認した。生の応答は保存していない。
-- [ ] 別PRを作成し、Issue #19にマージ済み範囲/レビュー待ち/残件を反映。新PRはマージしない。
+- [x] 別PR #28を作成し、Issue #19にマージ済み範囲/レビュー待ち/残件を反映。新PRはマージしない。
+
+資料の相対リンク・機密除外、依存の全既存レコード不変、Web/共通APIの非変更、重要処理の単独レビューを確認。CLIのproduction拒否は.env.local読み込みを含む実行で終了1・推論送信なしを確認した。
 
 Ruling: CLIの新規台帳初期値は試験後の5回へ更新し、既存共有台帳はそのまま使う。初期の1回を残すと、新規設定時に既使用の画像4回を落とすため。実パスはGit対象外の.env.localだけに追加する。
