@@ -89,7 +89,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 - `referenceAssetId`は用途`reference`、`hintAssetId`は用途`public_hint`の登録素材だけ。同じ組織・用途をサーバーで検証する。他自治体、未知のID、参考写真の公開流用は400で拒否する。
 - assetの基底型は`{assetId, orgId, purpose}`。写真の受付・認可付き取得は[素材API](admin-assets.md)で追加した。明示memory設定で写真を登録し、返されたassetIdを保存できる。未設定なら両方nullのままにする。`File`、blob URL、data URLをassetIdとして送らない。実Storage保存ではない。
 - 非公開の撮影地点/半径は[専用の管理API](admin-shooting-areas.md)で取得/全置換する。通常の管理応答は設定状態だけを持つ。configuredでも現地確認・試験・公開の完了と扱わない。
-- `generate`は未実装で404。素材APIは未設定503・明示memoryのみ。保存、試験、確認依頼、開発用の公開は別操作として扱う。
+- 素材APIは未設定503・明示memoryのみ。生成候補の取得、保存、試験、確認依頼、開発用の公開は別操作として扱う。
 
 ## 検証範囲
 
@@ -110,6 +110,10 @@ PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル
 ### A05の写真試験
 
 `testManagedQuest`は保存済みのreference素材・確認済み特徴を使い、試験写真と権利説明・revision・キーを受け取る。古い版や所属取消では結果を返さず、同じキーの照合を共有する。Dは未接続・失敗・一致候補を区別する。既定は照合未接続の503で、fixtures設定で指定の合成素材を試せる。[写真試験と起動手順](admin-photo-tests.md)
+
+### A04の生成候補
+
+保存済みの版を`generateManagedQuestDraft`へ渡す。候補表示には`source:mock`を明示し、編集中の値の置換は利用者が確認してから行う。候補取得後に下書きや画面内の編集状態が変わった場合は古い候補を破棄する。既定は503で、開発用fixtures設定と指定の参考素材で接続を試せる。[起動設定と応答型](api.md#19-a04の下書き候補)
 
 ### A06への確認依頼
 

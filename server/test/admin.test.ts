@@ -3,7 +3,10 @@ import test from 'node:test'
 import { createApiClient } from '../../src/shared/api/client'
 import type { ManagedQuestDraft, OrgMembership } from '../../src/shared/api/admin'
 import { DemoAdminStore } from '../src/admin'
+import { DemoAssetStore } from '../src/admin-assets'
+import { createFixtureDraftSuggester } from '../src/demo-draft-suggestions'
 import { expectError, startServer } from './helpers'
+import { otherSyntheticPng, syntheticPng } from './photo-fixtures'
 
 const membership: OrgMembership = { orgId: 'demo-org', label: '架空の自治体', role: 'editor', areaId: 'demo-area' }
 const draft: ManagedQuestDraft = {
@@ -15,10 +18,10 @@ const draft: ManagedQuestDraft = {
 }
 const headers = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }
 const basePath = '/api/v1/orgs/demo-org/quests'
+const verifier = { verify: async (token: string) => ({ uid: token }) }
 
 function options() {
-  return { verifier: { verify: async (token: string) => ({ uid: token }) },
-    memberships: async (uid: string) => uid === 'owner' ? [membership] : [], admin: new DemoAdminStore() }
+  return { verifier, memberships: async (uid: string) => uid === 'owner' ? [membership] : [], admin: new DemoAdminStore() }
 }
 
 test('admin client discovers server-owned membership and saves only a private demo draft', async (t) => {
@@ -122,6 +125,54 @@ test('revocation while a write is being read prevents the eventual save', async 
   let checks = 0
   const { base } = await startServer(t, { ...options(), memberships: async () => ++checks === 1 ? [membership] : [] })
   await expectError(await fetch(base + basePath, { method: 'POST', headers, body: JSON.stringify({ draft }) }), 403, 'FORBIDDEN')
+})
+
+test('draft suggestions report unavailable when a source is unconfigured', async (t) => {
+  const config = options()
+  const created = config.admin.create(membership, draft)
+  const { base } = await startServer(t, config)
+  await expectError(await fetch(base + basePath + '/' + created.questId + '/generate', {
+    method: 'POST', headers, body: JSON.stringify({ expectedDraftRevision: 1 }),
+  }), 503, 'SYSTEM_ERROR', false)
+})
+
+test('a draft suggestion uses an owned saved fixture and never edits or publishes the draft', async (t) => {
+  let checksBeforeRevocation: number | undefined
+  const { base } = await startServer(t, {
+    verifier, adminAssets: new DemoAssetStore(),
+    memberships: async (uid) => {
+      if (uid !== 'owner') return [{ ...membership, orgId: 'other-org' }]
+      if (checksBeforeRevocation !== undefined && checksBeforeRevocation-- <= 0) return []
+      return [membership]
+    },
+    suggestDraft: await createFixtureDraftSuggester(),
+  })
+  const api = (uid: string, demo?: 'demo') => createApiClient({ fetch: (input, init) => fetch(base + String(input), init),
+    getIdToken: async () => uid, expectedDataMode: demo })
+  const editor = api('owner', 'demo')
+  const org = membership.orgId
+  const upload = (bytes: Buffer, key: string) => editor.uploadOrgAsset(org, { purpose: 'reference',
+    photoRights: '自作の合成画像', photo: new Blob([new Uint8Array(bytes)], { type: 'image/png' }), idempotencyKey: key })
+  const fixture = await upload(syntheticPng, 'fixture-reference')
+  const wrong = await upload(otherSyntheticPng, 'other-reference')
+  const initial = await editor.createManagedQuest(org, { ...draft, materials: { ...draft.materials, photoRights: '自作合成' },
+    referenceAssetId: fixture.assetId })
+  const id = initial.questId
+  const suggested = await editor.generateManagedQuestDraft(org, id, 1)
+  assert.equal(suggested.source, 'mock')
+  assert.equal(suggested.draftRevision, 1)
+  assert.equal(suggested.content.hints.length, 3)
+  assert.notEqual(suggested.content.title, initial.draft.content.title)
+  assert.deepEqual(await editor.getManagedQuest(org, id), initial)
+  await expectError(await fetch(base + '/api/v1/quests/' + id), 404, 'NOT_FOUND')
+  await assert.rejects(api('owner').generateManagedQuestDraft(org, id, 1), { code: 'INVALID_RESPONSE' })
+  await assert.rejects(api('other', 'demo').generateManagedQuestDraft('other-org', id, 1), { code: 'NOT_FOUND' })
+  const changed = await editor.updateManagedQuest(org, id, { expectedDraftRevision: 1,
+    draft: { ...initial.draft, referenceAssetId: wrong.assetId } })
+  await assert.rejects(editor.generateManagedQuestDraft(org, id, 1), { code: 'DRAFT_CONFLICT' })
+  await assert.rejects(editor.generateManagedQuestDraft(org, id, changed.draftRevision), { code: 'INVALID_INPUT' })
+  checksBeforeRevocation = 1
+  await assert.rejects(editor.generateManagedQuestDraft(org, id, changed.draftRevision), { code: 'FORBIDDEN' })
 })
 
 test('review submission reports missing fields and returns an edited submission to draft', async (t) => {

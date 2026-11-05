@@ -1,4 +1,4 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import { parseDraftRevisionRequest, parseDraftSuggestion, parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
 import type { AssetPurpose, ManagedQuestDraft, PauseManagedQuest, PhotoTestMetadata, PublishManagedQuest, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
@@ -333,6 +333,15 @@ export function createApiClient(options: ApiClientOptions = {}) {
         const { quest } = result
         if (quest.orgId !== orgId || quest.questId !== questId || quest.draftRevision !== expectedDraftRevision ||
           (quest.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('reviewSubmission.identity')
+        return result
+      }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    },
+    async generateManagedQuestDraft(orgId: string, questId: string, expectedDraftRevision: number, call: CallOptions = {}) {
+      const body = adminInput(parseDraftRevisionRequest, { expectedDraftRevision })
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/generate', (data) => {
+        const result = parseDraftSuggestion(data)
+        if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== expectedDraftRevision ||
+          (result.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('draftSuggestion.identity')
         return result
       }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },

@@ -88,3 +88,13 @@ test('admin photo tests only enable the local fixture matcher with memory assets
     assert.throws(() => readConfig({ ...demo, QUEST_ADMIN_PHOTO_TEST_MODE: mode }), /QUEST_ADMIN_PHOTO_TEST_MODE/)
   }
 })
+
+test('draft suggestions are opt-in and require memory assets', () => {
+  const demo = { QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'memory' }
+  assert.deepEqual(readConfig({ ...demo, QUEST_ADMIN_DRAFT_MODE: 'fixtures' }),
+    { mode: 'demo', port: 8787, demoAdminAssets: true, demoDraftSuggestions: true })
+  assert.deepEqual(readConfig({ ...demo, QUEST_ADMIN_DRAFT_MODE: 'off' }),
+    { mode: 'demo', port: 8787, demoAdminAssets: true })
+  assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_DRAFT_MODE: 'fixtures' }), /QUEST_ADMIN_ASSETS_MODE=memory/)
+  assert.throws(() => readConfig({ ...demo, QUEST_ADMIN_DRAFT_MODE: 'vertex' }), /QUEST_ADMIN_DRAFT_MODE/)
+})

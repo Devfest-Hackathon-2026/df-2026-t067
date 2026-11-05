@@ -87,7 +87,7 @@
 | POST /orgs/:orgId/assets | 編集・公開 | 参考写真等。用途・権利確認、容量検査を経てassetId発行 |
 | GET /orgs/:orgId/assets/:assetId | 編集・公開 | 自組織の素材メタデータのみ |
 | GET /orgs/:orgId/assets/:assetId/photo | 編集・公開 | 自組織の認証付きJPEG。public_hint用途でも自動公開しない |
-| POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 登録済みの素材と根拠から下書き生成。自動公開しない |
+| POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 保存済みの版に対する下書き候補。開発用実装は19節 |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
 | POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
@@ -156,7 +156,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 10. B/Dへの追加接続
 
-[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。生成は404のまま。写真試験は16節、開発用の公開・休止は18節を参照する。下書きは開発用一時領域に保存する。
+[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。写真試験は16節、開発用の公開・休止は18節、下書き候補は19節を参照する。下書きは開発用一時領域に保存する。
 
 ## 11. Cへの本人記録API接続
 
@@ -204,3 +204,11 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 - `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
 
 `publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。合成画像の試験は明示fixtures設定で使える。実AI照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。
+
+## 19. A04の下書き候補
+
+`generateManagedQuestDraft(orgId, questId, expectedDraftRevision)` は、保存済みの下書き版に対してPOST `/orgs/:orgId/quests/:questId/generate`を呼ぶ。bodyは`{expectedDraftRevision}`のみ。自組織の編集者・公開担当者が利用でき、受信後も所属と版を検査する。
+
+200の`DraftSuggestion`は`{orgId, questId, draftRevision, content, source}`。`content`は既存の下書きと同じ5項目で、タイトル・問題文・3本のヒント・確認済み特徴・作成根拠メモを持つ。候補を受け取った画面で対象の版と編集中の内容を確認し、採用した内容を既存の下書き保存APIへ渡す。候補を取得するだけでは保存、改版、確認依頼、公開は起きない。
+
+既定は未接続の503 `SYSTEM_ERROR`。開発用の`QUEST_ADMIN_DRAFT_MODE=fixtures`と`QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成`match.png`がある版に、固定の候補を`source:mock`で返す。外部AIを呼ばない。版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。[合成素材の用意](admin-photo-tests.md#合成素材で公開休止を試す)

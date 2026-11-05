@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parseOrgMembership, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parseDraftRevisionRequest, parseDraftSuggestion, parseOrgMembership, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import type { OrgMembership } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
 import type { DemoAdminStore } from './admin'
@@ -8,6 +8,7 @@ import type { DemoAssetStore } from './admin-assets'
 import { DemoPhotoTestStore } from './admin-photo-tests'
 import { handlePhotoTest } from './admin-photo-tests-http'
 import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
+import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { HttpError, invalidInput } from './errors'
 import { readJsonObject } from './json-body'
 import { paginate, parseId, validateQuery } from './query'
@@ -16,6 +17,7 @@ export type MembershipLookup = (uid: string) => Promise<OrgMembership[]>
 export function createAdminHandler(options: {
   store: DemoAdminStore; assets?: DemoAssetStore; memberships?: MembershipLookup; areaIds: ReadonlySet<string>
   photoTest?: AdminPhotoTestOptions; acquirePhotoTest?: (uid: string) => () => void
+  suggestDraft?: FixtureDraftSuggester
   authenticate: (request: IncomingMessage) => Promise<string>
   send: (response: ServerResponse, status: number, body: unknown) => void
 }) {
@@ -35,7 +37,7 @@ export function createAdminHandler(options: {
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
-    const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review|publish|pause)$/.exec(path)
+    const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review|publish|pause|generate)$/.exec(path)
     if (!isMemberships && !route && !assetRoute && !shootingRoute && !actionRoute) return false
     const allowed = actionRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
@@ -80,6 +82,17 @@ export function createAdminHandler(options: {
               photoTests?.getEvidence(input.matchTestId), photoTests?.getEvidence(input.mismatchTestId)))
           } else if (action === 'pause') {
             options.send(response, 200, store.pause(orgId, questId, parsePauseManagedQuest(body)))
+          } else if (action === 'generate') {
+            const { expectedDraftRevision } = parseDraftRevisionRequest(body)
+            const quest = store.getAtRevision(orgId, questId, expectedDraftRevision)
+            if (!options.suggestDraft || !options.assets) throw new HttpError(503, 'SYSTEM_ERROR', '下書き生成が未接続です。')
+            const { referenceAssetId, materials } = quest.draft
+            if (!referenceAssetId || !materials.name.trim() || !materials.evidence.trim() || !materials.photoRights.trim() ||
+              options.assets.getOwned(orgId, referenceAssetId)?.purpose !== 'reference') invalidInput()
+            const reference = options.assets.getPhotoOwned(orgId, referenceAssetId)
+            const content = reference && options.suggestDraft(reference)
+            if (!content) throw new HttpError(400, 'INVALID_INPUT', '下書きの参考素材に指定の合成画像を登録してください。')
+            options.send(response, 200, parseDraftSuggestion({ orgId, questId, draftRevision: expectedDraftRevision, content, source: 'mock' }))
           } else {
             const { expectedDraftRevision } = parseSubmitReview(body)
             options.send(response, 200, store.submitReview(orgId, questId, expectedDraftRevision))
