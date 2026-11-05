@@ -8,6 +8,7 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
   const photoRef = useRef<string | null>(null)
   const generation = useRef(0)
   const locationGeneration = useRef(0)
+  const capturedAtRef = useRef<string | null>(null)
   const capturing = useRef(false)
   const [attempt, setAttempt] = useState(0)
   const [phase, setPhase] = useState<'opening' | 'live' | 'capturing' | 'photo' | 'error'>('opening')
@@ -80,54 +81,20 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
   }
 
   function capture() {
-    if (phase !== 'live' || capturing.current || locating) return
-    if (!navigator.geolocation) { setError('この端末では位置情報を取得できません。'); return }
+    if (phase !== 'live' || capturing.current) return
     capturing.current = true
-    setLocating(true)
     setError(null)
-    const ownLocationRequest = ++locationGeneration.current
-    function locationFailed(message: string) {
-      locationGeneration.current++
-      capturing.current = false
-      setLocating(false)
-      setError(message)
-    }
-    try {
-      navigator.geolocation.getCurrentPosition((location) => {
-        if (ownLocationRequest !== locationGeneration.current) return
-        let captureMetadata: CaptureMetadata
-        try {
-          captureMetadata = parseCaptureMetadata({ capturedAt: new Date().toISOString(), position: {
-            latitude: location.coords.latitude, longitude: location.coords.longitude,
-            accuracyMeters: location.coords.accuracy, measuredAt: new Date(location.timestamp).toISOString(),
-          } })
-        } catch {
-          locationFailed('撮影地の位置情報を確認できませんでした。再試行してください。')
-          return
-        }
-        setLocating(false)
-        capturePhoto(captureMetadata)
-      }, (cause) => {
-        if (ownLocationRequest !== locationGeneration.current) return
-        locationFailed(cause.code === cause.PERMISSION_DENIED
-          ? '撮影地の取得が許可されませんでした。ブラウザの位置情報設定を確認して再試行してください。'
-          : '撮影地を取得できませんでした。位置情報を確認して再試行してください。')
-      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
-    } catch {
-      if (ownLocationRequest === locationGeneration.current) {
-        locationFailed('撮影地を取得できませんでした。位置情報を確認して再試行してください。')
-      }
-    }
+    capturedAtRef.current = new Date().toISOString()
+    capturePhoto()
   }
 
-  function capturePhoto(captureMetadata: CaptureMetadata) {
+  function capturePhoto() {
     if (phase !== 'live') { capturing.current = false; return }
     const video = videoRef.current
     if (!video?.videoWidth || !video.videoHeight || video.readyState < 2) {
       fail('カメラ映像を準備できませんでした。再試行してください。')
       return
     }
-    capturing.current = true
     setPhase('capturing')
     const own = generation.current
     try {
@@ -137,14 +104,14 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
       const context = canvas.getContext('2d')
       if (!context) throw new Error('no-context')
       context.drawImage(video, 0, 0)
+      // Freeze the frame first; GPS acquisition happens only after this snapshot.
+      requestLocation()
       canvas.toBlob((blob) => {
         if (own !== generation.current) return
         if (!blob) { fail('写真を作成できませんでした。再試行してください。'); return }
         try {
           const url = URL.createObjectURL(blob)
           photoRef.current = url
-          // Retain metadata for this exact photo until retake or close.
-          setMetadata(captureMetadata)
           // The photo owns the view now; ignore a delayed play() result.
           generation.current++
           stopCamera()
@@ -156,12 +123,46 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
     } catch { fail('写真を作成できませんでした。再試行してください。') }
   }
 
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      setError('この端末では位置情報を取得できません。写真は撮影済みです。')
+      return
+    }
+    setLocating(true)
+    setError(null)
+    const ownLocationRequest = ++locationGeneration.current
+    function locationFailed(message: string) {
+      if (ownLocationRequest !== locationGeneration.current) return
+      locationGeneration.current++
+      setLocating(false)
+      setError(`${message} 写真は撮影済みです。位置情報を再試行できます。`)
+    }
+    try {
+      navigator.geolocation.getCurrentPosition((location) => {
+        if (ownLocationRequest !== locationGeneration.current) return
+        try {
+          const captureMetadata = parseCaptureMetadata({ capturedAt: capturedAtRef.current, position: {
+            latitude: location.coords.latitude, longitude: location.coords.longitude,
+            accuracyMeters: location.coords.accuracy, measuredAt: new Date(location.timestamp).toISOString(),
+          } })
+          setMetadata(captureMetadata)
+          setLocating(false)
+          setError(null)
+        } catch { locationFailed('撮影地の位置情報を確認できませんでした。') }
+      }, (cause) => locationFailed(cause.code === cause.PERMISSION_DENIED
+        ? '撮影地の取得が許可されませんでした。ブラウザの位置情報設定を確認してください。'
+        : '撮影地を取得できませんでした。位置情報を確認してください。'),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
+    } catch { locationFailed('撮影地を取得できませんでした。位置情報を確認してください。') }
+  }
+
   function restart() {
     dispose()
     setLocating(false)
     setPhotoUrl(null)
     setError(null)
     setMetadata(null)
+    capturedAtRef.current = null
     setPhase('opening')
     setAttempt((value) => value + 1)
   }
@@ -179,7 +180,8 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
       {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
       {error && <p className="camera-error" role="alert">{error}</p>}
       <div className="camera-actions">
-        {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live' || locating}>{locating ? '撮影地を取得中…' : error ? '位置情報を再試行して撮影' : '撮影する'}</button>}
+        {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}
+        {photoUrl && !metadata && <button type="button" className="primary-button" onClick={requestLocation} disabled={locating}>{locating ? '撮影地を取得中…' : '位置情報を再試行'}</button>}
         {photoUrl && <button type="button" className="secondary-button" onClick={restart}>撮り直す</button>}
         {phase === 'error' && <button type="button" className="secondary-button" onClick={restart}>カメラを再試行</button>}
         <button type="button" className="secondary-button" onClick={() => { dispose(); setLocating(false); onClose() }}>撮影を終了</button>
