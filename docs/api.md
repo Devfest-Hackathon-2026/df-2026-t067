@@ -16,7 +16,7 @@
 | DTO | 必須項目 |
 |---|---|
 | PublicArea | areaId, label, publicGeometry, marker, publishedCount |
-| PublicQuest | questId, version, title, clue, areaId, optionalHintImage, visitConditions, hintCount |
+| PublicQuest | questId, version, title, clue, areaId, visitConditions, hintCount。任意のoptionalHintImage、shootingConditions |
 | Challenge | challengeId, questId, version, createdAt |
 | CaptureMetadata | capturedAt, position: { latitude, longitude, accuracyMeters, measuredAt } |
 | AttemptResult | attemptId, state, outcome, nextAction, source, optionalDiscoveryId |
@@ -201,7 +201,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 - `publishManagedQuest(orgId, questId, input)` は`expectedDraftRevision`、`matchTestId`、`mismatchTestId`と`confirmations`を送る。確認項目は`fictionalData`、`visitConditions`、`photoRights`、`shootingArea`、`testCases`の全てが`true`。公開担当者が架空データ・訪問条件・画像の権利と公開範囲・撮影範囲・試験ケースを確認する。
 - 現在の確認待ち下書きと、同じ組織・問題・下書き版でサーバーが記録した`MATCH`と`WRONG_TARGET`が必要。正規化後に同じ画像の試験は使えない。版違いは409 `DRAFT_CONFLICT`、確認不足は409 `REVIEW_REQUIRED`、試験不足は409 `PHOTO_TEST_REQUIRED`。任意の公開ヒント画像は同組織の`public_hint`素材で、参考写真と同じ正規化画像は拒否する。
-- 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像、非公開撮影範囲を版へ固定する。旅行者の一覧・詳細には公開項目だけを返す。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
+- 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像、非公開撮影範囲を版へ固定する。旅行者の一覧・詳細に返す`shootingConditions`は`requiresBoat`と`requiresPaidFacility`のbooleanだけを持つ。料金と撮影注意は`visitConditions`で読める。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
 - `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
 
 `publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。合成画像の試験は明示fixtures設定で使える。実AI照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。

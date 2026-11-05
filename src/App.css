@@ -270,6 +270,8 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 /* The card's title and actions communicate its structure without decorative captions. */
 .rail-heading { margin-bottom: 20px; }
 .quest-card-heading { padding: 20px 24px; border-bottom: var(--ui-border-width) solid var(--ui-line); background: var(--ui-tint); }
+.quest-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.quest-title-row h3 { min-width: 0; overflow-wrap: anywhere; }
 .browse-note { margin-top: 20px; color: var(--ui-muted); font-size: 12px; line-height: 1.8; }
 @media (max-width: 640px) { .quest-card-heading { padding: 20px; } }
 

@@ -1,6 +1,7 @@
-import { ContractError } from './validation'
+import { ContractError, parseShootingConditions } from './validation'
+import type { ShootingConditions } from './types'
 
-export interface ShootingConditions { requiresBoat: boolean; requiresPaidFacility: boolean }
+export type { ShootingConditions } from './types'
 export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
 export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
 export interface ManagedShootingAreas {
@@ -68,10 +69,6 @@ function identifier(input: unknown, path: string): string {
 }
 function revision(input: unknown): number {
   if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 1) throw new ContractError('draftRevision')
-  return input
-}
-function flag(input: unknown, path: string): boolean {
-  if (typeof input !== 'boolean') throw new ContractError(path)
   return input
 }
 
@@ -167,7 +164,7 @@ export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
   const a = fields(d.afterClear, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
   return {
     materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
-      requiresBoat: flag(m.requiresBoat, 'requiresBoat'), requiresPaidFacility: flag(m.requiresPaidFacility, 'requiresPaidFacility'), price: text(m.price, 'price', 2000),
+      ...parseShootingConditions({ requiresBoat: m.requiresBoat, requiresPaidFacility: m.requiresPaidFacility }), price: text(m.price, 'price', 2000),
       photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
     content: draftContent(d.content),
     afterClear: { access: text(a.access, 'afterClear.access', 2000), hours: text(a.hours, 'afterClear.hours', 2000),

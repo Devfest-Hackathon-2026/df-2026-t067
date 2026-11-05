@@ -11,6 +11,7 @@ export interface PublicArea {
   marker: Position
   publishedCount: number
 }
+export interface ShootingConditions { requiresBoat: boolean; requiresPaidFacility: boolean }
 export interface PublicQuest {
   questId: string
   version: number
@@ -18,6 +19,7 @@ export interface PublicQuest {
   clue: string
   areaId: string
   optionalHintImage?: string
+  shootingConditions?: ShootingConditions
   visitConditions: string
   hintCount: number
 }

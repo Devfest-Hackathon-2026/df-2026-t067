@@ -1,6 +1,7 @@
 import { useState, type RefObject } from 'react'
 import ClearExplanationPreview, { type ClearExplanationContent } from './ClearExplanationPreview'
 import type { ManagedQuestDraft, ShootingConditions } from '../../shared/api/admin'
+import { ShootingConditionIndicators } from '../../components/ShootingConditionIndicators'
 
 export type PreviewMode = 'challenge' | 'after-clear'
 
@@ -20,25 +21,13 @@ function shown(value: string) {
   return value.trim() || '未入力'
 }
 
-function ConditionIndicator({ icon, label, accessibleLabel }: { icon: 'boat' | 'admission'; label: string; accessibleLabel: string }) {
-  return <span className="condition-indicator" role="img" aria-label={accessibleLabel} title={accessibleLabel}>
-    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      {icon === 'boat' ? <><path d="M3 14h18l-2 5H7l-4-5Z" /><path d="M8 13V5h8v8M12 5V2M2 21c2 1 3 1 5 0s3-1 5 0 3 1 5 0 3-1 5 0" /></> : <><path d="M4 20V8l8-5 8 5v12" /><path d="M8 20v-7h8v7M8 8h.01M12 8h.01M16 8h.01" /></>}
-    </svg>
-    <span>{label}</span>
-  </span>
-}
-
 function ChallengePreview({ content }: { content: ChallengePreviewContent }) {
   const [openHints, setOpenHints] = useState([false, false, false])
 
   return <article className="traveler-card" id="challenge-preview">
     <header className="challenge-title-row">
       <h3>{shown(content.title)}</h3>
-      {(content.requiresBoat || content.requiresPaidFacility) && <div className="condition-indicators" aria-label="撮影に必要な条件">
-        {content.requiresBoat && <ConditionIndicator icon="boat" label="船上・海上" accessibleLabel="船上・海上での撮影が必要" />}
-        {content.requiresPaidFacility && <ConditionIndicator icon="admission" label="有料施設内" accessibleLabel="有料施設内での撮影が必要" />}
-      </div>}
+      <ShootingConditionIndicators conditions={content} />
     </header>
     <p>{shown(content.question)}</p>
     <section aria-labelledby="preview-area-heading"><h4 id="preview-area-heading">公開探索エリア</h4><p>青葉みらい市の行政区域（デモ用の架空エリア）</p></section>

@@ -2,6 +2,7 @@ import { ATTEMPT_OUTCOMES, ATTEMPT_STATES, REPORT_CATEGORIES } from './types'
 import type {
   AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
   ManagedReport, Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, ReportInput, ReportReceipt, SessionIdentity,
+  ShootingConditions,
 } from './types'
 
 export class ContractError extends Error {
@@ -110,14 +111,21 @@ export function parsePublicArea(input: unknown): PublicArea {
   }
 }
 
+export function parseShootingConditions(input: unknown): ShootingConditions {
+  const { requiresBoat, requiresPaidFacility } = object(input, ['requiresBoat', 'requiresPaidFacility'], 'shootingConditions')
+  if (typeof requiresBoat !== 'boolean' || typeof requiresPaidFacility !== 'boolean') throw new ContractError('shootingConditions')
+  return { requiresBoat, requiresPaidFacility }
+}
+
 export function parsePublicQuest(input: unknown): PublicQuest {
-  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'optionalHintImage', 'visitConditions', 'hintCount'], 'PublicQuest')
+  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'optionalHintImage', 'visitConditions', 'hintCount', 'shootingConditions'], 'PublicQuest')
   const result: PublicQuest = {
     questId: text(d.questId, 'questId'), version: integer(d.version, 'version', 1),
     title: text(d.title, 'title'), clue: text(d.clue, 'clue'), areaId: text(d.areaId, 'areaId'),
     visitConditions: text(d.visitConditions, 'visitConditions'), hintCount: integer(d.hintCount, 'hintCount'),
   }
   if (d.optionalHintImage !== undefined) result.optionalHintImage = imageUrl(d.optionalHintImage, 'optionalHintImage')
+  if (d.shootingConditions !== undefined) result.shootingConditions = parseShootingConditions(d.shootingConditions)
   return result
 }
 
