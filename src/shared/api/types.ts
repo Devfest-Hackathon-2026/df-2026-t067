@@ -57,3 +57,5 @@ export interface Discovery {
 }
 export interface Page<T> { items: T[]; nextCursor: string | null }
 export type Decoder<T> = (input: unknown) => T
+
+export interface QuestHint { questId: string; version: number; index: number; text: string }
