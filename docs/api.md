@@ -162,7 +162,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 [owner-discoveries.md](owner-discoveries.md)が起動・client・保存境界の正本。既存Discoveryを使う本人一覧/詳細に、認証付きJPEG Blob取得と削除受付/追跡を追加した。`DeletionReceipt`は`{deletionId}`、`DeletionStatus`は`{deletionId, state: pending|completed|failed, retryable}`。HTTPから記録作成・編集は提供しない。
 
-既定は保存先未接続の503。`QUEST_DISCOVERIES_MODE=memory`を明示したときだけ空の開発用ストアを起動し、記録応答に`X-Quest-Records-Mode: memory`を付ける。共通clientは明示demo接続の場合だけmemoryを受け付ける。写真照合、回答処理からの記録作成、実DB/Storage、CORRECTは未接続のまま区別する。
+既定は保存先未接続の503。`QUEST_DISCOVERIES_MODE=memory`を明示したときだけ開発用ストアを起動し、記録応答に`X-Quest-Records-Mode: memory`を付ける。共通clientは明示demo接続の場合だけmemoryを受け付ける。設定で本人1人に合成記録を用意できる。回答からの記録作成、実DB/Storage、CORRECTは未接続。[合成記録の設定](owner-discoveries.md#合成記録で一覧写真削除を試す)
 
 ## 12. Dへの用途別写真素材API
 

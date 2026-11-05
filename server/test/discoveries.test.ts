@@ -52,6 +52,28 @@ test('unconfigured records fail closed while explicit empty storage stays distin
   await expectError(await fetch(noAuth.base + listPath, { headers }), 503, 'AUTH_UNAVAILABLE', true)
 })
 
+test('startup fixture is confined to its owner and stays deleted until restart', async (t) => {
+  const { base } = await startServer(t, { verifier, discoveries: await DemoDiscoveryStore.withFixture('owner') })
+  const client = (uid: string) => createApiClient({ expectedDataMode: 'demo', getIdToken: async () => uid,
+    fetch: (url, init) => fetch(base + String(url), init) })
+  const owner = client('owner')
+  const other = client('other')
+  const { items } = await owner.listDiscoveries({ areaId: 'demo-area' })
+  assert.equal(items.length, 1)
+  const [record] = items
+  assert.equal(record.placeName, '架空のデモ記録')
+  assert.deepEqual(await owner.getDiscovery(record.discoveryId), record)
+  assert.equal((await owner.getDiscoveryPhoto(record.discoveryId)).type, 'image/jpeg')
+  assert.deepEqual((await other.listDiscoveries()).items, [])
+  await assert.rejects(other.getDiscovery(record.discoveryId), { code: 'NOT_FOUND' })
+  await assert.rejects(other.getDiscoveryPhoto(record.discoveryId), { code: 'NOT_FOUND' })
+  await assert.rejects(other.deleteDiscovery(record.discoveryId), { code: 'NOT_FOUND' })
+  const deletion = await owner.deleteDiscovery(record.discoveryId)
+  assert.equal((await owner.getDeletion(deletion.deletionId)).state, 'completed')
+  assert.deepEqual((await owner.listDiscoveries()).items, [])
+  await assert.rejects(owner.getDiscoveryPhoto(record.discoveryId), { code: 'NOT_FOUND' })
+})
+
 test('an owner can read a saved snapshot even when its original quest is no longer public', async (t) => {
   const store = new DemoDiscoveryStore()
   const saved = await store.saveFirstClear('owner', { ...input, questId: 'retired-quest', questVersion: 7 }, evidence)

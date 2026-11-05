@@ -56,6 +56,19 @@ test('discovery storage is disabled by default and memory storage must be explic
   }
 })
 
+test('a synthetic discovery owner is explicitly configured and never echoed in errors', () => {
+  const demo = { QUEST_DATA_MODE: 'demo', QUEST_DISCOVERIES_MODE: 'memory' }
+  assert.deepEqual(readConfig({ ...demo, QUEST_DEMO_DISCOVERY_OWNER_UID: 'example-owner' }),
+    { mode: 'demo', port: 8787, demoDiscoveries: true, demoDiscoveryOwnerUid: 'example-owner' })
+  assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_DISCOVERY_OWNER_UID: 'example-owner' }),
+    /requires QUEST_DISCOVERIES_MODE=memory/)
+  for (const uid of ['', ' example-owner', 'example-owner\n', 'example-owner\u007f', 'x'.repeat(129)]) {
+    assert.throws(() => readConfig({ ...demo, QUEST_DEMO_DISCOVERY_OWNER_UID: uid }), {
+      message: 'QUEST_DEMO_DISCOVERY_OWNER_UID must be a valid local UID.',
+    })
+  }
+})
+
 test('admin asset storage requires an explicit memory mode and cannot silently use a real backend', () => {
   assert.equal(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'memory' }).demoAdminAssets, true)
   assert.deepEqual(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'off' }), { mode: 'demo', port: 8787 })
