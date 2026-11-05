@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicArea, PublicQuest } from '../../shared/api/types'
+import type { AuthClient } from '../auth/authTypes'
 import { ApiQuestApp } from './ApiQuestApp'
 import { ApiError } from '../../shared/api/client'
 
@@ -27,6 +28,16 @@ function apiFixture() {
     listQuests: vi.fn().mockResolvedValue(page([{ ...first, title: '一覧表示用タイトル' }, second])),
     getQuest: vi.fn(async (id: string, _options?: { signal?: AbortSignal }) => id === first.questId ? first : second),
     listAreas: vi.fn().mockResolvedValue(page(areas)),
+    getHint: vi.fn().mockResolvedValue({ questId: first.questId, version: first.version, index: 1, text: 'テストヒント' }),
+  }
+}
+
+function signedOutAuth(): AuthClient {
+  const snapshot = { status: 'signed-out' as const, user: null }
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {}, signInWithGoogle: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}), getIdToken: vi.fn(async () => null),
   }
 }
 
@@ -42,6 +53,29 @@ describe('APIから問題を表示', () => {
     expect(window.location.search).toBe('?campaign=spring&area=area-b&quest=quest-b')
     expect(window.location.hash).toBe('#map')
     expect(window.history.length).toBe(before)
+  })
+
+  it('409で古いヒントと挑戦を止め、既存再読込を案内する', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, hintCount: 2 }
+    const api = apiFixture()
+    const latest = { ...quest, version: quest.version + 1 }
+    api.getQuest.mockResolvedValueOnce(quest).mockResolvedValue(latest)
+    api.getHint.mockRejectedValueOnce(new ApiError('QUEST_CHANGED', { status: 409 }))
+      .mockResolvedValue({ questId: latest.questId, version: latest.version, index: 1, text: '最新版ヒント' })
+    render(<ApiQuestApp api={api} syncUrl={false} authClient={signedOutAuth()} />)
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
+    expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '最新版の問題を読み直す' }))
+    await waitFor(() => expect(api.getQuest).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByText('最新版ヒント')).toBeVisible()
   })
 
   it('地域・問題操作を履歴に積み、戻る・進むを選択へ反映する', async () => {

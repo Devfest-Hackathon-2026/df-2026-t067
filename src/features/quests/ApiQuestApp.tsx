@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import App from '../../App'
+import type { AuthClient } from '../auth/authTypes'
 import { ApiError, createApiClient } from '../../shared/api/client'
 import type { Page, PublicArea, PublicQuest } from '../../shared/api/types'
 
-type Api = Pick<ReturnType<typeof createApiClient>, 'listQuests' | 'getQuest' | 'listAreas'>
+type Api = Pick<ReturnType<typeof createApiClient>, 'listQuests' | 'getQuest' | 'listAreas' | 'getHint'>
 type Result = {
   api: Api; selection: string; areaSelection: string; retry: number
   state: 'loading' | 'ready' | 'empty' | 'error'
@@ -40,12 +41,13 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
   return items
 }
 
-export function ApiQuestApp({ api: providedApi, syncUrl = true }: { api?: Api; syncUrl?: boolean }) {
+export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { api?: Api; syncUrl?: boolean; authClient?: AuthClient }) {
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo' }), [providedApi])
   const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
   const [selectedId, setSelectedId] = useState(initialSelection.questId)
   const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
   const [retry, setRetry] = useState(0)
+  const [staleQuest, setStaleQuest] = useState<{ questId: string; version: number } | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const catalog = useRef<{ api: Api; choices: Map<string, PublicQuest[]>; areas?: PublicArea[] } | null>(null)
 
@@ -149,11 +151,13 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true }: { api?: Api; s
       {!choices.length && <option value="">{state === 'loading' ? '問題を読み込み中' : '選べる問題がありません'}</option>}
       {choices.map((item) => <option key={item.questId} value={item.questId}>{item.title}</option>)}
     </select>
-    <p>問題と地域名は公開APIから取得しています。地図は静的なプレビューで、問題の位置を示しません。</p>
+    <p>問題と地域名は公開APIから取得しています。架空の問題の位置は地図に表示しません。</p>
   </div>
 
   return state === 'ready' && current?.quest
-    ? <App quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode
+    ? <App authClient={authClient} quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode getHint={api.getHint}
+        questStale={staleQuest?.questId === current.quest.questId && staleQuest.version === current.quest.version}
+        onHintVersionStale={() => setStaleQuest({ questId: current.quest!.questId, version: current.quest!.version })}
         onReloadQuest={() => { catalog.current = null; setRetry((value) => value + 1) }} />
     : <main className="api-load-state" aria-live="polite">
       <p className="eyebrow">公開APIデモ</p>
