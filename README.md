@@ -31,7 +31,25 @@ npm run check
 
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)も追加しました。実サーバー・判定・保存は未接続です。Google認証は別途接続しました。
+A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)に加え、別パッケージとして[ローカルAPIの土台](server/README.md)を追加しました。Web画面からこのAPIへの接続、写真判定、保存はまだありません。Google認証のブラウザ側は別途接続済みです。
+
+## A担当のローカルAPIを試す
+
+実在しない地域・問題だけを返す開発用サーバーです。Firebase未設定でも公開GETを確認できます。認証確認の`GET /api/v1/session`は、設定なしなら503を返します。起動手順・認証の設定・制限は[server/README.md](server/README.md)、契約は[APIの実装範囲](docs/api.md#9-ローカルapiの土台)を確認してください。
+
+```sh
+npm --prefix server ci --ignore-scripts
+QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
+```
+
+`http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
+
+Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
+
+```sh
+npm run check
+npm --prefix server run check
+```
 
 ## 最初に読む資料
 
