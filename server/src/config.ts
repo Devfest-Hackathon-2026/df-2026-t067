@@ -3,6 +3,8 @@ export interface ServerConfig {
   port: number
   firebaseProjectId?: string
   demoLocation?: true
+  demoMembershipsFile?: string
+  demoDiscoveries?: true
 }
 
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
@@ -31,9 +33,20 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const port = Number(portText)
   if (!/^[1-9]\d{0,4}$/.test(portText) || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.')
   const config: ServerConfig = { mode: env.QUEST_DATA_MODE, port }
+  if (env.QUEST_DISCOVERIES_MODE !== undefined && env.QUEST_DISCOVERIES_MODE !== 'off') {
+    if (env.QUEST_DISCOVERIES_MODE !== 'memory') throw new Error('QUEST_DISCOVERIES_MODE must be off or memory.')
+    config.demoDiscoveries = true
+  }
   if (env.QUEST_LOCATION_MODE !== undefined && env.QUEST_LOCATION_MODE !== 'off') {
     if (env.QUEST_LOCATION_MODE !== 'demo') throw new Error('QUEST_LOCATION_MODE must be off or demo.')
     config.demoLocation = true
+  }
+  if (env.QUEST_DEMO_MEMBERSHIPS_FILE !== undefined) {
+    const file = env.QUEST_DEMO_MEMBERSHIPS_FILE
+    if (!file.startsWith('/') || file.length > 4096 || Array.from(file).some((char) => char.charCodeAt(0) < 32)) {
+      throw new Error('QUEST_DEMO_MEMBERSHIPS_FILE must be an absolute local file path.')
+    }
+    config.demoMembershipsFile = file
   }
   if (env.FIREBASE_PROJECT_ID !== undefined) {
     assertProjectId(env.FIREBASE_PROJECT_ID)

@@ -1,7 +1,7 @@
 import { ATTEMPT_OUTCOMES, ATTEMPT_STATES } from './types'
 import type {
-  AttemptResult, CaptureMetadata, Challenge, Decoder, Discovery, LngLat,
-  Page, Position, PublicArea, PublicGeometry, PublicQuest, SessionIdentity,
+  AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
+  Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, SessionIdentity,
 } from './types'
 
 export class ContractError extends Error {
@@ -175,4 +175,24 @@ export function parseDiscovery(input: unknown): Discovery {
 export function parsePage<T>(input: unknown, parseItem: Decoder<T>): Page<T> {
   const d = object(input, ['items', 'nextCursor'], 'Page')
   return { items: list(d.items, parseItem, 'items'), nextCursor: d.nextCursor === null ? null : text(d.nextCursor, 'nextCursor') }
+}
+
+export function parseQuestHint(input: unknown): QuestHint {
+  const d = object(input, ['questId', 'version', 'index', 'text'], 'QuestHint')
+  return { questId: text(d.questId, 'questId'), version: integer(d.version, 'version', 1),
+    index: integer(d.index, 'index', 1), text: text(d.text, 'text') }
+}
+
+export function parseDeletionReceipt(input: unknown): DeletionReceipt {
+  const d = object(input, ['deletionId'], 'DeletionReceipt')
+  const deletionId = text(d.deletionId, 'deletionId')
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(deletionId)) throw new ContractError('deletionId')
+  return { deletionId }
+}
+
+export function parseDeletionStatus(input: unknown): DeletionStatus {
+  const d = object(input, ['deletionId', 'state', 'retryable'], 'DeletionStatus')
+  const state = oneOf(d.state, ['pending', 'completed', 'failed'], 'state')
+  if (typeof d.retryable !== 'boolean' || (state === 'completed' && d.retryable)) throw new ContractError('retryable')
+  return { ...parseDeletionReceipt({ deletionId: d.deletionId }), state, retryable: d.retryable }
 }

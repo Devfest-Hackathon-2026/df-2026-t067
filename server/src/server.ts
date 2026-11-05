@@ -1,7 +1,12 @@
+import { createAdminHandler } from './admin-http'
+import type { MembershipLookup } from './admin-http'
+import type { DemoAdminStore } from './admin'
+import { createDiscoveryHandler } from './discoveries-http'
+import type { DiscoveryRepository } from './discoveries'
 import { randomUUID } from 'node:crypto'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parsePage, parsePublicArea, parsePublicQuest } from '../../src/shared/api/validation'
+import { parsePage, parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
 import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
 import { DemoChallengeStore } from './challenges'
@@ -16,6 +21,9 @@ import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from
 
 export interface ServerOptions {
   mode: 'demo'
+  admin?: DemoAdminStore
+  memberships?: MembershipLookup
+  discoveries?: DiscoveryRepository
   nodeEnv?: string
   verifier?: IdTokenVerifier
   challenges?: DemoChallengeStore
@@ -45,9 +53,12 @@ function requestTarget(request: IncomingMessage): { path: string; params: URLSea
 export function createServer(options: ServerOptions) {
   assertDemoMode(options.mode, options.nodeEnv ?? process.env.NODE_ENV)
   assertNoAuthEmulator(process.env)
-  const { areas, quests } = createDemoData()
+  const { areas, quests, hints } = createDemoData()
   const challenges = options.challenges ?? new DemoChallengeStore()
   const answers = options.answers ?? new DemoAnswerStore()
+  const adminHandler = createAdminHandler({ store: options.admin, memberships: options.memberships,
+    areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
+  const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
     // Keep POST bodies paused while authentication runs. Only bounded readers
     // consume them; ignored/error bodies are drained after handling.
@@ -62,7 +73,7 @@ export function createServer(options: ServerOptions) {
         : new HttpError(500, 'SYSTEM_ERROR', '処理を完了できませんでした。', true)
       if (failure.status === 401) response.setHeader('WWW-Authenticate', 'Bearer')
       if (failure.retryAfterSeconds !== undefined) response.setHeader('Retry-After', String(failure.retryAfterSeconds))
-      if (request.method === 'POST' && !request.readableEnded) {
+      if ((request.method === 'POST' || request.method === 'PATCH') && !request.readableEnded) {
         response.shouldKeepAlive = false
         response.setHeader('Connection', 'close')
       }
@@ -78,10 +89,14 @@ export function createServer(options: ServerOptions) {
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const { path, params } = requestTarget(request)
+    if (await discoveryHandler(request, response, path, params)) return
+    if (await adminHandler(request, response, path, params)) return
+    const hintPath = /^\/api\/v1\/quests\/([^/]+)\/hints\/([^/]+)$/.exec(path)
     const isDetail = path.startsWith('/api/v1/quests/')
     const isStart = path === '/api/v1/challenges'
     const answerPath = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
     const attemptPath = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
+    if (isDetail && !hintPath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || answerPath || attemptPath
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const method = isStart || answerPath ? 'POST' : 'GET'
@@ -89,7 +104,20 @@ export function createServer(options: ServerOptions) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    if (answerPath) {
+    if (hintPath) {
+      validateQuery(params, ['expectedVersion'])
+      const questId = parseId(decodeURIComponent(hintPath[1]))
+      const rawIndex = decodeURIComponent(hintPath[2])
+      const rawVersion = params.get('expectedVersion') ?? ''
+      if (![rawIndex, rawVersion].every((value) => /^[1-9]\d{0,15}$/.test(value) && Number.isSafeInteger(Number(value)))) invalidInput()
+      const quest = quests.find((item) => item.questId === questId)
+      if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
+      if (quest.version !== Number(rawVersion)) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+      const index = Number(rawIndex)
+      const text = hints.get(questId)?.[index - 1]
+      if (!text || index > quest.hintCount) throw new HttpError(404, 'NOT_FOUND', 'ヒントが見つかりません。')
+      send(response, 200, parseQuestHint({ questId, version: quest.version, index, text }))
+    } else if (answerPath) {
       const uid = await authenticate(request)
       validateQuery(params, [])
       const challenge = challenges.getOwned(parseId(decodeURIComponent(answerPath[1])), uid)

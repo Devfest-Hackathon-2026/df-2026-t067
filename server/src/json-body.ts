@@ -3,9 +3,7 @@ import { HttpError, invalidInput } from './errors'
 import { parseId } from './query'
 import { readBody } from './request-body'
 
-const maximumBytes = 4096
-
-export async function readChallengeInput(request: IncomingMessage): Promise<{ questId: string; expectedVersion: number }> {
+export async function readJsonObject(request: IncomingMessage, maximumBytes = 4096): Promise<Record<string, unknown>> {
   const contentTypes = request.rawHeaders.filter((_, index) => index % 2 === 0)
     .filter((name) => name.toLowerCase() === 'content-type').length
   if (contentTypes > 1) invalidInput()
@@ -19,7 +17,11 @@ export async function readChallengeInput(request: IncomingMessage): Promise<{ qu
   let data: unknown
   try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) } catch { invalidInput() }
   if (!data || typeof data !== 'object' || Array.isArray(data)) invalidInput()
-  const input = data as Record<string, unknown>
+  return data as Record<string, unknown>
+}
+
+export async function readChallengeInput(request: IncomingMessage): Promise<{ questId: string; expectedVersion: number }> {
+  const input = await readJsonObject(request)
   if (Object.keys(input).sort().join(',') !== 'expectedVersion,questId' || typeof input.questId !== 'string' ||
     typeof input.expectedVersion !== 'number' || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) invalidInput()
   return { questId: parseId(input.questId), expectedVersion: input.expectedVersion }

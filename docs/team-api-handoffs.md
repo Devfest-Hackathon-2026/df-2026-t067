@@ -1,0 +1,95 @@
+# B/D向けのAPI接続手順
+
+[進捗Issue #19](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/19)のA待ちを減らすための追加。既存の共通clientを使う。写真照合とVertex設定は既存の別作業で継続する。
+
+このサーバーは`QUEST_DATA_MODE=demo`専用でlocalhostに待ち受ける。管理下書きは**サーバープロセス内の一時保存**で再起動すると消える。実Firestore/Storage・自治体招待・画像アップロード・AI生成・試験・公開/休止は未接続。実利用者・実地点の素材を投入しない。
+
+C向けの本人記録一覧/詳細・写真・削除は[本人記録API接続手順](owner-discoveries.md)を参照する。保存先未接続を空一覧や保存成功へ置き換えず、記録を作るHTTPは提供しない。
+
+## B：段階ヒント
+
+```ts
+import { createApiClient } from '../src/shared/api'
+const api = createApiClient({ expectedDataMode: 'demo' })
+const quest = await api.getQuest('demo-quest')
+const hint = await api.getHint({
+  questId: quest.questId,
+  expectedVersion: quest.version,
+  index: 1,
+}, { signal: controller.signal })
+// hint: { questId, version, index, text }
+```
+
+- `GET /api/v1/quests/:questId/hints/:index?expectedVersion=N`。認証不要でtokenを送らない。
+- indexは**1始まり**。画面は`1〜quest.hintCount`の通常ヒントを明示操作で1つずつ取得する。架空の3問には各3つの通常ヒントがある。
+- 版違いは409 `QUEST_CHANGED`。詳細を取得し直し、旧版のヒント表示を破棄する。不存在・範囲外の番号は404 `NOT_FOUND`、不正な値は400 `INVALID_INPUT`。
+- 取得失敗・0件・未取得を区別する。問題切替、再取得、画面離脱ではAbortSignalと画面側の応答世代チェックで古い応答を破棄する。
+- 通常ヒントは本文だけ。正解名・座標・参考全景を自動追加しない。明示的最終案内`reveal`は未実装で404。第3ヒントをrevealの代用にしない。訪問条件は通常の詳細に表示する。
+- Bの画面自体はこの変更に含めない。このclientを既存T02へ接続できる。
+
+## D：所属と下書き保存
+
+入口は`src/shared/api/index.ts`、追加の型は`src/shared/api/admin.ts`。DのA03の素材項目とA04の`DraftFields`に合わせた構造で、別のDTOをコピーして作らない。
+
+| client | HTTP | 返却 |
+|---|---|---|
+| `listMemberships(query?, call?)` | GET `/me/memberships` | `Page<OrgMembership>` |
+| `listManagedQuests(orgId, query?, call?)` | GET `/orgs/:orgId/quests` | `Page<ManagedQuest>` |
+| `getManagedQuest(orgId, questId, call?)` | GET `/orgs/:orgId/quests/:questId` | `ManagedQuest` |
+| `createManagedQuest(orgId, draft, call?)` | POST `/orgs/:orgId/quests` | 初回201 `ManagedQuest` |
+| `updateManagedQuest(orgId, questId, input, call?)` | PATCH `/orgs/:orgId/quests/:questId` | 200 `ManagedQuest` |
+
+全て毎回最新のFirebase ID tokenを送信する。`createApiClient({ expectedDataMode: 'demo', getIdToken: authClient.getIdToken })`を使う。生成しただけでは通信しない。list系は`cursor/limit`（既定20、上限100）でページングする。
+
+### 開発用の所属を設定する
+
+1. `server/demo-admin-memberships.example.json`を**リポジトリ外のローカルファイル**へコピーする。
+2. 自分のFirebase uidを`uid`へ設定し、架空の`demo-org`と`demo-area`を使う。実自治体の所属設定ではない。Googleログインだけで所属が作られることはない。
+3. `.env.local`に`QUEST_DATA_MODE=demo`、既存の`FIREBASE_PROJECT_ID`、`QUEST_DEMO_MEMBERSHIPS_FILE=/絶対パス/local-memberships.json`を設定する。`VITE_`を付けない。既存の[認証・API接続設定](local-api.md)も使う。
+4. `npm run dev:api`と`npm run dev`で起動し、Dの認証済み接続から呼び出す。既存の`/admin-demo`は未認証の端末内デモのままで、自動接続しない。
+
+未設定の所属は一覧が空、管理操作は403 `FORBIDDEN`。未ログイン401、Firebase未設定503 `AUTH_UNAVAILABLE`。所属設定ファイルが読めない・不正なら503 `SYSTEM_ERROR`で拒否し、成功デモへ切り替えない。
+
+`active: false`へ変更すると次の操作から拒否する。ファイルは要求ごとに読み直し、本文受信後の保存直前にも再確認する。役割は`editor`または`publisher`で、両方とも下書き編集だけを使える。どちらにも公開機能は提供しない。実サービスの所属・失効確認は別の実装・検証が必要。
+
+### 入力と保存結果
+
+```ts
+const draft: ManagedQuestDraft = {
+  materials: {
+    name: '', evidence: '', availableModes: [], requiredModes: [],
+    access: '', hours: '', price: '', photoNote: '', photoRights: '',
+  },
+  content: {
+    title: '', question: '', hints: ['', '', ''],
+    verifiedFeatures: '', draftingNotes: '',
+  },
+  referenceAssetId: null,
+  hintAssetId: null,
+}
+const created = await api.createManagedQuest(orgId, draft)
+const saved = await api.updateManagedQuest(orgId, created.questId, {
+  expectedDraftRevision: created.draftRevision,
+  draft: editedDraft,
+})
+```
+
+- `OrgMembership`は`{orgId, label, role, areaId}`。uidやactiveを画面から返送して認可しない。公開エリアは所属側の設定で決め、bodyのorgId/areaId/role/statusは拒否する。
+- `materials`はA03に対応。交通手段は`徒歩 / 車 / 電車・バス / 船 / 自転車 / その他`。必須手段は利用可能手段の部分集合。`content`はA04の項目でhintsは3要素。未完成の空欄を保存でき、保存成功は公開可能との判定ではない。
+- `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft', shootingAreaStatus:'unconfigured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
+- 上限はHTTP本文64 KiB、名称/タイトル200文字、本文/根拠/メモ4000文字、各ヒント/その他素材欄2000文字。開発用の入力保護で、本番O-03を確定しない。下書きは自治体100件・全体1000件で新規作成を停止する。
+- 更新は**draft全体の置換**。現在のrevisionを指定し、成功時に1増える。同時保存は片方だけが成功し、もう片方は409 `DRAFT_CONFLICT`。画面の編集中データを保持して最新版を取得し、人が差分を確認してから再保存する。競合時の自動上書きは禁止。
+- 新規作成は自動再送しない。通信断ではまず一覧を確認して二重作成を避ける。再起動時の消失、保存容量、通信失敗を永続保存成功と表示しない。
+
+### 画像・試験・公開の境界
+
+- `referenceAssetId`は用途`reference`、`hintAssetId`は用途`public_hint`の登録素材だけ。同じ組織・用途をサーバーで検証する。他自治体、未知のID、参考写真の公開流用は400で拒否する。
+- asset型は`{assetId, orgId, purpose}`。バイナリの受付と認可付き取得は未実装。通常起動のasset台帳は空なので、現段階の保存では両方nullにする。`File`、blob URL、data URLをassetIdとして送らない。ブラウザの参考写真は引き続き端末内だけに保持する。
+- 非公開の撮影地点や半径は未設定。設定できたように見せず、`shootingAreaStatus: 'unconfigured'`を示す。
+- `generate/test/submit-review/publish/pause/assets`の操作は未実装で404。下書き保存で旅行者の発見記録や公開問題を作らない。AI生成・試験・公開ができるとの表示は追加しない。
+
+## 検証範囲
+
+`npm run check`と`npm --prefix server run check`を実行する。実HTTPと共通clientで通常ヒント・版競合・認証・所属取消・組織/素材分離・同時保存・入力上限を確認する。Firebase verifierをテスト用境界に置き換えた管理APIテストであり、実Googleログイン、実スマートフォン、実自治体権限、実画像・実クラウド保存の確認ではない。
+
+2026-11-05の実行結果：Web `npm run check` は18ファイル230テスト・型/lint/build成功。server `npm --prefix server run check` は108テスト・型/lint/build成功。新規の所属取消・保存競合・公開DTO分離などを実HTTPで確認した。差分の自己レビューを実施し、相対リンクと`git diff --check`も成功。第三者レビューと実Firebase所属接続は未実施。

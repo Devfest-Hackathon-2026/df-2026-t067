@@ -6,13 +6,13 @@ import type { CaptureMetadata } from '../../src/shared/api/types'
 import type { LocationPolicy, LocationValidation } from '../src/location'
 import { createDemoLocationValidation } from '../src/demo-location'
 import { expectError, startServer } from './helpers'
+import { syntheticPng as photo } from './photo-fixtures'
 
 const fixedNow = Date.parse('2026-11-05T06:00:00Z')
 const policy: LocationPolicy = {
   zones: [{ latitude: 0, longitude: 0, radiusMeters: 100 }], maxAccuracyMeters: 50,
   maxAgeMs: 120_000, maxFutureSkewMs: 5000, maxCaptureMeasurementGapMs: 30_000,
 }
-const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jvX0AAAAASUVORK5CYII=', 'base64')
 function metadata(latitude = 0, accuracyMeters = 10): CaptureMetadata {
   return { capturedAt: '2026-11-05T06:00:00Z', position: { latitude, longitude: 0, accuracyMeters, measuredAt: '2026-11-05T06:00:00Z' } }
 }
