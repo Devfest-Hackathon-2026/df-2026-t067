@@ -75,3 +75,11 @@ npm exec --yes --package=firebase-tools@15.35.0 -- firebase deploy --only hostin
 `npm run check` は型検査・lint・223テスト・ビルドが成功。公開対象の8ファイル全てがHTTPS 200でローカル成果物とSHA-256で一致し、`/` と `/admin-demo` の直接アクセスも成功した。実ChromeでPC・スマホ幅の計5表示を確認し、Neobrutalismの配色、問題の開閉、ゲスト閲覧状態、Googleログイン用ボタンが有効であることを確認した。
 
 実Google認証の完了、実スマートフォンの撮影・GPS取得は今回未検証。MinimalismとGlassmorphismの比較案はローカルにのみ保持し、公開していない。
+
+## 補助説明を整理した版への更新記録
+
+2026-11-05、mainの `924f3ce`（PR #25）を同じ共有URLへ公開した。重複する補助説明を減らし、問題カードの地域・問題名・操作を分けた版。必要なラベル、権限説明、デモの注意を残し、既存のFirebase設定と `preview` モードを維持した。Hostingのみを更新した。
+
+`npm run check` は型検査・lint・223テスト・ビルドが成功。公開対象8ファイル全てがHTTPS 200で検証済みビルドとSHA-256で一致した。実ChromeのPC・スマホ幅の計5表示で、整理後の問題カード、地図画像、問題開閉、ゲスト状態、ログインボタンの有効状態、自治体デモを確認した。スマホの地図操作ボタンとデモの注意文の重なりもない。
+
+トップの `/` と `/admin-demo` にもHTMLの `Cache-Control: no-cache` を適用し、公開レスポンスで確認した。ハッシュ付き `assets` の長期キャッシュは維持する。実Google認証の完了、実機の撮影・GPS取得は今回未検証。
