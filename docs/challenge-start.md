@@ -60,4 +60,4 @@ const challenge = await api.createChallenge({
 
 2026-11-05、実Googleログイン済みのChromeから同じローカルAPIへのPOST正常系を確認した。開始後の撮影画面と、終了後の開始済み表示を確認し、token・uid・実写真を検証資料へ残していない。
 
-実Firestore/Storage、挑戦の永続化、写真送信、GPS、AI判定、クリア確定、組織認可は未実装または未検証。デモの本番起動・Auth Emulatorは引き続き拒否する。クラウド設定・API有効化・課金・デプロイは行わない。
+実Firestore/Storage、挑戦の永続化、写真とGPSの送信、AI判定、クリア確定、組織認可は未実装または未検証。撮影時のGPS取得と写真との一時的な結合は[撮影画面](camera-preview.md#撮影時の位置情報)に実装し、実GPSは未検証。デモの本番起動・Auth Emulatorは引き続き拒否する。クラウド設定・API有効化・課金・デプロイは行わない。
