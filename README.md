@@ -48,6 +48,8 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 
 認証後に利用者・問題・版を結び付ける[挑戦開始API](docs/challenge-start.md)も追加しました。`local-api`モードでは「挑戦を始める」で開始を確認してから撮影画面を開きます。開発用の一時管理で、再起動すると消えます。写真送信・保存は未実装です。
 
+サーバーには[開発用の回答受付・本人照会API](docs/answer-intake.md)を追加しました。写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。画面からの送信、判定、画像保存は未接続で、開発用受付はRECEIVEDのまま進みません。
+
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
 ```sh

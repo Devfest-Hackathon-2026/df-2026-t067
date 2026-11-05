@@ -126,13 +126,15 @@ function httpError(response: Response, payload: unknown): ApiError {
   })
 }
 
-function liveAttempt(input: unknown): AttemptResult {
+function liveAttempt(input: unknown, allowDemoReceipt = false): AttemptResult {
   const result = parseAttemptResult(input)
-  if (result.source !== 'real') throw new ContractError('source')
+  const demoReceipt = allowDemoReceipt && result.source === 'mock' && result.state === 'RECEIVED' && result.nextAction === 'WAIT'
+  if (result.source !== 'real' && !demoReceipt) throw new ContractError('source')
   return result
 }
 
 export function createApiClient(options: ApiClientOptions = {}) {
+  const decodeAttempt = (input: unknown) => liveAttempt(input, options.expectedDataMode === 'demo')
   const base = (options.basePath ?? '/api/v1').replace(/\/+$/, '')
   if (!/^\/[A-Za-z0-9/_-]+$/.test(base) || base.includes('//')) throw new ApiError('INVALID_INPUT')
 
@@ -222,13 +224,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
       const body = new FormData()
       body.append('photo', input.photo, 'capture')
       body.append('metadata', JSON.stringify(metadata))
-      return request('/challenges/' + challengeId + '/answers', liveAttempt, {
+      return request('/challenges/' + challengeId + '/answers', decodeAttempt, {
         ...call, authenticated: true, method: 'POST', body, attempt: true,
         headers: { 'Idempotency-Key': input.idempotencyKey },
       })
     },
     async getAttempt(attemptId: string, call: CallOptions = {}) {
-      return request('/attempts/' + id(attemptId), liveAttempt, { ...call, authenticated: true, attempt: true })
+      return request('/attempts/' + id(attemptId), decodeAttempt, { ...call, authenticated: true, attempt: true })
     },
     async listDiscoveries(query: ListQuery = {}, call: CallOptions = {}) {
       return request('/me/discoveries' + queryString(query), (data) => parsePage(data, parseDiscovery), { ...call, authenticated: true })
