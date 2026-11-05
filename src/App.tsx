@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { MapPreview } from './features/explore/MapPreview'
+import { CameraPreview } from './features/capture/CameraPreview'
 import { readDataSource, useQuestConnection, useServerIdentity } from './features/explore/useQuestConnection'
 import { Icon } from './components/Icon'
 import { createApiClient } from './shared/api'
@@ -17,9 +18,9 @@ function connectionNotice(auth: AuthSnapshot): { title: string; description: str
     case 'checking':
       return { title: 'ログイン状態を確認中', description: '問題はそのまま閲覧できます。しばらくお待ちください。' }
     case 'signed-out':
-      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。撮影・写真判定・記録保存は準備中です。' }
+      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。写真判定・記録保存は準備中です。' }
     case 'signed-in':
-      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。撮影・写真判定・記録保存は準備中です。' }
+      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。写真判定・記録保存は準備中です。' }
   }
 }
 
@@ -35,6 +36,11 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const connection = useQuestConnection(source, api)
   const quest = connection.result.status === 'ready' ? connection.result.value : null
   const serverIdentity = useServerIdentity(source === 'local-api', api, auth)
+  const uid = auth.status === 'signed-in' ? auth.user.uid : null
+  const canUseCamera = uid !== null && (source !== 'local-api' || serverIdentity.result?.status === 'ready')
+  const [cameraOwner, setCameraOwner] = useState<{ auth: AuthSnapshot; confirmation: typeof serverIdentity.result } | null>(null)
+  const closeCamera = useCallback(() => setCameraOwner(null), [])
+  const cameraVisible = canUseCamera && cameraOwner !== null && cameraOwner.auth === auth && cameraOwner.confirmation === serverIdentity.result
   const [pending, setPending] = useState<'sign-in' | 'sign-out' | null>(null)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
   const notice = connectionNotice(auth)
@@ -52,6 +58,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
 
   async function logout() {
     if (pending) return
+    closeCamera()
     setFeedback(null)
     setPending('sign-out')
     try { await authClient.signOut() }
@@ -70,7 +77,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
           <span className="brand-copy">全国観光謎アプリ<small>謎から、旅へ。</small></span>
         </div>
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
-          <a className="nav-active" href="#explore-title" aria-current="page"><Icon name="map" />謎を探す</a>
+          <a className="nav-active" href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" />謎を探す</a>
           <button type="button" disabled><Icon name="book" />自分の記録<span>準備中</span></button>
         </nav>
         <div className="account-area">
@@ -99,6 +106,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
 
           <div className="explore-workspace">
             <MapPreview selected={isQuestOpen && quest !== null} disabled={!quest} areaLabel={quest?.areaLabel} onSelectQuest={() => {
+              closeCamera()
               setIsQuestOpen(true)
               questCard.current?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
             }} />
@@ -117,7 +125,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                   <p className="quest-intro">文章のヒントから、街の中に隠れた場所を見つけよう。</p>
                   <button type="button" className={'quest-toggle' + (isQuestOpen ? ' is-open' : '')}
                     aria-expanded={isQuestOpen} aria-controls="demo-quest-details"
-                    onClick={() => setIsQuestOpen(!isQuestOpen)}>
+                    onClick={() => { closeCamera(); setIsQuestOpen(!isQuestOpen) }}>
                     <span>{isQuestOpen ? '問題を閉じる' : '問題を見てみる'}</span><Icon name="arrow" />
                   </button>
                   {isQuestOpen && (
@@ -127,21 +135,22 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       <p className="clue-text">{quest.clue}</p>
                       <p className="sample-note">{quest.visitConditions}</p>
                       <button type="button" className="primary-button"
-                        disabled={auth.status !== 'signed-out' || pending !== null}
-                        onClick={login} aria-describedby="login-unavailable">
+                        disabled={pending !== null || cameraVisible || (auth.status === 'signed-in' ? !canUseCamera : auth.status !== 'signed-out')}
+                        onClick={auth.status === 'signed-in' ? () => { if (canUseCamera) setCameraOwner({ auth, confirmation: serverIdentity.result }) } : login} aria-describedby="login-unavailable">
                         {auth.status === 'signed-in' ? serverIdentity.result?.status === 'loading' ? 'ログインの確認中…'
-                          : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : 'ログイン済み・撮影機能は準備中'
+                          : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : cameraVisible ? '撮影中' : '撮影を始める'
                           : pending === 'sign-in' ? 'Googleログイン中…' : 'Googleログインして挑戦する'}
                       </button>
                       <p id="login-unavailable" className="unavailable-note" role={serverIdentity.result && serverIdentity.result.status !== 'error' ? 'status' : undefined}>
                         {auth.status === 'signed-in' ? serverIdentity.result?.status === 'loading' ? 'ログインを確認しています…'
-                          : serverIdentity.result?.status === 'ready' ? 'ログインを確認しました。撮影機能は準備中です。'
+                          : serverIdentity.result?.status === 'ready' ? 'ログインを確認しました。写真はこの画面で確認するだけです。'
                             : serverIdentity.result?.status === 'error' ? '問題の閲覧は続けられます。'
-                              : '選んだ問題を表示しています。撮影機能ができるまでお待ちください。'
+                              : '架空の問題です。写真はこの画面で確認するだけで、送信・保存しません。'
                           : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
                             : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
                               : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
                       </p>
+                      {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
                       {serverIdentity.result?.status === 'error' && <div className="auth-feedback">
                         <p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p>
                         <button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button>
@@ -164,7 +173,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       </main>
       <footer className="site-footer"><span>謎を見つけて、街と出会う。</span><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
-        <a href="#explore-title" aria-current="page"><Icon name="map" /><span>謎を探す</span></a>
+        <a href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" /><span>謎を探す</span></a>
         <button type="button" disabled><Icon name="book" /><span>自分の記録<small>準備中</small></span></button>
       </nav>
     </>
