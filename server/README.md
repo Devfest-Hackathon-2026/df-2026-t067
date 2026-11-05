@@ -1,17 +1,17 @@
 # ローカルAPI（架空デモ専用）
 
-Node **26.7.0** / npm **11.19.0**。この独立パッケージは架空データの読み取り、Firebase ID tokenの検証確認、開発用の挑戦開始と[回答受付](../docs/answer-intake.md)、明示モードの[GPS検査](../docs/gps-validation.md)を実装する。Firestore、永続保存、実地点の判定・写真照合、自治体権限は含まない。実データのアダプターは未実装で、接続失敗をデモ成功へ切り替える処理もない。
+Node **26.7.0** / npm **11.19.0**。この独立パッケージは架空の公開データ、Firebase ID token検証、挑戦開始、写真と位置の受付を提供する。開発用の所属・下書き・公開・休止、報告、本人記録もローカルで試せる。実回答の写真照合worker、Firestore/Storageへの永続保存、実際の自治体権限は未接続。[画面と追加設定](../README.md#現在の状態)
 
 リポジトリのルートから実行する。
 
 ```sh
 npm --prefix server ci --ignore-scripts
-QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
+QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
 `http://127.0.0.1:8787/health` と `http://127.0.0.1:8787/api/v1/quests` を開く。終了はCtrl+C。`PORT`で1〜65535の整数を指定できる。実行ファイルはIPv4ループバック`127.0.0.1`だけにbindする。`SIGINT`/`SIGTERM`で受付を停止し、接続は最大5秒で閉じ、Firebaseアプリも解放する。
 
-`npm run dev`はビルド後に起動する。変更時は再実行する。ビルド済みなら`QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server start`でも起動できる。`src/server.ts`の`createServer`は未listenのNode HTTP Serverを返し、importだけでは起動しない。`src/main.ts`もimport時には起動しない。
+`dev:api` はビルド後にルートの `.env.local` を読み込んで起動する。変更時は再実行する。ビルド済みで必要な環境変数をシェルから渡す場合は `npm --prefix server start` でも起動できる。`src/server.ts` の `createServer` は未listenのNode HTTP Serverを返す。`src/main.ts` もimport時には起動しない。
 
 ## デモと起動設定
 
@@ -109,7 +109,7 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 `POST /api/v1/challenges/:challengeId/answers`は本人の挑戦・multipartのphoto/metadata・Idempotency-Keyを検証し、既定では202のRECEIVED/source:mockを返す。`GET /api/v1/attempts/:attemptId`は本人だけが受付を照会できる。同内容の再送では同じ受付を返し、違う内容は409。画像や位置を保存せず、hashと受付だけを上限付きメモリに保持する。
 
-**画面送信・判定workerは未接続でRECEIVEDから進まない。** 写真4MiB、本文受信5秒、同時4件、利用者10要求/60秒、受付256件の開発用制限を置く。画像は実デコード・正規化し、ヘッダーだけの偽画像を成功扱いにしない。詳細は[回答受付API](../docs/answer-intake.md)を参照する。
+開発画面から写真と位置を送信し、受付状態を照会できる。写真判定workerは未接続のため、`RECEIVED` になった回答は受付済みのまま。写真4MiB、本文受信5秒、同時4件、利用者10要求/60秒、受付256件の開発用制限を置く。画像は実デコード・正規化し、ヘッダーだけの偽画像を拒否する。[回答受付API](../docs/answer-intake.md)
 
 [開発用の内部回答処理](../docs/answer-processing.md)は既存受付・GPS・照合・メモリー記録をつなぐが、このHTTP受付や環境変数からは起動しない。実Vertex・実保存・CORRECTへ自動接続しない。
 
@@ -134,16 +134,16 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 
 共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実ChromeでGoogleログイン、実ID tokenのサーバー検証、再読み込み後の認証復元と再確認、ログアウトを確認済み。詳細は[確認記録](../docs/local-api.md#確認)を参照する。
 
-完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、挑戦開始の所有者・版・再要求・上限の確認、本番・Emulator拒否。**実Firestore／データ保存、実地図・実地点GPS・写真判定、組織認可、APIデプロイは別作業・未検証**。
+初期接続の確認対象は、上記serverチェック、明示デモでのlocalhost起動、公開APIの契約、未設定sessionの503、検証境界のuid固定、挑戦開始の所有者・版・再要求・上限、本番・Emulator拒否。実Firestore/Storage、実地点での地図・GPS・写真判定、実際の自治体権限、APIデプロイは残件。
 
 ## 本人記録APIの開発用設定
 
-`QUEST_DISCOVERIES_MODE`は既定off。認証後も記録の保存先未接続として503を返す。`memory`を明示すると空の開発用メモリーストアを起動し、一覧/詳細/認証付き写真取得/削除追跡を利用できる。再起動で消え、架空のクリアを自動追加しない。実判定・実DB/Storage・回答workerからの保存は未接続。詳しくは[本人記録API](../docs/owner-discoveries.md)。
+`QUEST_DISCOVERIES_MODE` は既定offで、認証後も記録の保存先未接続として503を返す。`memory` を明示すると開発用の一覧・詳細・写真取得・削除追跡を利用できる。`QUEST_DEMO_DISCOVERY_OWNER_UID` を追加すると対象の本人に合成記録1件を用意する。省略時は空で起動する。[本人記録API](../docs/owner-discoveries.md)
 
 ## 自治体写真素材APIの開発用設定
 
-`QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、所属確認・画像検証付き写真登録と認可付き取得を使える。既定offは所属確認後503。通常の下書きストアは登録assetIdの台帳を共有し、組織・用途を検証する。画像/台帳は再起動で消え、実Storage・AI・公開へは接続しない。[設定・再送・制約](../docs/admin-assets.md)。
+`QUEST_ADMIN_ASSETS_MODE=memory` を明示すると、所属確認・画像検証付き写真登録と認可付き取得を使える。既定offは所属確認後503。下書きストアは登録assetIdの台帳を共有し、組織・用途を検証する。開発用の公開ヒント画像には専用用途で登録した画像を使う。画像と台帳は再起動で消える。[設定・再送・制約](../docs/admin-assets.md)
 
 ## 自治体写真試験APIの接続口
 
-[写真試験API](../docs/admin-photo-tests.md)は所属・参考用途・下書きrevisionに結び付くPOST testを提供する。main/envから照合器を有効にせず、通常起動は未接続503。開発/testのServerOptionsへ明示注入したmatcherで合成画像の検証を行い、旅行者の記録・CORRECT・公開資格は作らない。
+[写真試験API](../docs/admin-photo-tests.md) は所属・参考用途・下書きrevisionに結び付く。既定は照合未接続の503。`QUEST_ADMIN_PHOTO_TEST_MODE=fixtures` を明示すると、指定の合成画像で同じ下書き版の一致・別対象を試せる。試験結果はその版の開発用公開の確認に使う。旅行者の記録は別に管理する。[合成素材の生成と公開・休止](../docs/admin-photo-tests.md#合成素材で公開休止を試す)
