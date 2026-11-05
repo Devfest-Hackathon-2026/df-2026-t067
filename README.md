@@ -72,6 +72,7 @@ npm --prefix server run check
 | [技術・データ・権限設計](docs/architecture.md) | 構成案、公開情報と正解情報の分離 |
 | [API設計案](docs/api.md) | 画面とサーバーの受け渡し、結果コード |
 | [B/DのAPI接続手順](docs/team-api-handoffs.md) | 版指定ヒント・所属確認・revision付き開発用下書き保存 |
+| [Cの本人記録API](docs/owner-discoveries.md) | 本人一覧/詳細・認証付き写真・削除追跡・開発用保存境界 |
 | [受け入れ・テスト条件](docs/acceptance.md) | 実装を完了と判断する確認項目 |
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割と進捗)、クラウド設定の境界 |
