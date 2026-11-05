@@ -4,6 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePage, parsePublicArea, parsePublicQuest } from '../../src/shared/api/validation'
 import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
+import { DemoChallengeStore } from './challenges'
+import { readChallengeInput } from './json-body'
 import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
@@ -12,6 +14,7 @@ export interface ServerOptions {
   mode: 'demo'
   nodeEnv?: string
   verifier?: IdTokenVerifier
+  challenges?: DemoChallengeStore
 }
 
 function bearerToken(request: IncomingMessage): string {
@@ -37,9 +40,11 @@ export function createServer(options: ServerOptions) {
   assertDemoMode(options.mode, options.nodeEnv ?? process.env.NODE_ENV)
   assertNoAuthEmulator(process.env)
   const { areas, quests } = createDemoData()
+  const challenges = options.challenges ?? new DemoChallengeStore()
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
-    // No request bodies are interpreted, retained, or logged by this read-only server.
-    request.resume()
+    // Keep POST bodies paused while authentication runs. Only the bounded JSON
+    // reader consumes them; ignored/error bodies are drained after handling.
+    request.on('error', () => {})
     const requestId = randomUUID()
     response.setHeader('X-Request-Id', requestId)
     response.setHeader('X-Quest-Data-Mode', 'demo')
@@ -49,10 +54,15 @@ export function createServer(options: ServerOptions) {
       const failure = error instanceof HttpError ? error
         : new HttpError(500, 'SYSTEM_ERROR', '処理を完了できませんでした。', true)
       if (failure.status === 401) response.setHeader('WWW-Authenticate', 'Bearer')
+      if (failure.retryAfterSeconds !== undefined) response.setHeader('Retry-After', String(failure.retryAfterSeconds))
+      if (request.method === 'POST' && !request.readableEnded) {
+        response.shouldKeepAlive = false
+        response.setHeader('Connection', 'close')
+      }
       send(response, failure.status, {
         error: { code: failure.code, message: failure.message, requestId, retryable: failure.retryable },
       })
-    })
+    }).finally(() => { request.resume() })
   })
   server.requestTimeout = 10_000
   server.headersTimeout = 5_000
@@ -62,13 +72,24 @@ export function createServer(options: ServerOptions) {
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const { path, params } = requestTarget(request)
     const isDetail = path.startsWith('/api/v1/quests/')
-    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail
+    const isStart = path === '/api/v1/challenges'
+    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-    if (request.method !== 'GET') {
-      response.setHeader('Allow', 'GET')
+    const method = isStart ? 'POST' : 'GET'
+    if (request.method !== method) {
+      response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    if (path === '/health') {
+    if (isStart) {
+      const uid = await authenticate(request)
+      validateQuery(params, [])
+      const input = await readChallengeInput(request)
+      const quest = quests.find((item) => item.questId === input.questId)
+      if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
+      if (quest.version !== input.expectedVersion) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+      const result = challenges.start(uid, quest)
+      send(response, result.created ? 201 : 200, result.challenge)
+    } else if (path === '/health') {
       validateQuery(params, [])
       send(response, 200, {
         status: 'ok', dataMode: 'demo', fictionalData: true,
@@ -88,11 +109,7 @@ export function createServer(options: ServerOptions) {
       send(response, 200, parsePage(page, parsePublicQuest))
     } else if (path === '/api/v1/session') {
       // Client-supplied query/body uid, role, and orgId never establish identity.
-      if (!options.verifier) throw authUnavailable()
-      const token = bearerToken(request)
-      const identity = await options.verifier.verify(token)
-      if (typeof identity.uid !== 'string' || !identity.uid.trim() || identity.uid.length > 128) throw authUnavailable()
-      send(response, 200, { uid: identity.uid })
+      send(response, 200, { uid: await authenticate(request) })
     } else {
       validateQuery(params, [])
       const questId = parseId(decodeURIComponent(path.slice('/api/v1/quests/'.length)))
@@ -101,9 +118,17 @@ export function createServer(options: ServerOptions) {
       send(response, 200, parsePublicQuest(quest))
     }
   }
+
+  async function authenticate(request: IncomingMessage): Promise<string> {
+    if (!options.verifier) throw authUnavailable()
+    const identity = await options.verifier.verify(bearerToken(request))
+    if (typeof identity.uid !== 'string' || !identity.uid.trim() || identity.uid.length > 128) throw authUnavailable()
+    return identity.uid
+  }
 }
 
 function send(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }

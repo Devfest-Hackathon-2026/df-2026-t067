@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { MapPreview } from './features/explore/MapPreview'
 import { CameraPreview } from './features/capture/CameraPreview'
+import { ChallengeCapture } from './features/capture/ChallengeCapture'
 import { readDataSource, useQuestConnection, useServerIdentity } from './features/explore/useQuestConnection'
 import { Icon } from './components/Icon'
 import { createApiClient } from './shared/api'
@@ -37,9 +38,10 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const quest = connection.result.status === 'ready' ? connection.result.value : null
   const serverIdentity = useServerIdentity(source === 'local-api', api, auth)
   const uid = auth.status === 'signed-in' ? auth.user.uid : null
-  const canUseCamera = uid !== null && (source !== 'local-api' || serverIdentity.result?.status === 'ready')
+  const canUseCamera = uid !== null && (source === 'preview' || (source === 'local-api' && serverIdentity.result?.status === 'ready' && quest?.apiQuest !== undefined))
   const [cameraOwner, setCameraOwner] = useState<{ auth: AuthSnapshot; confirmation: typeof serverIdentity.result } | null>(null)
-  const closeCamera = useCallback(() => setCameraOwner(null), [])
+  const [captureRevision, setCaptureRevision] = useState(0)
+  const closeCamera = useCallback(() => { setCameraOwner(null); setCaptureRevision((value) => value + 1) }, [])
   const cameraVisible = canUseCamera && cameraOwner !== null && cameraOwner.auth === auth && cameraOwner.confirmation === serverIdentity.result
   const [pending, setPending] = useState<'sign-in' | 'sign-out' | null>(null)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
@@ -134,9 +136,12 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       <h4>この場所はどこ？</h4>
                       <p className="clue-text">{quest.clue}</p>
                       <p className="sample-note">{quest.visitConditions}</p>
+                      {source === 'local-api' && canUseCamera && quest.apiQuest && uid !== null && pending === null ?
+                        <ChallengeCapture key={JSON.stringify([uid, quest.apiQuest.questId, quest.apiQuest.version, captureRevision])}
+                          api={api} quest={quest.apiQuest} onReloadQuest={() => { closeCamera(); connection.retry() }} /> : <>
                       <button type="button" className="primary-button"
                         disabled={pending !== null || cameraVisible || (auth.status === 'signed-in' ? !canUseCamera : auth.status !== 'signed-out')}
-                        onClick={auth.status === 'signed-in' ? () => { if (canUseCamera) setCameraOwner({ auth, confirmation: serverIdentity.result }) } : login} aria-describedby="login-unavailable">
+                        onClick={auth.status === 'signed-in' ? () => { if (source === 'preview' && canUseCamera) setCameraOwner({ auth, confirmation: serverIdentity.result }) } : login} aria-describedby="login-unavailable">
                         {auth.status === 'signed-in' ? serverIdentity.result?.status === 'loading' ? 'ログインの確認中…'
                           : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : cameraVisible ? '撮影中' : '撮影を始める'
                           : pending === 'sign-in' ? 'Googleログイン中…' : 'Googleログインして挑戦する'}
@@ -151,6 +156,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                               : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
                       </p>
                       {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
+                      </>}
                       {serverIdentity.result?.status === 'error' && <div className="auth-feedback">
                         <p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p>
                         <button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button>
