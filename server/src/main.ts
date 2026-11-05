@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     adminAssets: config.demoAdminAssets ? new DemoAssetStore() : undefined,
     adminPhotoTest: matcher ? { matcher } : undefined,
     suggestDraft,
+    demoReports: config.demoReports,
     locationValidation: config.demoLocation ? 'demo' : undefined })
   let stopping = false
   const stop = () => {

@@ -134,6 +134,10 @@ export class DemoAdminStore {
     const publication = this.publications.get(questId)
     return publication !== undefined && publication.pauseReason !== null
   }
+  getReportTarget(questId: string): { orgId: string; questVersion: number } | undefined {
+    const publication = this.publications.get(questId)
+    return publication && { orgId: publication.orgId, questVersion: publication.quest.version }
+  }
   private reviewMissing(quest: ManagedQuest): ReviewField[] {
     const { orgId } = quest
     const { materials, content, referenceAssetId, hintAssetId } = quest.draft

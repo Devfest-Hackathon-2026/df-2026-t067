@@ -38,5 +38,6 @@ export function createDemoData() {
     'これは表示を確かめるための架空の手がかりです。',
     '実在の目的地はありません。現地へ移動しないでください。',
   ]]))
-  return { areas, quests, hints }
+  const reportOrganizations = new Map([['demo-quest', 'demo-org'], ['demo-quest-b', 'demo-org'], ['demo-quest-c', 'demo-org-b']])
+  return { areas, quests, hints, reportOrganizations }
 }

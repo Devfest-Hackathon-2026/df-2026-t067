@@ -42,7 +42,7 @@
 | GET /me/discoveries/:discoveryId/photo | 必要 | 本人のJPEG。共通clientはBearer付きで取得してBlobを返す |
 | DELETE /me/discoveries/:discoveryId | 必要 | 202でdeletionIdを返す。画像を含む削除を追跡 |
 | GET /me/deletions/:deletionId | 必要 | 本人の削除状態pending / completed / failed。再試行可能性を返す |
-| POST /reports | 必要 | questId, category, text → 受付ID。他人の写真を添付しない |
+| POST /reports | 必要 | questId, category, text → 受付ID。開発用実装は20節 |
 
 写真はブラウザから取得したBlobを提出する。一般旅行者にはライブラリ選択を通常回答導線として提供しないが、ブラウザだけで実撮影・無加工を完全証明できるとはしない。
 
@@ -92,6 +92,7 @@
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
 | POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
 | POST /orgs/:orgId/quests/:questId/pause | 公開・運営 | 理由を記録し、新規挑戦と進行中の確定を禁止。開発用実装は18節 |
+| GET /orgs/:orgId/reports | 公開 | 自組織の報告一覧。開発用実装は20節 |
 
 素材・assetId・questIdの所有組織を全て検証する。生成結果を任意スクリプト・URL命令として実行しない。公開後に編集しても、旧公開版はそのまま保持して新しい下書きだけを変える。
 
@@ -212,3 +213,13 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 200の`DraftSuggestion`は`{orgId, questId, draftRevision, content, source}`。`content`は既存の下書きと同じ5項目で、タイトル・問題文・3本のヒント・確認済み特徴・作成根拠メモを持つ。候補を受け取った画面で対象の版と編集中の内容を確認し、採用した内容を既存の下書き保存APIへ渡す。候補を取得するだけでは保存、改版、確認依頼、公開は起きない。
 
 既定は未接続の503 `SYSTEM_ERROR`。開発用の`QUEST_ADMIN_DRAFT_MODE=fixtures`と`QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成`match.png`がある版に、固定の候補を`source:mock`で返す。外部AIを呼ばない。版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。[合成素材の用意](admin-photo-tests.md#合成素材で公開休止を試す)
+
+## 20. 開発用の問題報告
+
+既定は保存先未接続の503。`QUEST_REPORTS_MODE=memory`を明示した開発サーバーで架空の報告を試せる。再起動で報告は消える。
+
+- 旅行者はログイン後に`submitReport({questId, category, text, idempotencyKey})`を呼ぶ。分類は撮影不可`PHOTO_UNAVAILABLE`、判定不具合`MATCHING_PROBLEM`、危険な誘導`UNSAFE_GUIDANCE`。本文は前後の空白を除いた1〜1000文字、JSON全体は4 KiBまで。入力には報告者ID、写真、位置を含めない。
+- 受付は202の`{reportId, source:'mock'}`。同じ本人・キー・内容の再送は同じ受付IDを返し、内容違いは409 `IDEMPOTENCY_CONFLICT`。同じサーバー起動中の新規受付は1人10件・全体256件までで、超過は429。公開経験のある問題の最新公開版を受付時に記録するため、休止後も報告できる。未公開の下書きと未知のIDは404。
+- 開発用の自組織`publisher`は`listManagedReports(orgId, {cursor, limit})`で新着順に確認できる。各行は受付ID、組織、問題IDと版、分類、本文、サーバー受付日時、`source`を持つ。報告者のUIDや再送キーは返さない。既定の架空問題A/Bは`demo-org`、Cは`demo-org-b`に割り当てる。管理APIで公開した問題は公開時の所有組織へ送る。
+
+報告受付と休止は独立した操作。報告を見た公開担当者が必要に応じて休止を行う。実運営の対応権限と実データの保持方針はO-04/O-07に残す。

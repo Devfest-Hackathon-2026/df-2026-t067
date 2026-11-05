@@ -24,6 +24,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
         role: uid === 'editor' || (uid === 'publisher' && revokeOnRecheck && ++publisherChecks === 2) ? 'editor' : 'publisher', areaId: 'demo-area' }]
     },
     adminAssets: new DemoAssetStore(),
+    demoReports: true,
     adminPhotoTest: { matcher: async (input, call) => wrongTargetForDuplicate ? 'WRONG_TARGET' : fixtureMatcher(input, call) },
     locationValidation: 'demo',
   })
@@ -121,6 +122,10 @@ test('only a publisher can publish tested versions and pause the public snapshot
   await assert.rejects(traveler.createChallenge({ questId: id, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'paused' }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.getAttempt(pending.attemptId), { code: 'QUEST_UNAVAILABLE' })
+  const report = await traveler.submitReport({ questId: id, category: 'PHOTO_UNAVAILABLE', text: '架空の休止後報告', idempotencyKey: 'report' })
+  const [received] = (await publisher.listManagedReports(org)).items
+  assert.equal(received.reportId, report.reportId)
+  assert.equal(received.questVersion, 1)
   await assert.rejects(api('other-traveler').getAttempt(pending.attemptId), { code: 'NOT_FOUND' })
   assert.deepEqual(await traveler.getAttempt(outside.attemptId), outside)
   await assert.rejects(editor.submitManagedQuestReview(org, id, 4), { code: 'DRAFT_CONFLICT' })

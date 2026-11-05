@@ -12,12 +12,14 @@ import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { HttpError, invalidInput } from './errors'
 import { readJsonObject } from './json-body'
 import { paginate, parseId, validateQuery } from './query'
+import type { DemoReportStore } from './reports'
 
 export type MembershipLookup = (uid: string) => Promise<OrgMembership[]>
 export function createAdminHandler(options: {
   store: DemoAdminStore; assets?: DemoAssetStore; memberships?: MembershipLookup; areaIds: ReadonlySet<string>
   photoTest?: AdminPhotoTestOptions; acquirePhotoTest?: (uid: string) => () => void
   suggestDraft?: FixtureDraftSuggester
+  reports?: DemoReportStore
   authenticate: (request: IncomingMessage) => Promise<string>
   send: (response: ServerResponse, status: number, body: unknown) => void
 }) {
@@ -38,8 +40,9 @@ export function createAdminHandler(options: {
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
     const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review|publish|pause|generate)$/.exec(path)
-    if (!isMemberships && !route && !assetRoute && !shootingRoute && !actionRoute) return false
-    const allowed = actionRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
+    const reportsRoute = /^\/api\/v1\/orgs\/([^/]+)\/reports$/.exec(path)
+    if (!isMemberships && !route && !assetRoute && !shootingRoute && !actionRoute && !reportsRoute) return false
+    const allowed = actionRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships || reportsRoute ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -51,8 +54,15 @@ export function createAdminHandler(options: {
       options.send(response, 200, paginate(memberships, params, 'memberships:' + uid, (item) => item.orgId))
       return true
     }
-    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute ?? actionRoute)![1]))
+    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute ?? actionRoute ?? reportsRoute)![1]))
     let membership = requireMember(memberships, orgId)
+    if (reportsRoute) {
+      requirePublisher(membership)
+      validateQuery(params, ['cursor', 'limit'])
+      if (!options.reports) throw new HttpError(503, 'SYSTEM_ERROR', '報告の保存先が未接続です。')
+      options.send(response, 200, options.reports.list(orgId, params))
+      return true
+    }
     if (actionRoute) {
       validateQuery(params, [])
       const questId = parseId(decodeURIComponent(actionRoute[2]))
