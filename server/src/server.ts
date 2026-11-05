@@ -75,7 +75,7 @@ export function createServer(options: ServerOptions) {
         : new HttpError(500, 'SYSTEM_ERROR', '処理を完了できませんでした。', true)
       if (failure.status === 401) response.setHeader('WWW-Authenticate', 'Bearer')
       if (failure.retryAfterSeconds !== undefined) response.setHeader('Retry-After', String(failure.retryAfterSeconds))
-      if ((request.method === 'POST' || request.method === 'PATCH') && !request.readableEnded) {
+      if (['POST', 'PATCH', 'PUT'].includes(request.method ?? '') && !request.readableEnded) {
         response.shouldKeepAlive = false
         response.setHeader('Connection', 'close')
       }

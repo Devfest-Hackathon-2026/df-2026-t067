@@ -79,7 +79,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 - `materials`はA03に対応。`requiresBoat`（船上・海上）と`requiresPaidFacility`（有料施設内）は必須のbooleanで、falseは画面の未選択状態。料金priceと撮影制約photoNoteは挑戦前用。`content`はA04の項目でhintsは3要素。未完成の空欄を保存でき、保存成功は公開可能との判定ではない。
 - `afterClear`はクリア後用の`access / hours / promoComment / explanation`。管理APIで保存・復元するが、PublicQuest・通常ヒントへ追加しない。アクセス/時間/コメントは2000文字、解説は4000文字まで。
 - 旧`availableModes / requiredModes`と`materials.access / materials.hours`は受け付けない。旧入力を黙って変換・破棄せず400で拒否する。動作中の旧APIと新しいclientを混ぜない。サーバー再起動では開発用の記録・下書きが消えるため、保持が必要な入力は先に担当者が退避する。
-- `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft', shootingAreaStatus:'unconfigured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
+- `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft', shootingAreaStatus:'unconfigured' | 'configured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
 - 上限はHTTP本文64 KiB、名称/タイトル200文字、本文/根拠/メモ4000文字、各ヒント/その他素材欄2000文字。開発用の入力保護で、本番O-03を確定しない。下書きは自治体100件・全体1000件で新規作成を停止する。
 - 更新は**draft全体の置換**。現在のrevisionを指定し、成功時に1増える。同時保存は片方だけが成功し、もう片方は409 `DRAFT_CONFLICT`。画面の編集中データを保持して最新版を取得し、人が差分を確認してから再保存する。競合時の自動上書きは禁止。
 - 新規作成は自動再送しない。通信断ではまず一覧を確認して二重作成を避ける。再起動時の消失、保存容量、通信失敗を永続保存成功と表示しない。
@@ -88,7 +88,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 
 - `referenceAssetId`は用途`reference`、`hintAssetId`は用途`public_hint`の登録素材だけ。同じ組織・用途をサーバーで検証する。他自治体、未知のID、参考写真の公開流用は400で拒否する。
 - assetの基底型は`{assetId, orgId, purpose}`。写真の受付・認可付き取得は[素材API](admin-assets.md)で追加した。明示memory設定で写真を登録し、返されたassetIdを保存できる。未設定なら両方nullのままにする。`File`、blob URL、data URLをassetIdとして送らない。実Storage保存ではない。
-- 非公開の撮影地点や半径は未設定。設定できたように見せず、`shootingAreaStatus: 'unconfigured'`を示す。
+- 非公開の撮影地点/半径は[専用の管理API](admin-shooting-areas.md)で取得/全置換する。通常の管理応答は設定状態だけを持つ。configuredでも現地確認・試験・公開の完了と扱わない。
 - `generate/test/submit-review/publish/pause`の操作は未実装で404。素材APIは未設定503・明示memoryのみ。下書き保存で旅行者の発見記録や公開問題を作らない。AI生成・試験・公開ができるとの表示は追加しない。
 
 ## 検証範囲
@@ -102,3 +102,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 A03の2条件はmaterials.requiresBoat/requiresPaidFacility、アクセス・時間・コメント・解説はafterClearへ明示的にまとめる。管理プレビューは共通のShootingConditions/AfterClearContent型を参照する。画面の自動保存・所属ログイン・実公開はこの契約追加で有効にならない。PublicQuestの通常レスポンスは今回変更しない。
 
 PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル261テスト、`npm --prefix server run check`は159テスト、両方の型/lint/buildが成功。新項目の作成/更新/GET復元、旧項目の拒否、公開GETへの非混入を確認した。自己レビュー・相対リンク・差分検査も実施。実Googleでの管理操作、実自治体所属、永続保存、実公開、実スマートフォン、第三者レビューは未実施。
+
+### A03の非公開撮影範囲
+
+`getShootingAreas / updateShootingAreas`と共通CaptureZoneを追加した。PUTは最大10地点の全置換、空配列で解除し、本文と同じdraftRevisionを更新する。競合や応答断では編集中の値を保持し、本文と範囲の最新版を確認する。[手順と制約](admin-shooting-areas.md)を使い、Dの画面を接続できる。Web266/server188テスト・型/lint/build成功。画面の自動接続、実地点・本番GPS閾値や公開/判定は追加しない。

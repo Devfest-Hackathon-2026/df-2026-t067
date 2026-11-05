@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { ManagedAsset, ManagedQuest, ManagedQuestDraft, OrgMembership, UpdateManagedQuest } from '../../src/shared/api/admin'
-import { parseManagedAsset, parseManagedQuestDraft } from '../../src/shared/api/admin'
+import type { CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseManagedAsset, parseManagedQuestDraft, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { HttpError, invalidInput } from './errors'
 
 export class DemoAdminStore {
   private readonly quests = new Map<string, ManagedQuest>()
   private readonly assets = new Map<string, ManagedAsset>()
+  private readonly shootingAreas = new Map<string, CaptureZone[]>()
   private readonly assetLookup?: (assetId: string) => ManagedAsset | undefined
   constructor(options: { assets?: readonly ManagedAsset[]; assetLookup?: (assetId: string) => ManagedAsset | undefined } = {}) {
     this.assetLookup = options.assetLookup
@@ -34,14 +35,31 @@ export class DemoAdminStore {
     return structuredClone(quest)
   }
   update(orgId: string, questId: string, input: UpdateManagedQuest): ManagedQuest {
-    const quest = this.get(orgId, questId)
-    if (quest.draftRevision !== input.expectedDraftRevision) {
-      throw new HttpError(409, 'DRAFT_CONFLICT', '別の編集が保存されています。下書きを取得し直してください。')
-    }
-    if (!Number.isSafeInteger(quest.draftRevision + 1)) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版を更新できません。')
+    const quest = this.forUpdate(orgId, questId, input.expectedDraftRevision)
     const updated = { ...quest, draftRevision: quest.draftRevision + 1, draft: this.checkedDraft(orgId, input.draft) }
     this.quests.set(questId, updated)
     return structuredClone(updated)
+  }
+  getShootingAreas(orgId: string, questId: string): ManagedShootingAreas {
+    const quest = this.get(orgId, questId)
+    return { orgId, questId, draftRevision: quest.draftRevision,
+      zones: structuredClone(this.shootingAreas.get(questId) ?? []), source: 'mock' }
+  }
+  updateShootingAreas(orgId: string, questId: string, input: UpdateShootingAreas): ManagedShootingAreas {
+    const parsed = parseUpdateShootingAreas(input)
+    const quest = this.forUpdate(orgId, questId, parsed.expectedDraftRevision)
+    this.shootingAreas.set(questId, parsed.zones)
+    this.quests.set(questId, { ...quest, draftRevision: quest.draftRevision + 1,
+      shootingAreaStatus: parsed.zones.length ? 'configured' : 'unconfigured' })
+    return this.getShootingAreas(orgId, questId)
+  }
+  private forUpdate(orgId: string, questId: string, expectedRevision: number): ManagedQuest {
+    const quest = this.get(orgId, questId)
+    if (quest.draftRevision !== expectedRevision) {
+      throw new HttpError(409, 'DRAFT_CONFLICT', '別の編集が保存されています。下書きを取得し直してください。')
+    }
+    if (!Number.isSafeInteger(quest.draftRevision + 1)) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版を更新できません。')
+    return quest
   }
   private checkedDraft(orgId: string, input: ManagedQuestDraft): ManagedQuestDraft {
     const draft = parseManagedQuestDraft(input)

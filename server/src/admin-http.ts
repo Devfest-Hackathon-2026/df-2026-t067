@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parseOrgMembership, parseUpdateManagedQuest } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parseOrgMembership, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import type { OrgMembership } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
 import { DemoAdminStore } from './admin'
@@ -26,8 +26,9 @@ export function createAdminHandler(options: {
     const isMemberships = path === '/api/v1/me/memberships'
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
-    if (!isMemberships && !route && !assetRoute) return false
-    const allowed = assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
+    const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
+    if (!isMemberships && !route && !assetRoute && !shootingRoute) return false
+    const allowed = shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -39,13 +40,26 @@ export function createAdminHandler(options: {
       options.send(response, 200, paginate(memberships, params, 'memberships:' + uid, (item) => item.orgId))
       return true
     }
-    const orgId = parseId(decodeURIComponent((route ?? assetRoute)![1]))
+    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute)![1]))
     let membership = requireMember(memberships, orgId)
     if (assetRoute) {
       validateQuery(params, [])
       await handleAssetRequest(request, response, { store: options.assets, orgId, uid,
         assetId: assetRoute[2] === undefined ? undefined : parseId(decodeURIComponent(assetRoute[2])), photo: Boolean(assetRoute[3]),
         recheck: async () => { requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId) }, send: options.send })
+      return true
+    }
+    if (shootingRoute) {
+      validateQuery(params, [])
+      const questId = parseId(decodeURIComponent(shootingRoute[2]))
+      store.get(orgId, questId)
+      if (request.method === 'GET') options.send(response, 200, store.getShootingAreas(orgId, questId))
+      else {
+        const body = await readJsonObject(request)
+        requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
+        try { options.send(response, 200, store.updateShootingAreas(orgId, questId, parseUpdateShootingAreas(body))) }
+        catch (error) { if (error instanceof ContractError) invalidInput(); throw error }
+      }
       return true
     }
     const questId = route![2] === undefined ? undefined : parseId(decodeURIComponent(route![2]))

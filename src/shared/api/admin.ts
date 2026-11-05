@@ -2,6 +2,11 @@ import { ContractError } from './validation'
 
 export interface ShootingConditions { requiresBoat: boolean; requiresPaidFacility: boolean }
 export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
+export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
+export interface ManagedShootingAreas {
+  orgId: string; questId: string; draftRevision: number; zones: CaptureZone[]; source: 'real' | 'mock'
+}
+export interface UpdateShootingAreas { expectedDraftRevision: number; zones: CaptureZone[] }
 export type AssetPurpose = 'reference' | 'public_hint'
 export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
@@ -22,7 +27,7 @@ export interface ManagedQuestDraft {
 // reviewed contract, tests, durable storage and real membership authorization.
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
-  publishedVersion: null; status: 'draft'; shootingAreaStatus: 'unconfigured'
+  publishedVersion: null; status: 'draft'; shootingAreaStatus: 'unconfigured' | 'configured'
   draft: ManagedQuestDraft; source: 'real' | 'mock'
 }
 export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
@@ -48,6 +53,28 @@ function revision(input: unknown): number {
 function flag(input: unknown, path: string): boolean {
   if (typeof input !== 'boolean') throw new ContractError(path)
   return input
+}
+
+function captureZones(input: unknown): CaptureZone[] {
+  if (!Array.isArray(input) || input.length > 10) throw new ContractError('zones')
+  return Array.from(input, (item) => {
+    const zone = fields(item, ['latitude', 'longitude', 'radiusMeters'], 'zone')
+    const { latitude, longitude, radiusMeters } = zone
+    if (typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
+      typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180 ||
+      typeof radiusMeters !== 'number' || !Number.isFinite(radiusMeters) || radiusMeters <= 0) throw new ContractError('zone')
+    return { latitude, longitude, radiusMeters }
+  })
+}
+export function parseManagedShootingAreas(input: unknown): ManagedShootingAreas {
+  const d = fields(input, ['orgId', 'questId', 'draftRevision', 'zones', 'source'], 'shootingAreas')
+  if (d.source !== 'real' && d.source !== 'mock') throw new ContractError('source')
+  return { orgId: identifier(d.orgId, 'orgId'), questId: identifier(d.questId, 'questId'),
+    draftRevision: revision(d.draftRevision), zones: captureZones(d.zones), source: d.source }
+}
+export function parseUpdateShootingAreas(input: unknown): UpdateShootingAreas {
+  const d = fields(input, ['expectedDraftRevision', 'zones'], 'shootingAreas')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: captureZones(d.zones) }
 }
 
 export function parseOrgMembership(input: unknown): OrgMembership {
@@ -112,9 +139,9 @@ export function parseUpdateManagedQuest(input: unknown): UpdateManagedQuest {
 }
 export function parseManagedQuest(input: unknown): ManagedQuest {
   const d = fields(input, ['questId', 'orgId', 'areaId', 'draftRevision', 'publishedVersion', 'status', 'shootingAreaStatus', 'draft', 'source'], 'ManagedQuest')
-  if (d.publishedVersion !== null || d.status !== 'draft' || d.shootingAreaStatus !== 'unconfigured' ||
+  if (d.publishedVersion !== null || d.status !== 'draft' || !['unconfigured', 'configured'].includes(d.shootingAreaStatus as string) ||
     (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('ManagedQuest.state')
   return { questId: identifier(d.questId, 'questId'), orgId: identifier(d.orgId, 'orgId'), areaId: identifier(d.areaId, 'areaId'),
-    draftRevision: revision(d.draftRevision), publishedVersion: null, status: 'draft', shootingAreaStatus: 'unconfigured',
+    draftRevision: revision(d.draftRevision), publishedVersion: null, status: 'draft', shootingAreaStatus: d.shootingAreaStatus as ManagedQuest['shootingAreaStatus'],
     draft: parseManagedQuestDraft(d.draft), source: d.source }
 }
