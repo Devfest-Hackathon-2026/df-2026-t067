@@ -2,13 +2,9 @@ import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, REPORT_CATEGORIES } from '../../shared/api'
 import type { ApiClient, ReportInput } from '../../shared/api'
+import { reportCategoryLabels } from '../../shared/reportLabels'
 import { useRequestAction } from '../../shared/useRequestAction'
 
-const categoryLabels: Record<ReportInput['category'], string> = {
-  PHOTO_UNAVAILABLE: '撮影できない',
-  MATCHING_PROBLEM: '写真判定の不具合',
-  UNSAFE_GUIDANCE: '危険な案内',
-}
 type Submission = { status: 'idle' | 'sending' | 'received' } | { status: 'error'; message: string }
 
 function reportError(cause: unknown): string {
@@ -56,7 +52,7 @@ function ReportForm({ api, questId }: { api: ApiClient; questId: string }) {
     <p>架空の報告内容でお試しください。写真や個人情報は送らないでください。</p>
     <label>分類<select value={category} disabled={state.status === 'sending'} onChange={(event) => {
       setCategory(event.target.value as ReportInput['category']); edited()
-    }}>{REPORT_CATEGORIES.map((value) => <option key={value} value={value}>{categoryLabels[value]}</option>)}</select></label>
+    }}>{REPORT_CATEGORIES.map((value) => <option key={value} value={value}>{reportCategoryLabels[value]}</option>)}</select></label>
     <label>報告内容<textarea required maxLength={1000} rows={3} value={text} disabled={state.status === 'sending'}
       onChange={(event) => { setText(event.target.value); edited() }} /></label>
     {state.status === 'error' && <p role="alert">{state.message}</p>}

@@ -16,6 +16,9 @@
 .demo-notice { border-left: 4px solid var(--ui-muted); padding: 12px 14px; background: var(--ui-muted); }
 .form-section { margin: 20px 0; padding: 22px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: white; }
 .form-section > p { margin: 8px 0; }
+.admin-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-read-list { display: grid; gap: 12px; padding-inline-start: 24px; overflow-wrap: anywhere; }
+.admin-read-list li > p { margin: 4px 0; }
 .admin-demo label { display: block; margin: 14px 0; font-weight: var(--ui-weight-strong); }
 .admin-demo input:not([type=checkbox]):not([type=file]), .admin-demo textarea { display: block; width: 100%; margin-top: 6px; padding: 10px 11px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: white; color: inherit; font: inherit; }
 .admin-demo input[type=file] { display: block; max-width: 100%; margin-top: 8px; font: inherit; }
