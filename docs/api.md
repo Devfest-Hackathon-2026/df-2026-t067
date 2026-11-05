@@ -39,6 +39,7 @@
 | GET /attempts/:attemptId | 必要 | 本人の結果・処理状態のみ。通信中断後も同じ結果を照会 |
 | GET /me/discoveries | 必要 | 地域・ページ指定 → 本人の発見一覧 |
 | GET /me/discoveries/:discoveryId | 必要 | 本人のDiscovery。公開中でなくても過去記録は基本保持 |
+| GET /me/discoveries/:discoveryId/photo | 必要 | 本人のJPEG。共通clientはBearer付きで取得してBlobを返す |
 | DELETE /me/discoveries/:discoveryId | 必要 | 202でdeletionIdを返す。画像を含む削除を追跡 |
 | GET /me/deletions/:deletionId | 必要 | 本人の削除状態pending / completed / failed。再試行可能性を返す |
 | POST /reports | 必要 | questId, category, text → 受付ID。他人の写真を添付しない |
@@ -154,3 +155,9 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 ## 10. B/Dへの追加接続
 
 [team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。未実装の公開・生成等は404のまま。下書き保存は明示した開発用一時領域に限り、実DB/Storage保存ではない。
+
+## 11. Cへの本人記録API接続
+
+[owner-discoveries.md](owner-discoveries.md)が起動・client・保存境界の正本。既存Discoveryを使う本人一覧/詳細に、認証付きJPEG Blob取得と削除受付/追跡を追加した。`DeletionReceipt`は`{deletionId}`、`DeletionStatus`は`{deletionId, state: pending|completed|failed, retryable}`。HTTPから記録作成・編集は提供しない。
+
+既定は保存先未接続の503。`QUEST_DISCOVERIES_MODE=memory`を明示したときだけ空の開発用ストアを起動し、記録応答に`X-Quest-Records-Mode: memory`を付ける。共通clientは明示demo接続の場合だけmemoryを受け付ける。写真照合、回答処理からの記録作成、実DB/Storage、CORRECTは未接続のまま区別する。

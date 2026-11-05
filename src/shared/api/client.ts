@@ -1,9 +1,10 @@
 import { parseManagedQuest, parseManagedQuestDraft, parseOrgMembership, parseUpdateManagedQuest } from './admin'
 import type { ManagedQuestDraft, UpdateManagedQuest } from './admin'
+import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
   ContractError, parseAttemptResult, parseCaptureMetadata, parseChallenge,
-  parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseSessionIdentity,
+  parseDeletionReceipt, parseDeletionStatus, parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseSessionIdentity,
 } from './validation'
 
 const ERROR_CODES = [
@@ -55,10 +56,12 @@ export interface AreaQuery {
 }
 interface RequestOptions extends CallOptions {
   authenticated?: boolean
-  method?: 'GET' | 'POST' | 'PATCH'
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: BodyInit
   headers?: HeadersInit
   attempt?: boolean
+  records?: boolean
+  photo?: boolean
 }
 
 function id(input: unknown): string {
@@ -143,10 +146,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
   const base = (options.basePath ?? '/api/v1').replace(/\/+$/, '')
   if (!/^\/[A-Za-z0-9/_-]+$/.test(base) || base.includes('//')) throw new ApiError('INVALID_INPUT')
 
-  async function request<T>(path: string, decode: Decoder<T>, init: RequestOptions = {}): Promise<T> {
+  async function exchange(path: string, init: RequestOptions): Promise<Response> {
     init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', init.photo ? 'image/jpeg' : 'application/json')
     if (init.authenticated) {
       let token: string | null | undefined
       try { token = await options.getIdToken?.() }
@@ -170,9 +173,19 @@ export function createApiClient(options: ApiClientOptions = {}) {
       if (init.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
       throw new ApiError('NETWORK_ERROR', { retryable: (init.method ?? 'GET') === 'GET' })
     }
+    init.signal?.throwIfAborted()
     if (response.ok && options.expectedDataMode && response.headers.get('X-Quest-Data-Mode') !== options.expectedDataMode) {
       throw new ApiError('INVALID_RESPONSE', { status: response.status })
     }
+    const storage = response.headers.get('X-Quest-Records-Mode')
+    if (response.ok && init.records && storage !== null && (storage !== 'memory' || options.expectedDataMode !== 'demo')) {
+      throw new ApiError('INVALID_RESPONSE', { status: response.status })
+    }
+    return response
+  }
+
+  async function request<T>(path: string, decode: Decoder<T>, init: RequestOptions = {}): Promise<T> {
+    const response = await exchange(path, init)
     let payload: unknown
     try { payload = await response.json() }
     catch (error) {
@@ -180,6 +193,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       if (!response.ok) throw httpError(response, null)
       throw new ApiError('INVALID_RESPONSE', { status: response.status })
     }
+    init.signal?.throwIfAborted()
     if (!response.ok && record(payload) && 'error' in payload) throw httpError(response, payload)
     if (!response.ok && !(init.attempt && (response.status === 409 || response.status === 503))) throw httpError(response, payload)
     try {
@@ -282,12 +296,72 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request('/attempts/' + id(attemptId), decodeAttempt, { ...call, authenticated: true, attempt: true })
     },
     async listDiscoveries(query: ListQuery = {}, call: CallOptions = {}) {
-      return request('/me/discoveries' + queryString(query), (data) => parsePage(data, parseDiscovery), { ...call, authenticated: true })
+      return request('/me/discoveries' + queryString(query), (data) => parsePage(data, parseDiscovery), { ...call, authenticated: true, records: true })
     },
     async getDiscovery(discoveryId: string, call: CallOptions = {}) {
-      return request('/me/discoveries/' + id(discoveryId), parseDiscovery, { ...call, authenticated: true })
+      return request('/me/discoveries/' + id(discoveryId), (data) => {
+        const discovery = parseDiscovery(data)
+        if (discovery.discoveryId !== discoveryId) throw new ContractError('discoveryId')
+        return discovery
+      }, { ...call, authenticated: true, records: true })
+    },
+    async getDiscoveryPhoto(discoveryId: string, call: CallOptions = {}) {
+      const response = await exchange('/me/discoveries/' + id(discoveryId) + '/photo', { ...call, authenticated: true, records: true, photo: true })
+      if (!response.ok) {
+        let payload: unknown
+        try { payload = await response.json() } catch { /* Non-JSON failures still preserve the HTTP error. */ }
+        call.signal?.throwIfAborted()
+        throw httpError(response, payload)
+      }
+      return readDiscoveryPhoto(response, call.signal)
+    },
+    async deleteDiscovery(discoveryId: string, call: CallOptions = {}) {
+      return request('/me/discoveries/' + id(discoveryId), parseDeletionReceipt, { ...call, authenticated: true, records: true, method: 'DELETE' })
+    },
+    async getDeletion(deletionId: string, call: CallOptions = {}) {
+      return request('/me/deletions/' + id(deletionId), (data) => {
+        const status = parseDeletionStatus(data)
+        if (status.deletionId !== deletionId) throw new ContractError('deletionId')
+        return status
+      }, { ...call, authenticated: true, records: true })
     },
   }
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>
+
+async function readDiscoveryPhoto(response: Response, signal?: AbortSignal): Promise<Blob> {
+  const invalid = () => new ApiError('INVALID_RESPONSE', { status: response.status })
+  const rawLength = response.headers.get('Content-Length')
+  const length = rawLength === null ? null : Number(rawLength)
+  if (response.status !== 200 || response.headers.get('Content-Type')?.toLowerCase() !== 'image/jpeg' ||
+    (rawLength !== null && (!/^\d+$/.test(rawLength) || !Number.isSafeInteger(length) || length! < 4 || length! > DISCOVERY_PHOTO_MAX_BYTES)) || !response.body) throw invalid()
+  const reader = response.body.getReader()
+  const cancel = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancel, { once: true })
+  const parts: BlobPart[] = []
+  const prefix = new Uint8Array(3)
+  let size = 0, prefixSize = 0
+  try {
+    for (;;) {
+      signal?.throwIfAborted()
+      const chunk = await reader.read()
+      signal?.throwIfAborted()
+      if (chunk.done) break
+      size += chunk.value.byteLength
+      if (size > DISCOVERY_PHOTO_MAX_BYTES) throw invalid()
+      for (let i = 0; i < chunk.value.length && prefixSize < 3; i++) prefix[prefixSize++] = chunk.value[i]
+      parts.push(new Uint8Array(chunk.value))
+    }
+    if (size < 4 || (length !== null && length !== size) || prefix[0] !== 0xff || prefix[1] !== 0xd8 || prefix[2] !== 0xff) throw invalid()
+    return new Blob(parts, { type: 'image/jpeg' })
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (error instanceof ApiError) throw error
+    throw new ApiError('NETWORK_ERROR', { retryable: true })
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+    cancel()
+    reader.releaseLock()
+  }
+}

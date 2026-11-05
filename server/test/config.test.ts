@@ -47,3 +47,11 @@ test('admin membership configuration is explicit and rejects relative or invalid
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_MEMBERSHIPS_FILE: file }), /QUEST_DEMO_MEMBERSHIPS_FILE must/)
   }
 })
+
+test('discovery storage is disabled by default and memory storage must be explicitly selected', () => {
+  assert.equal(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DISCOVERIES_MODE: 'memory' }).demoDiscoveries, true)
+  assert.deepEqual(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DISCOVERIES_MODE: 'off' }), { mode: 'demo', port: 8787 })
+  for (const mode of ['', 'real', 'firestore', 'MEMORY']) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DISCOVERIES_MODE: mode }), /QUEST_DISCOVERIES_MODE must/)
+  }
+})

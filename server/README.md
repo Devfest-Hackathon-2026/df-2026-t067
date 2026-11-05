@@ -117,7 +117,12 @@ GPSを試すときは`QUEST_LOCATION_MODE=demo`をAPIに指定する。未指定
 
 serverだけにsharp 0.35.5を固定し、JPEG/PNG/WebPの破損・多フレーム・画素上限を検査する。向きを画素へ反映し、縮小・sRGB/白背景・JPEG再圧縮でEXIF等を保持しない。`npm --prefix server ci --ignore-scripts`の既存手順で事前配布バイナリを導入する。
 
-内部のcomparePhotosとVertex向け要求/応答の部品は用意したが、実通信transport・モデル・リージョン・認証・照合workerは未設定/未接続。matcherなしは503で、MATCHもCORRECTではない。画像は保存せず、現在のHTTP受付から写真照合や課金APIへ進めない。[制限・結果・残件](../docs/photo-match.md)を参照する。
+内部のcomparePhotosとVertex向け要求/応答の部品を用意した。実通信transport・ADC・回数制限は下記CLIに限定し、HTTP回答workerは未接続。matcherなしは503で、MATCHもCORRECTではない。画像は保存せず、現在のHTTP受付から写真照合や課金APIへ進めない。[制限・結果・残件](../docs/photo-match.md)を参照する。
+
+## Vertexのローカル画像試験
+
+`npm run build`後、`npm run vertex:trial -- init`で台帳を明示初期化し、`match` / `mismatch` / `uncertain`で合成画像だけを送信できる。`NODE_ENV=development`と絶対パスの`QUEST_VERTEX_TRIAL_LEDGER`、ローカルADCが必要。既使用分・上限・再起動時の扱い・実行例は[試験手順](../docs/vertex-trial.md#ローカルの画像試験)を参照する。台帳を複製・再作成して回数を戻さない。通常のHTTPサーバーからは呼ばない。
+
 
 ## Webとの接続
 
@@ -128,3 +133,7 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実ChromeでGoogleログイン、実ID tokenのサーバー検証、再読み込み後の認証復元と再確認、ログアウトを確認済み。詳細は[確認記録](../docs/local-api.md#確認)を参照する。
 
 完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、挑戦開始の所有者・版・再要求・上限の確認、本番・Emulator拒否。**実Firestore／データ保存、実地図・実地点GPS・写真判定、組織認可、APIデプロイは別作業・未検証**。
+
+## 本人記録APIの開発用設定
+
+`QUEST_DISCOVERIES_MODE`は既定off。認証後も記録の保存先未接続として503を返す。`memory`を明示すると空の開発用メモリーストアを起動し、一覧/詳細/認証付き写真取得/削除追跡を利用できる。再起動で消え、架空のクリアを自動追加しない。実判定・実DB/Storage・回答workerからの保存は未接続。詳しくは[本人記録API](../docs/owner-discoveries.md)。

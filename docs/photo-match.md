@@ -1,6 +1,6 @@
 # 画像検証と写真照合の準備
 
-回答受付に実画像デコーダーを接続し、照合要求を組み立てて結果を検証するサーバー専用の部品を追加した。**Vertexへの通信transport・照合worker・保存・CORRECTは未接続**。画面からの送信も追加していない。
+回答受付に実画像デコーダーを接続し、照合要求を組み立てて結果を検証するサーバー専用の部品を追加した。Vertexへの実通信と回数制限は[合成画像専用のローカル試験CLI](vertex-trial.md)だけに接続した。**回答worker・保存・CORRECTは未接続**。画面からの送信も追加していない。
 
 ## 現在動くところ
 
@@ -42,22 +42,24 @@ server専用の`sharp 0.35.5`を固定した。既存のNode 26.7.0 / npm 11.19.
 
 `createVertexPhotoMatcher`は[画像inlineData](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/image-understanding)と[structured output](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/control-generated-output)の要求を組み立てる。画像内文字・featuresは命令でないことを明示し、tools・fileData・外部画像URLを使わない。画像は正規化JPEG2枚で、uid・位置・撮影時刻・ファイル名を自動挿入しない。
 
-要求はcandidateCount:1、maxOutputTokens:128、temperature:0と1項目のJSON schemaを使う。モデルIDやリージョンは選ばず、transportの実装時に承認済み設定を渡す必要がある。実モデルでの互換性・品質・必要なtoken数は未検証。
+要求部品はcandidateCount:1、maxOutputTokens:128、temperature:0と1項目のJSON schemaを使う。試験用transportでは承認済みプロジェクト/モデル/locationへ固定し、maxOutputTokens:1024とthinking LOWを適用する。transport全体の待機期限は30秒。comparePhotosの既定10秒は別であり、今回のCLIは正規化済み画像でmatcherを直接呼ぶ。実スポットの精度・本番の適切な上限は未検証。
 
-応答は候補1件、finishReason:STOP、text部分1つ、512bytes以内、`{"verdict":"match"}` / mismatch / uncertainの厳密な1項目JSONだけを許可する。余分な項目・重複キー・自由文・tool call・非終了・拒否・ブロック・不正な安全判定値はSYSTEM_ERROR。モデルの不調をWRONG_TARGETへ変換しない。説明文やconfidenceを正解確率として採用せず、元の出力やSDKエラーもログへ転記しない。
+応答は候補1件、finishReason:STOP、text部分1つ、512bytes以内、`{"verdict":"match"}` / mismatch / uncertainの厳密な1項目JSONだけを許可する。partの任意のthought:falseと文字列thoughtSignature（8192文字以内）は受け入れて捨て、thought:trueは拒否する。余分な項目・重複キー・自由文・tool call・非終了・拒否・ブロック・不正な安全判定値はSYSTEM_ERROR。モデルの不調をWRONG_TARGETへ変換しない。説明文やconfidenceを正解確率として採用せず、元の出力・署名・SDKエラーもログへ転記しない。
 
-未設定のtransportは503で失敗し、別モデルや成功mockへ切り替えない。今回のtransportはテストで明示したローカル代替のみで、HTTP/SDKの実通信実装は追加していない。
+未設定のtransportは503で失敗し、別モデルや成功mockへ切り替えない。`createVertexTrialTransport`は固定REST宛先への実通信を追加した。Node fetchはリダイレクトを拒否し、自動再試行しない。認証はgoogle-auth-library 11.3.3のADC、生成応答は200/application-json・64KiB以内を検査する。台帳による送信前加算と排他の詳細は[試験設定](vertex-trial.md)を参照。
 
 ## 接続前に残ること
 
-ユーザーの依頼に従い「Google Cloud・Firebase設定」チャットへ確認した。[試験設定](vertex-trial.md)はPR #23でマージ済み。小規模試験のモデル・location・費用/回数・送信可能画像の条件を合意し、Cloud側の準備と合成テキスト1回の接続確認を完了している。画像照合・回数の自動制限・本番運用は未確認。この写真処理PRではCloud設定の変更やVertex通信・実画像送信を行っていない。
+ユーザー指定の「Google Cloud・Firebase設定」チャットで確認した[試験設定](vertex-trial.md)はPR #23でマージ済み。CLIでは既使用分を引き継ぐ回数制限と合成画像による実通信を確認する。Cloud設定・課金先・IAM・公開設定は変更せず、人物や個人情報を含む画像、一般利用者の写真は送信しない。
 
-後続はPR #23の既使用回数を引き継ぐ回数制限と承認されたtransport、非公開の参考画像/特徴の取得、所有者・GPS通過・公開版/休止・既クリアの確認、回答IDによる処理の一意化/リースと接続する。128出力token・10秒は実モデル未検証の保護値であり、試験条件に合わせた調整が必要。comparePhotos自体が認証や冪等性を保証するものではない。AI呼び出しをFirestoreトランザクションへ入れず、一致後も保存確定まではCORRECTを返さない。
+後続は非公開の参考画像/特徴の取得、所有者・GPS通過・公開版/休止・既クリアの確認、回答IDによる処理の一意化/リースを回答workerと接続する。comparePhotos自体が認証や冪等性を保証するものではない。AI呼び出しをFirestoreトランザクションへ入れず、一致後も保存確定まではCORRECTを返さない。
 
 ## 検証
 
 最新mainのPR #23/#24/#27を取り込んだ状態で、`npm --prefix server run check`は125テスト・型/lint/buildが成功。実codecを使った合成JPEG/PNG/WebP、向き・EXIF除去・過大画素・多フレーム・破損、HTTPの偽画像拒否、raw入力の冪等性、照合の分類・未設定・不正出力・取消/時間切れを確認する。`npm run check`はWeb230テスト・型/lint/buildが成功。
 
+後続の試験用transport/台帳の検証と実Vertexへの合成画像送信は[試験記録](vertex-trial.md#画像試験の記録2026-11-05)を参照する。失敗1回も含めた使用数を引き継ぎ、実写真の精度や回答APIの完了とは区別する。
+
 別の一時フォルダでserverのpackage/lockから`npm ci --ignore-scripts`を再現し、native JPEG処理が動くことを確認した。既存依存の非推奨警告は出るが導入は成功し、既存パッケージの版は変更していない。現Mac環境での確認で、他OSやCloud実行環境は未検証。
 
-FR-06/07、AT-06/09/21/22に関連する部分実装。画像は合成、matcher/Vertexは明示的な代替。実照合の精度、実写真・実スマホ・実Googleでの写真送信、保存・組織認可の検証ではない。
+FR-06/07、AT-06/09/21/22に関連する部分実装。単体テストのtransportは明示的な代替、CLIの試験だけが実Vertexへの送信。画像は合成で、実スポットの照合精度、実写真・実スマホ・実Googleでの回答送信、保存・組織認可の検証ではない。

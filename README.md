@@ -54,7 +54,7 @@ PowerShellでは2行目を`$env:QUEST_DATA_MODE='demo'; $env:NODE_ENV='developme
 
 サーバーには[開発用の回答受付・本人照会API](docs/answer-intake.md)を追加しました。写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。[GPS demoモード](docs/gps-validation.md)を明示すると、範囲外と位置不確実を区別できます。範囲内でも写真判定は未接続でRECEIVEDのままです。画面送信・画像保存は未接続です。
 
-回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。Vertexの実通信・モデル/リージョン設定・照合workerは未接続で、実写真照合や保存の成功を返す段階ではありません。
+回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。[Vertex試験](docs/vertex-trial.md)ではADCでの実通信・永続回数制限と合成画像専用CLIを使えます。回答APIの照合worker・記録保存は未接続で、旅行者の実写真でクリアを返す段階ではありません。
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
@@ -72,6 +72,7 @@ npm --prefix server run check
 | [技術・データ・権限設計](docs/architecture.md) | 構成案、公開情報と正解情報の分離 |
 | [API設計案](docs/api.md) | 画面とサーバーの受け渡し、結果コード |
 | [B/DのAPI接続手順](docs/team-api-handoffs.md) | 版指定ヒント・所属確認・revision付き開発用下書き保存 |
+| [Cの本人記録API](docs/owner-discoveries.md) | 本人一覧/詳細・認証付き写真・削除追跡・開発用保存境界 |
 | [受け入れ・テスト条件](docs/acceptance.md) | 実装を完了と判断する確認項目 |
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割と進捗)、クラウド設定の境界 |
