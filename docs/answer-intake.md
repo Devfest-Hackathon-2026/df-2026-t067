@@ -68,7 +68,7 @@ const sameReceipt = await api.getAttempt(receipt.attemptId)
 
 本人照会は回答状態と結果を返す。位置・撮影情報・画像参照は処理リースを持つ内部workerが読み、確定時に撮影情報を削除する。照合済みデータと画像の保存後は処理を再開できる。[処理再開と回答確定](answer-processing.md#firestoreでの処理再開と回答確定)
 
-検証はクライアントアクセスを拒否したローカルFirestoreエミュレーターと合成入力で行う。HTTP接続、Storage上のJPEG書き込み・清掃、本番の上限値と保持期間は残件。
+`AnswerPhotoStorage` はサーバーから渡す非公開バケットを使う。同じ保存先にオブジェクトがある場合は、初回のgenerationを変えず、同じ正規化JPEGの再送だけを受け付ける。HTTP接続、画像の清掃、本番の上限値と保持期間は残件。[画像の保存と検証](answer-processing.md#非公開jpegの保存)
 
 ## 検証
 

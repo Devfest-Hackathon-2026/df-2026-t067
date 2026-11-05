@@ -58,6 +58,10 @@ export function incomingAnswerPhotoPath(attemptId: string, digest: string): stri
   return `answer-photos/${attemptId}/incoming-${digest}.jpg`
 }
 
+export function recordAnswerPhotoPath(attemptId: string): string {
+  return `answer-photos/${attemptId}/record.jpg`
+}
+
 export function readAnswerSource(data: DocumentData, attemptId: string) {
   const path = incomingAnswerPhotoPath(attemptId, data.digest)
   const generation: unknown = data.sourcePhoto?.generation
