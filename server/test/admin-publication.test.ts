@@ -103,7 +103,12 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const capturedAt = new Date().toISOString()
   const answer = { challengeId: challenge.challengeId, idempotencyKey: 'original-zone', photo: image(syntheticPng),
     metadata: { capturedAt, position: { latitude: 0.1221, longitude: 0.2332, accuracyMeters: 10, measuredAt: capturedAt } } }
-  assert.equal((await traveler.submitAnswer(answer)).state, 'RECEIVED')
+  const pending = await traveler.submitAnswer(answer)
+  assert.equal(pending.state, 'RECEIVED')
+  assert.deepEqual(await traveler.getAttempt(pending.attemptId), pending)
+  const outside = await traveler.submitAnswer({ ...answer, idempotencyKey: 'outside-original-zone',
+    metadata: { ...answer.metadata, position: { ...answer.metadata.position, latitude: 1, longitude: 1 } } })
+  assert.equal(outside.outcome, 'OUTSIDE_AREA')
   const pause = { expectedPublishedVersion: 1, reason: '開発用の休止確認' }
   await expectError(await send('/pause', 'editor', pause), 403, 'FORBIDDEN')
   const paused = await publisher.pauseManagedQuest(org, id, pause)
@@ -115,6 +120,9 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.equal((await traveler.listAreas()).items.find((area) => area.areaId === 'demo-area')?.publishedCount, 2)
   await assert.rejects(traveler.createChallenge({ questId: id, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'paused' }), { code: 'QUEST_UNAVAILABLE' })
+  await assert.rejects(traveler.getAttempt(pending.attemptId), { code: 'QUEST_UNAVAILABLE' })
+  await assert.rejects(api('other-traveler').getAttempt(pending.attemptId), { code: 'NOT_FOUND' })
+  assert.deepEqual(await traveler.getAttempt(outside.attemptId), outside)
   await assert.rejects(editor.submitManagedQuestReview(org, id, 4), { code: 'DRAFT_CONFLICT' })
   await editor.submitManagedQuestReview(org, id, 5)
   const secondMatch = await compare(image(syntheticPng), 'match-v2', 5)
@@ -123,4 +131,5 @@ test('only a publisher can publish tested versions and pause the public snapshot
     matchTestId: secondMatch.testId, mismatchTestId: secondMismatch.testId })).publishedVersion, 2)
   await expectError(await fetch(base + visible.optionalHintImage), 409, 'QUEST_CHANGED')
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'old-version' }), { code: 'QUEST_CHANGED' })
+  await assert.rejects(traveler.getAttempt(pending.attemptId), { code: 'QUEST_CHANGED' })
 })

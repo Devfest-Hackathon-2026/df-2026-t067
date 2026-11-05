@@ -30,7 +30,7 @@ async function setup(overrides: Partial<ProcessorOptions> = {}) {
   const processor = new DemoAnswerProcessor({ answers, challenges, discoveries, currentQuest: () => quest,
     authorize: async () => true, matcher: async () => { calls++; return 'MATCH' }, ...overrides })
   const input = { digest: 'server-digest', metadata: structuredClone(capture), photo }
-  const receipt = (key: string) => answers.receive('owner', challenge.challengeId, key, input.digest)
+  const receipt = (key: string) => answers.receive('owner', challenge, key, input.digest)
   return { processor, answers, challenges, discoveries, challenge, quest, input, receipt, calls: () => calls }
 }
 

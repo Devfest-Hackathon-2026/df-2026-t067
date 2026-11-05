@@ -71,6 +71,11 @@ export function createServer(options: ServerOptions) {
   const answers = options.answers ?? new DemoAnswerStore()
   const admin = options.admin ?? new DemoAdminStore({ assetLookup: (assetId) => options.adminAssets?.metadata(assetId) })
   const findPublicQuest = (questId: string) => admin.getPublished(questId)?.quest ?? quests.find((item) => item.questId === questId)
+  function assertCurrentAnswerQuest(questId: string, version: number): void {
+    const quest = findPublicQuest(questId)
+    if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
+    if (quest.version !== version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+  }
   const location = options.locationValidation === 'demo' ? createDemoLocationValidation((questId, version) => {
     const publication = admin.getPublished(questId)
     return publication?.quest.version === version ? publication.zones : undefined
@@ -158,23 +163,22 @@ export function createServer(options: ServerOptions) {
       const release = answers.acquire(uid)
       try {
         const input = await readAnswerInput(request)
-        const quest = findPublicQuest(challenge.questId)
-        if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
-        if (quest.version !== challenge.version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+        assertCurrentAnswerQuest(challenge.questId, challenge.version)
         const decide = location ? () => {
           const policy = location.policyFor(challenge.questId, challenge.version)
           if (!policy) throw new HttpError(503, 'SYSTEM_ERROR', '位置確認の設定を利用できません。')
           return evaluateLocation(input.metadata, policy, (location.now ?? Date.now)())
         } : undefined
-        const result = answers.receive(uid, challenge.challengeId, key, input.digest, decide)
+        const result = answers.receive(uid, challenge, key, input.digest, decide)
         send(response, result.state === 'COMPLETED' ? 200 : 202, result)
       } finally { release() }
     } else if (attemptPath) {
       const uid = await authenticate(request)
       validateQuery(params, [])
-      const result = answers.getOwned(parseId(decodeURIComponent(attemptPath[1])), uid)
-      if (!result) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-      send(response, 200, result)
+      const receipt = answers.getAcceptedOwned(parseId(decodeURIComponent(attemptPath[1])), uid)
+      if (!receipt) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      if (receipt.result.state !== 'COMPLETED') assertCurrentAnswerQuest(receipt.questId, receipt.version)
+      send(response, 200, receipt.result)
     } else if (isStart) {
       const uid = await authenticate(request)
       validateQuery(params, [])
