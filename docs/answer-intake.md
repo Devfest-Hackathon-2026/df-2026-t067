@@ -1,6 +1,6 @@
 # 開発用の回答受付API
 
-`POST /api/v1/challenges/:challengeId/answers`と`GET /api/v1/attempts/:attemptId`を追加した。[挑戦開始API](challenge-start.md)で作った本人の挑戦へ写真・CaptureMetadataを結び付ける段階。**画面の送信操作・判定worker・画像保存は未接続**である。
+`POST /api/v1/challenges/:challengeId/answers`と`GET /api/v1/attempts/:attemptId`は、本人の挑戦に写真とCaptureMetadataを結び付ける。`local-api`の撮影画面から開発用の受付と位置判定を試せる。写真照合workerと画像保存は未接続。[ローカル画面の手順](camera-preview.md#ローカルapiで回答を送る)
 
 ## 受付と照会
 
@@ -37,7 +37,7 @@ const receipt = await api.submitAnswer({ challengeId, photo, metadata, idempoten
 const sameReceipt = await api.getAttempt(receipt.attemptId)
 ```
 
-これはC担当の後続接続用で、現在の画面から実写真・現在地を送信する実装ではない。サーバーも従来どおり明示的demoモード・localhost限定で、本番・Auth Emulator起動を拒否する。
+撮影画面は写真と位置を確認した後、利用者の明示操作でこのclientを呼ぶ。サーバーは明示的demoモードとlocalhostに限る。
 
 ## 入力と開発用の上限
 

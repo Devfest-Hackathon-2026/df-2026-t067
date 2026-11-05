@@ -1,6 +1,6 @@
 # 開発用GPS範囲判定
 
-[回答受付API](answer-intake.md)へ、範囲・精度・撮影/測位時刻の検査を追加した。位置条件の通過だけで写真の正解やクリアを確定しない。実地点・写真・AI・保存・画面からの送信は未接続。
+[回答受付API](answer-intake.md)へ、範囲・精度・撮影/測位時刻の検査を追加した。ローカルの撮影画面からデモ送信すると判定を試せる。実地点の設定・写真照合・保存は未接続。
 
 ## 有効化
 
@@ -10,7 +10,7 @@
 QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
-`npm run dev:api`は既存の`.env.local`からFirebase設定を読み、実設定をGitへ入れない。Firebase未設定では認証が503となる。実Google tokenを使った写真/GPS送信は今回未検証で、画面の送信操作もまだ追加していない。公開WebのHostingへこのローカルAPIをデプロイする操作ではない。
+`npm run dev:api`は既存の`.env.local`からFirebase設定を読み、実設定をGitへ入れない。Firebase未設定では認証が503となる。実Google tokenを使った写真/GPS送信は未検証。
 
 未知・空文字のモードは起動時に拒否する。本番・Auth Emulatorを拒否する既存のガードは維持する。起動ログはGPS demoの有効/無効だけを表示し、地点・精度・時刻・画像・tokenを出さない。
 
@@ -42,7 +42,7 @@ QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:a
 | 境界・精度・時刻が不確実 | 200 / COMPLETED・LOCATION_UNCERTAIN・source:mock | RETAKE |
 | 位置条件を通過 | 202 / RECEIVED・outcome:null・source:mock | WAIT（写真判定workerは未接続） |
 
-通過は正解ではない。RECEIVEDから自動進行せず、写真は保持しない。クライアントはこれを判定中・保存済みの画面へつながない。実際の送信/結果画面の接続はC担当との後続作業。
+位置条件を通過すると画面にデモ受付済みと表示する。RECEIVEDからの進行と写真保持は未接続。範囲外と位置不確実は個別に案内する。
 
 ## 再送と公開範囲
 

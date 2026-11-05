@@ -86,15 +86,16 @@ export function ChallengeCapture({ api, quest, onReloadQuest }: {
       {state.status === 'starting' ? '挑戦を開始しています…' : cameraOpen ? '撮影中' : state.status === 'ready' ? '撮影を再開' : '挑戦を始める'}
     </button>
     <p id="challenge-note" className="unavailable-note" role="status">
-      {state.status === 'ready' ? '挑戦を開始しました。写真は送信・保存されません。'
+      {state.status === 'ready' ? '挑戦を開始しました。写真と位置を確認してからデモ送信できます。'
         : state.status === 'starting' ? 'サーバーで挑戦の開始を確認しています…'
-          : 'ログインを確認しました。写真はこの画面で確認するだけです。'}
+          : 'ログインを確認しました。デモの回答受付を試せます。'}
     </p>
     {state.status === 'starting' && <button type="button" className="retry-button" onClick={() => { abort(); setState({ status: 'idle' }) }}>開始をキャンセル</button>}
     {state.status === 'error' && <div className="auth-feedback">
       <p role="alert">{state.message}{seconds > 0 && ` ${seconds}秒後に再試行できます。`}</p>
       {state.reload && <button type="button" className="retry-button" onClick={onReloadQuest}>問題を読み直す</button>}
     </div>}
-    {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera} />}
+    {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera}
+      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest }} />}
   </>
 }

@@ -12,13 +12,91 @@ function fixture() {
   vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
   const createChallenge = vi.fn().mockResolvedValue(challenge)
-  const api = { ...createApiClient(), createChallenge }
+  const submitAnswer = vi.fn()
+  const getAttempt = vi.fn()
+  const api = { ...createApiClient(), createChallenge, submitAnswer, getAttempt }
   const reload = vi.fn()
   const view = render(<ChallengeCapture api={api} quest={quest} onReloadQuest={reload} />)
-  return { ...view, createChallenge, getUserMedia, stop, reload, user: userEvent.setup() }
+  return { ...view, createChallenge, submitAnswer, getAttempt, getUserMedia, stop, reload, user: userEvent.setup() }
+}
+
+function takePhoto() {
+  const photo = new Blob(['synthetic-photo'], { type: 'image/jpeg' })
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(photo))
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = () => 'blob:synthetic'; static revokeObjectURL = () => {} })
+  const measuredAt = Date.now()
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: {
+    getCurrentPosition: (success: PositionCallback) => success({
+      coords: { latitude: 0, longitude: 0, accuracy: 10 }, timestamp: measuredAt,
+    } as GeolocationPosition),
+  } }))
+  const video = screen.getByLabelText('カメラ映像') as HTMLVideoElement
+  Object.defineProperties(video, { videoWidth: { value: 640 }, videoHeight: { value: 480 }, readyState: { value: 2 } })
+  fireEvent.loadedData(video)
+  fireEvent.click(screen.getByRole('button', { name: '撮影する' }))
+  return { photo, measuredAt }
 }
 
 describe('challenge before camera', () => {
+  it('only sends after explicit confirmation, reuses the retry key, and checks a known receipt by GET', async () => {
+    const f = fixture()
+    const receipt = { attemptId: 'demo-receipt', state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'mock' }
+    f.submitAnswer.mockRejectedValueOnce(new ApiError('NETWORK_ERROR')).mockResolvedValueOnce(receipt)
+    f.getAttempt.mockRejectedValueOnce(new ApiError('QUEST_UNAVAILABLE'))
+    await f.user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+    await waitFor(() => expect(f.getUserMedia).toHaveBeenCalledTimes(1))
+    const { photo, measuredAt } = takePhoto()
+    expect(f.submitAnswer).not.toHaveBeenCalled()
+    await f.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('通信状況')
+    await f.user.click(screen.getByRole('button', { name: '同じ回答を再送' }))
+    expect(await screen.findByText(/デモ受付済み/)).toBeVisible()
+    expect(f.submitAnswer).toHaveBeenCalledTimes(2)
+    expect(f.submitAnswer.mock.calls[0][0]).toEqual({ photo, challengeId: challenge.challengeId,
+      metadata: { capturedAt: expect.any(String), position: { latitude: 0, longitude: 0,
+        accuracyMeters: 10, measuredAt: new Date(measuredAt).toISOString() } }, idempotencyKey: expect.any(String) })
+    expect(f.submitAnswer.mock.calls[1][0]).toEqual(f.submitAnswer.mock.calls[0][0])
+    await f.user.click(screen.getByRole('button', { name: '受付状態を確認' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('この問題の受付は終了')
+    expect(f.getAttempt).toHaveBeenCalledExactlyOnceWith(receipt.attemptId, { signal: expect.any(AbortSignal) })
+    expect(f.submitAnswer).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['OUTSIDE_AREA', 'MOVE_TO_AREA', '指定の撮影範囲外'],
+    ['LOCATION_UNCERTAIN', 'RETAKE', '位置を確認できませんでした'],
+  ])('shows %s separately from a receipt', async (outcome, nextAction, message) => {
+    const f = fixture()
+    f.submitAnswer.mockResolvedValue({ attemptId: 'demo-receipt', state: 'COMPLETED', outcome, nextAction, source: 'mock' })
+    await f.user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+    await waitFor(() => expect(f.getUserMedia).toHaveBeenCalledTimes(1))
+    takePhoto()
+    await f.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
+    expect(await screen.findByText(new RegExp(message))).toBeVisible()
+    expect(screen.queryByText(/デモ受付済み/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撮り直す' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '受付状態を確認' })).not.toBeInTheDocument()
+  })
+
+  it('blocks a duplicate upload and ignores a reply after leaving the camera', async () => {
+    const f = fixture()
+    const receipt = { attemptId: 'demo-receipt', state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'mock' }
+    let resolve!: (value: typeof receipt) => void
+    f.submitAnswer.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    await f.user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+    await waitFor(() => expect(f.getUserMedia).toHaveBeenCalledTimes(1))
+    takePhoto()
+    const send = screen.getByRole('button', { name: '写真と位置をデモ送信' })
+    fireEvent.click(send)
+    fireEvent.click(send)
+    expect(f.submitAnswer).toHaveBeenCalledTimes(1)
+    const signal = f.submitAnswer.mock.calls[0][1].signal as AbortSignal
+    await f.user.click(screen.getByRole('button', { name: '撮影を終了' }))
+    expect(signal.aborted).toBe(true)
+    await act(async () => resolve(receipt))
+    expect(screen.queryByText(/デモ受付済み/)).not.toBeInTheDocument()
+  })
   it('waits for an explicit start and matching response, and locks duplicate starts', async () => {
     const f = fixture()
     let resolve!: (value: typeof challenge) => void
@@ -36,7 +114,7 @@ describe('challenge before camera', () => {
     expect(document.body).not.toHaveTextContent(challenge.challengeId)
     await f.user.click(screen.getByRole('button', { name: '撮影を終了' }))
     expect(f.stop).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('挑戦を開始しました。写真は送信・保存されません。')).toBeVisible()
+    expect(screen.getByText('挑戦を開始しました。写真と位置を確認してからデモ送信できます。')).toBeVisible()
     await f.user.click(screen.getByRole('button', { name: '撮影を再開' }))
     await waitFor(() => expect(f.getUserMedia).toHaveBeenCalledTimes(2))
     expect(f.createChallenge).toHaveBeenCalledTimes(2)
