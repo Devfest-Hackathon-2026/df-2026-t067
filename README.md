@@ -75,6 +75,7 @@ npm --prefix server run check
 | [A〜Dの進捗管理（Issue #19）](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/19) | 担当者、main反映済みの範囲、次の作業、依存・実接続と実機の未確認事項。最新の進捗はこのIssueへ集約 |
 | [B担当：旅行者の地図・問題閲覧](docs/b-development.md) | T01/T02の現状、次の小さい実装単位、A/Cへの確認事項 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
+| [Vertex AIの試験設定](docs/vertex-trial.md) | 合意したモデル・接続先・100円の利用額制限と、最大20回の試験条件 |
 | [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
 | [今回の土台の範囲](docs/foundation.md) | 作ったもの、実装判断、完了条件 |
 | [公式参考資料](docs/sources.md) | 技術的な制約の確認先 |
