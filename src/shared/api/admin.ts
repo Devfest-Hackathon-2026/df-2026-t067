@@ -28,14 +28,18 @@ export interface ManagedQuestDraft {
   referenceAssetId: string | null
   hintAssetId: string | null
 }
-// The first management adapter supports drafts only. Publishing needs a separate
-// reviewed contract, tests, durable storage and real membership authorization.
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
-  publishedVersion: null; status: 'draft'; shootingAreaStatus: 'unconfigured' | 'configured'
+  publishedVersion: null; status: 'draft' | 'review_pending'; shootingAreaStatus: 'unconfigured' | 'configured'
   draft: ManagedQuestDraft; source: 'real' | 'mock'
 }
 export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
+export const REVIEW_FIELDS = [
+  'materials.name', 'materials.evidence', 'materials.photoRights', 'referenceAssetId', 'hintAssetId',
+  'shootingAreas', 'content.title', 'content.question', 'content.hints', 'content.verifiedFeatures',
+] as const
+export type ReviewField = typeof REVIEW_FIELDS[number]
+export interface ReviewSubmission { quest: ManagedQuest; missing: ReviewField[] }
 
 function fields(input: unknown, keys: readonly string[], path: string): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input) ||
@@ -138,7 +142,7 @@ export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
       requiresBoat: flag(m.requiresBoat, 'requiresBoat'), requiresPaidFacility: flag(m.requiresPaidFacility, 'requiresPaidFacility'), price: text(m.price, 'price', 2000),
       photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
     content: { title: text(c.title, 'title', 200), question: text(c.question, 'question'),
-      hints: c.hints.map((item) => text(item, 'hint', 2000)) as [string, string, string],
+      hints: Array.from(c.hints, (item) => text(item, 'hint', 2000)) as [string, string, string],
       verifiedFeatures: text(c.verifiedFeatures, 'verifiedFeatures'), draftingNotes: text(c.draftingNotes, 'draftingNotes') },
     afterClear: { access: text(a.access, 'afterClear.access', 2000), hours: text(a.hours, 'afterClear.hours', 2000),
       promoComment: text(a.promoComment, 'afterClear.promoComment', 2000), explanation: text(a.explanation, 'afterClear.explanation') },
@@ -155,11 +159,29 @@ export function parseUpdateManagedQuest(input: unknown): UpdateManagedQuest {
   const d = fields(input, ['expectedDraftRevision', 'draft'], 'updateManagedQuest')
   return { expectedDraftRevision: revision(d.expectedDraftRevision), draft: parseManagedQuestDraft(d.draft) }
 }
+export function parseSubmitReview(input: unknown): { expectedDraftRevision: number } {
+  const d = fields(input, ['expectedDraftRevision'], 'submitReview')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision) }
+}
+export function parseReviewSubmission(input: unknown): ReviewSubmission {
+  const d = fields(input, ['quest', 'missing'], 'reviewSubmission')
+  const quest = parseManagedQuest(d.quest)
+  if (!Array.isArray(d.missing) || d.missing.length > REVIEW_FIELDS.length) throw new ContractError('reviewSubmission.missing')
+  const missing = Array.from(d.missing, (value) => {
+    if (!REVIEW_FIELDS.includes(value as ReviewField)) throw new ContractError('reviewSubmission.missing')
+    return value as ReviewField
+  })
+  if (new Set(missing).size !== missing.length || (quest.status === 'review_pending') !== (missing.length === 0)) {
+    throw new ContractError('reviewSubmission.status')
+  }
+  return { quest, missing }
+}
 export function parseManagedQuest(input: unknown): ManagedQuest {
   const d = fields(input, ['questId', 'orgId', 'areaId', 'draftRevision', 'publishedVersion', 'status', 'shootingAreaStatus', 'draft', 'source'], 'ManagedQuest')
-  if (d.publishedVersion !== null || d.status !== 'draft' || !['unconfigured', 'configured'].includes(d.shootingAreaStatus as string) ||
+  if (d.publishedVersion !== null || (d.status !== 'draft' && d.status !== 'review_pending') ||
+    (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured') ||
     (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('ManagedQuest.state')
   return { questId: identifier(d.questId, 'questId'), orgId: identifier(d.orgId, 'orgId'), areaId: identifier(d.areaId, 'areaId'),
-    draftRevision: revision(d.draftRevision), publishedVersion: null, status: 'draft', shootingAreaStatus: d.shootingAreaStatus as ManagedQuest['shootingAreaStatus'],
+    draftRevision: revision(d.draftRevision), publishedVersion: null, status: d.status, shootingAreaStatus: d.shootingAreaStatus,
     draft: parseManagedQuestDraft(d.draft), source: d.source }
 }

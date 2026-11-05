@@ -7,7 +7,7 @@ import type { DemoAssetStore } from './admin-assets'
 import type { DemoPhotoTestStore } from './admin-photo-tests'
 import { HttpError, invalidInput } from './errors'
 import { readIdempotencyKey } from './idempotency-key'
-import { comparePhotos } from './photo-match'
+import { comparePhotos, draftPhotoFeatures } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 import { readPhotoForm } from './photo-form'
 
@@ -40,8 +40,8 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
     const assetId = quest.draft.referenceAssetId
     const reference = assetId && assets.getOwned(input.orgId, assetId)
     const bytes = assetId && assets.getPhotoOwned(input.orgId, assetId)
-    const features = quest.draft.content.verifiedFeatures.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
-    if (!reference || reference.purpose !== 'reference' || !bytes || !features.length || features.length > 20 || features.some((value) => value.length > 300)) invalidInput()
+    const features = draftPhotoFeatures(quest.draft.content.verifiedFeatures)
+    if (!reference || reference.purpose !== 'reference' || !bytes || !features) invalidInput()
     const digest = createHash('sha256').update(JSON.stringify([input.orgId, input.questId, metadata, assetId, features, form.mimeType]))
       .update('\0').update(form.image).digest('hex')
     const index = JSON.stringify([input.uid, input.orgId, input.questId, key])
