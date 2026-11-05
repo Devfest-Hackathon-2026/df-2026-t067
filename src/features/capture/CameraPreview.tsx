@@ -178,6 +178,15 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
       {phase === 'capturing' && <p role="status" className="camera-status">写真を作成しています…</p>}
       {locating && <p role="status" className="camera-status">撮影地を取得しています…</p>}
       {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
+      {photoUrl && metadata && <div className="camera-map-reference">
+        <a
+          className="secondary-button"
+          href={`https://www.openstreetmap.org/?mlat=${metadata.position.latitude}&mlon=${metadata.position.longitude}#map=18/${metadata.position.latitude}/${metadata.position.longitude}`}
+          target="_blank"
+          rel="noreferrer"
+        >撮影地を地図で見る（OpenStreetMap）</a>
+        <p className="sample-note">リンクを開くと撮影地の座標がOpenStreetMapに送られます。</p>
+      </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
       <div className="camera-actions">
         {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}

@@ -93,6 +93,10 @@ describe('local camera preview', () => {
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
     expect(media.stop).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
+    const mapLink = screen.getByRole('link', { name: '撮影地を地図で見る（OpenStreetMap）' })
+    expect(mapLink).toHaveAttribute('href', expect.stringContaining('mlat=35&mlon=135'))
+    expect(mapLink).toHaveAttribute('target', '_blank')
+    expect(screen.getByText(/座標がOpenStreetMapに送られます/)).toBeInTheDocument()
     expect(media.getCurrentPosition).toHaveBeenCalledExactlyOnceWith(expect.any(Function), expect.any(Function),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     expect(media.toBlob.mock.calls[0].slice(1)).toEqual(['image/jpeg', .9])

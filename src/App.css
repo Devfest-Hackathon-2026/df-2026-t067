@@ -98,6 +98,9 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.5; 
 .camera-status { margin-top: 10px; color: #60735e; font-size: 12px; }
 .camera-actions { display: grid; gap: 10px; margin-top: 14px; }
 .camera-actions .secondary-button { min-height: 44px; border: 1px solid #ccd9c4; border-radius: 7px; padding: 9px 12px; color: #245745; background: #fff; font-size: 12px; }
+.camera-map-reference { margin-top: 12px; }
+.camera-map-reference a { display: inline-block; min-height: 44px; border: 1px solid #ccd9c4; border-radius: 7px; padding: 9px 12px; color: #245745; background: #fff; font-size: 12px; text-decoration: none; }
+.camera-map-reference a:hover { background: #f5f7f1; }
 .quest-visual { height: 142px; position: relative; overflow: hidden; display: grid; place-items: center; background: #eaeedf; color: #839b7c; }
 .quest-visual > .icon { width: 52px; height: 52px; stroke-width: 1; transform: rotate(-15deg); }
 .visual-orbit { position: absolute; display: block; border: 1px solid #c6d2be; border-radius: 50%; transform: rotate(-25deg); }
