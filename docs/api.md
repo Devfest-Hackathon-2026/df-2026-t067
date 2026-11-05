@@ -141,6 +141,8 @@ sessionはCookieやサーバーセッションを作らず、クエリ・bodyの
 
 Firestore / Storage、写真判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)と[回答受付・再送・本人照会](answer-intake.md)はプロセス内の一時領域で実装した。明示的な[GPS demoモード](gps-validation.md)では、サーバー設定の範囲・精度・撮影/測位時刻を検査し、範囲外/位置不確実は200の不合格結果となる。通過は202 RECEIVED/source:mockのままで画像保持・写真判定workerはない。共通clientはdemo接続・demoヘッダーの受付とGPS不合格だけを例外にし、mock正解・その他完了を拒否する。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
 
+回答画像の[実デコード・正規化と写真照合の呼び出し部品](photo-match.md)を追加した。公開APIのDTO/結果は増やさず、HTTP受付には画像検査だけを接続する。MATCHは内部の一致候補であり、実Vertex通信・照合worker・保存・CORRECTは未接続。
+
 ### 9-1. 開発用のWeb接続
 
 [接続手順](local-api.md)の`local-api`モードだけで、画面は`GET /quests/demo-quest`を呼ぶ。公開閲覧にtokenを送らない。サーバー全体の一覧や実Mapsとの接続は後続作業。既定の`preview`モードは問題取得・サーバー認証確認を行わない。
