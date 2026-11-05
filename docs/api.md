@@ -1,6 +1,6 @@
 # API・共通データ契約案 v0.3
 
-旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)、公開GETと認証確認は[ローカルAPIの土台](#9-ローカルapiの土台)を用意した。それ以外のサーバー機能は未実装の提案。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
+旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)、公開GETと認証確認は[ローカルAPIの土台](#9-ローカルapiの土台)、挑戦開始・回答受付は同節の開発用実装を用意した。それ以外のサーバー機能は未実装の提案。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
 
 ## 1. 共通ルール
 
@@ -135,11 +135,11 @@ sessionはCookieやサーバーセッションを作らず、クエリ・bodyの
 
 一覧のlimitは既定20、1〜100。IDは英数字で始まる英数字・`_`・`-`の1〜128文字。cursorは同じリソース・フィルター内だけ有効。bboxは公開ポリゴンの外接範囲で絞り、日付変更線をまたぐ範囲も扱う。zoomは0〜24の入力検証だけで、件数集約は行わない。公開GETの未知・重複クエリは400。sessionのクエリは無視する。
 
-すべての応答に`X-Quest-Data-Mode: demo`、サーバー生成の`X-Request-Id`、`Cache-Control: private, no-store`を付ける。エラーは既存の封筒形式。上表はGET、挑戦開始はPOSTだけを受け付け、異なるメソッドは405、未実装ルートは404。CORSの一括許可は追加せず、localhostだけで待ち受ける。
+すべての応答に`X-Quest-Data-Mode: demo`、サーバー生成の`X-Request-Id`、`Cache-Control: private, no-store`を付ける。エラーは既存の封筒形式。公開一覧・詳細・session・受付照会はGET、挑戦開始・回答受付はPOSTだけを受け付け、異なるメソッドは405、未実装ルートは404。CORSの一括許可は追加せず、localhostだけで待ち受ける。
 
 検証は[`server.test.ts`](../server/test/server.test.ts)で公開情報のallowlist・ページング・境界入力・認証時のuid優先を、[`firebase-auth.test.ts`](../server/test/firebase-auth.test.ts)でSDKとの境界・失敗時の拒否を確認する。HTTP入力やSDKエラーの詳細をログへ出さない。SDK境界の代替テストと、実SDKによる不正トークンの拒否テストを区別している。
 
-Firestore / Storage、回答・回答IDの冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)はプロセス内の一時領域だけで実装した。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
+Firestore / Storage、写真判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)と[回答受付・再送・本人照会](answer-intake.md)はプロセス内の一時領域で実装した。明示的な[GPS demoモード](gps-validation.md)では、サーバー設定の範囲・精度・撮影/測位時刻を検査し、範囲外/位置不確実は200の不合格結果となる。通過は202 RECEIVED/source:mockのままで画像保持・写真判定workerはない。共通clientはdemo接続・demoヘッダーの受付とGPS不合格だけを例外にし、mock正解・その他完了を拒否する。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
 
 ### 9-1. 開発用のWeb接続
 

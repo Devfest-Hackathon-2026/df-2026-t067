@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '../../shared/api'
-import type { ApiClient, PublicQuest } from '../../shared/api'
+import type { ApiClient } from '../../shared/api'
 import type { AuthSnapshot } from '../auth/authTypes'
 import { demoQuest } from '../quests/demoQuest'
+import { demoAreaLabel } from '../quests/demoQuest'
+import type { PublicQuest } from '../../shared/api/types'
 
 type DataSource = 'preview' | 'local-api' | 'invalid'
 type Remote<T> = { status: 'loading' } | { status: 'error' } | { status: 'ready'; value: T }
-type QuestContent = typeof demoQuest & { apiQuest?: PublicQuest }
+type QuestContent = PublicQuest & { areaLabel: string }
 
 export function readDataSource(value: unknown, development: boolean): DataSource {
   if (value === undefined || value === '' || value === 'preview') return 'preview'
@@ -38,10 +40,10 @@ export function useQuestConnection(source: DataSource, api: ApiClient) {
   const read = useCallback(async (signal: AbortSignal): Promise<QuestContent> => {
     const quest = await api.getQuest('demo-quest', { signal })
     if (quest.questId !== 'demo-quest') throw new ApiError('INVALID_RESPONSE')
-    return { title: quest.title, clue: quest.clue, visitConditions: quest.visitConditions, areaLabel: '架空のデモ地域', apiQuest: quest }
+    return { ...quest, areaLabel: '架空のデモ地域' }
   }, [api])
   const remote = useRemote(source === 'local-api', read)
-  const result: Remote<QuestContent> = source === 'preview' ? { status: 'ready', value: demoQuest }
+  const result: Remote<QuestContent> = source === 'preview' ? { status: 'ready', value: { ...demoQuest, areaLabel: demoAreaLabel } }
     : source === 'invalid' ? { status: 'error' } : remote.result
   return { ...remote, result }
 }

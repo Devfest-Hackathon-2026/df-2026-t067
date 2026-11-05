@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../../App'
 import type { AuthClient, AuthSnapshot } from '../auth/authTypes'
+import { demoQuest } from '../quests/demoQuest'
 
 function mediaFixture() {
   const stop = vi.fn()
@@ -26,7 +27,7 @@ function mount() {
     getIdToken: vi.fn(async () => 'test-token'),
   }
   const view = render(<App authClient={client} />)
-  return { ...media, ...view, emit, user: userEvent.setup() }
+  return { ...media, ...view, emit, client, user: userEvent.setup() }
 }
 
 async function start(user: ReturnType<typeof userEvent.setup>) {
@@ -35,6 +36,14 @@ async function start(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('camera ownership and cleanup', () => {
+  it('stops camera access when B supplies a different question', async () => {
+    const media = mount()
+    await start(media.user)
+    await waitFor(() => expect(screen.getByLabelText('カメラ映像')).toHaveProperty('srcObject', media.stream))
+    media.rerender(<App authClient={media.client} quest={{ ...demoQuest, questId: 'different-quest', version: 3 }} />)
+    expect(media.stop).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('region', { name: '写真撮影と確認' })).not.toBeInTheDocument()
+  })
   it('stops the camera when the selected question closes', async () => {
     const media = mount()
     await start(media.user)

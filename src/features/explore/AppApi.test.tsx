@@ -41,6 +41,19 @@ async function openQuest(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('explicit local API integration', () => {
+  it('checks the server identity for a B-supplied quest without loading the fixed quest again', async () => {
+    const auth = authFixture(true)
+    const fetcher = vi.fn<typeof fetch>(async () => json({ uid: 'another-user' }))
+    const api = createApiClient({ fetch: fetcher, getIdToken: auth.client.getIdToken, expectedDataMode: 'demo' })
+    render(<App authClient={auth.client} apiClient={api} quest={apiQuest} areaLabel="架空の探索地域" apiMode />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('ログインを確認できませんでした')
+    expect(screen.getByRole('button', { name: 'ログインの確認待ち' })).toBeDisabled()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/session')
+    expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer current-token')
+  })
   it('loads the API question anonymously and disables selection until it arrives', async () => {
     let resolve!: (response: Response) => void
     const fetcher = vi.fn<typeof fetch>(() => new Promise((done) => { resolve = done }))

@@ -46,6 +46,14 @@ p { overflow-wrap: anywhere; }
 .logout-button:disabled { opacity: .5; }
 .page, .site-footer { width: min(100% - 64px, 1440px); margin-inline: auto; }
 .page { padding-block: 36px 26px; }
+.api-quest-picker { display: grid; gap: 7px; margin: 18px 0; padding: 13px; border: 1px solid #e0e7df; border-radius: 9px; background: #f8faf6; }
+.api-quest-picker label { font-size: 11px; font-weight: 650; color: #526656; }
+.api-quest-picker select { width: 100%; min-height: 44px; border: 1px solid #d5dfd5; border-radius: 6px; padding: 7px 10px; color: #243d35; background: #fff; font: inherit; }
+.api-quest-picker p, .api-quest-picker span { font-size: 10px; color: #657568; line-height: 1.7; }
+.api-load-state { width: min(100% - 40px, 620px); margin: 12vh auto; padding: 28px; border: 1px solid #e0e7df; border-radius: 14px; background: #fff; }
+.api-load-state h1 { margin-bottom: 12px; }
+.api-load-state p { margin-top: 8px; color: #657568; }
+.api-load-state button { min-height: 44px; margin-top: 18px; padding: 8px 18px; border: 1px solid #245745; border-radius: 7px; color: #fff; background: #245745; }
 .explore-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 25px; }
 .eyebrow { font-size: 11px; color: #657660; letter-spacing: .055em; margin-bottom: 6px; }
 h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.5; letter-spacing: -.025em; }

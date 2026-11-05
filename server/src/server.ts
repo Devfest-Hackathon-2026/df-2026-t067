@@ -6,6 +6,10 @@ import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
 import { DemoChallengeStore } from './challenges'
 import { readChallengeInput } from './json-body'
+import { answerKey, readAnswerInput } from './answer-input'
+import { DemoAnswerStore } from './answers'
+import { evaluateLocation } from './location'
+import type { LocationValidation } from './location'
 import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
@@ -15,6 +19,8 @@ export interface ServerOptions {
   nodeEnv?: string
   verifier?: IdTokenVerifier
   challenges?: DemoChallengeStore
+  answers?: DemoAnswerStore
+  locationValidation?: LocationValidation
 }
 
 function bearerToken(request: IncomingMessage): string {
@@ -41,9 +47,10 @@ export function createServer(options: ServerOptions) {
   assertNoAuthEmulator(process.env)
   const { areas, quests } = createDemoData()
   const challenges = options.challenges ?? new DemoChallengeStore()
+  const answers = options.answers ?? new DemoAnswerStore()
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
-    // Keep POST bodies paused while authentication runs. Only the bounded JSON
-    // reader consumes them; ignored/error bodies are drained after handling.
+    // Keep POST bodies paused while authentication runs. Only bounded readers
+    // consume them; ignored/error bodies are drained after handling.
     request.on('error', () => {})
     const requestId = randomUUID()
     response.setHeader('X-Request-Id', requestId)
@@ -73,14 +80,43 @@ export function createServer(options: ServerOptions) {
     const { path, params } = requestTarget(request)
     const isDetail = path.startsWith('/api/v1/quests/')
     const isStart = path === '/api/v1/challenges'
-    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart
+    const answerPath = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
+    const attemptPath = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
+    const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || answerPath || attemptPath
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-    const method = isStart ? 'POST' : 'GET'
+    const method = isStart || answerPath ? 'POST' : 'GET'
     if (request.method !== method) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    if (isStart) {
+    if (answerPath) {
+      const uid = await authenticate(request)
+      validateQuery(params, [])
+      const challenge = challenges.getOwned(parseId(decodeURIComponent(answerPath[1])), uid)
+      if (!challenge) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      const key = answerKey(request)
+      const release = answers.acquire(uid)
+      try {
+        const input = await readAnswerInput(request)
+        const quest = quests.find((item) => item.questId === challenge.questId)
+        if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
+        if (quest.version !== challenge.version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+        const location = options.locationValidation
+        const decide = location ? () => {
+          const policy = location.policyFor(challenge.questId, challenge.version)
+          if (!policy) throw new HttpError(503, 'SYSTEM_ERROR', '位置確認の設定を利用できません。')
+          return evaluateLocation(input.metadata, policy, (location.now ?? Date.now)())
+        } : undefined
+        const result = answers.receive(uid, challenge.challengeId, key, input.digest, decide)
+        send(response, result.state === 'COMPLETED' ? 200 : 202, result)
+      } finally { release() }
+    } else if (attemptPath) {
+      const uid = await authenticate(request)
+      validateQuery(params, [])
+      const result = answers.getOwned(parseId(decodeURIComponent(attemptPath[1])), uid)
+      if (!result) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      send(response, 200, result)
+    } else if (isStart) {
       const uid = await authenticate(request)
       validateQuery(params, [])
       const input = await readChallengeInput(request)

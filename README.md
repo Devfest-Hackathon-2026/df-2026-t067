@@ -6,7 +6,7 @@
 
 ## 現在の状態
 
-2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、地図のデザインプレビューから架空のサンプル問題を選べます。Googleログイン・ログアウト・状態復元に対応し、[撮影と写真確認の画面](docs/camera-preview.md)では、撮影時のGPS情報と写真を画面内だけで保持します。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。Google Maps接続・写真とGPSの送信・判定・記録保存は未実装です。実機でのGPS取得は未検証です。
+2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、既存のローカル公開APIから架空の問題一覧・詳細・地域名を取得して表示します。Googleログイン・ログアウト・状態復元に対応しています。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。地図は静的プレビューで、Google Maps接続・写真とGPSの送信・判定・記録保存は未実装です。撮影時のGPS情報はC担当の実装で画面内に保持します。
 
 設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。共有用の開発プレビューを **[https://tour-513804.web.app/](https://tour-513804.web.app/)** で公開しています。URLを開くだけで閲覧でき、閲覧にログインは不要です。更新方法と公開範囲は [Firebase Hostingの手順](docs/hosting.md) を参照してください。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
@@ -23,7 +23,7 @@ npm ci
 npm run dev
 ```
 
-[起動画面を開く](http://localhost:5173/) →「問題を見てみる」で架空の問題を確認できます。終了はターミナルで **Ctrl+C**。`npm ci`は、記録された同じ版の部品を揃えるコマンドです。
+[下記のローカルAPI](#a担当のローカルapiを試す)も別ターミナルで起動し、[起動画面を開く](http://localhost:5173/) → 問題を選択 →「問題を見てみる」で詳細を確認できます。API停止時は取得失敗と再試行を表示します。終了は各ターミナルで **Ctrl+C**。`npm ci`は、記録された同じ版の部品を揃えるコマンドです。
 
 全員が変更後に行う確認は次の1つです。型検査・静的検査・画面テスト・ビルドを順に実行します。
 
@@ -31,9 +31,11 @@ npm run dev
 npm run check
 ```
 
+ビルド後の画面は`npm run preview`で起動し、[プレビュー](http://localhost:4173/)を開きます。本番ビルドは既存Hostingと同じ静的プレビューを維持し、ローカルAPIの問題一覧・地域絞り込みは`npm run dev`で確認します。API転送はローカル確認用で、外部へのデプロイ設定ではありません。
+
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)に加え、別パッケージとして[ローカルAPIの土台](server/README.md)を追加しました。[開発用の接続手順](docs/local-api.md)で、画面から架空の1問を取得し、Googleログインをサーバーでも確認できます。写真判定と保存はまだありません。既定の画面内プレビューはAPIへ通信しません。
+A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)と別パッケージの[ローカルAPI](server/README.md)へWeb画面を接続し、公開問題一覧・詳細・地域名を取得します。APIが利用できない場合は再試行を案内し、固定デモ問題へ切り替えません。APIモードでは静的地図の固定マーカーを隠し、位置とは連動しません。A担当の[サーバーでのログイン確認](docs/local-api.md)と、C担当の[撮影・写真確認](docs/camera-preview.md)も維持します。写真・GPSの画面からの送信・判定・保存は未接続です。
 
 ## A担当のローカルAPIを試す
 
@@ -44,9 +46,13 @@ npm --prefix server ci --ignore-scripts
 QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 ```
 
+PowerShellでは2行目を`$env:QUEST_DATA_MODE='demo'; $env:NODE_ENV='development'; npm --prefix server run dev`に置き換えます。
+
 `http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
 
 認証後に利用者・問題・版を結び付ける[挑戦開始API](docs/challenge-start.md)も追加しました。`local-api`モードでは「挑戦を始める」で開始を確認してから撮影画面を開きます。開発用の一時管理で、再起動すると消えます。写真送信・保存は未実装です。
+
+サーバーには[開発用の回答受付・本人照会API](docs/answer-intake.md)を追加しました。写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。[GPS demoモード](docs/gps-validation.md)を明示すると、範囲外と位置不確実を区別できます。範囲内でも写真判定は未接続でRECEIVEDのままです。画面送信・画像保存は未接続です。
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
@@ -66,6 +72,7 @@ npm --prefix server run check
 | [受け入れ・テスト条件](docs/acceptance.md) | 実装を完了と判断する確認項目 |
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
+| [B担当：旅行者の地図・問題閲覧](docs/b-development.md) | T01/T02の現状、次の小さい実装単位、A/Cへの確認事項 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
 | [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
 | [今回の土台の範囲](docs/foundation.md) | 作ったもの、実装判断、完了条件 |
