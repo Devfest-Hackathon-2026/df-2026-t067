@@ -37,3 +37,6 @@ Thumbs.db
 # Firebase Hosting CLIのローカルキャッシュ
 .firebase/
 firebase-debug.log*
+
+# ローカルのVertex試験台帳（写真・資格情報は入れない）
+.vertex-trial/
