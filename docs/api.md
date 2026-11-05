@@ -166,4 +166,10 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 12. Dへの用途別写真素材API
 
-[admin-assets.md](admin-assets.md)に設定・入力・再送・下書きへの接続を記録する。`OrgAssetMetadata`と`UploadedOrgAsset`を追加し、`uploadOrgAsset / getOrgAsset / getOrgAssetPhoto`を共通clientから利用できる。serverは所属を確認して既存の画像検証で正規化し、用途・組織付きIDを発行する。`QUEST_ADMIN_ASSETS_MODE=memory`の明示設定だけが開発用写真を一時保存し、既定は503。実Storage/AI/公開やPR #30の新しい画面項目は含まない。
+[admin-assets.md](admin-assets.md)に設定・入力・再送・下書きへの接続を記録する。`OrgAssetMetadata`と`UploadedOrgAsset`を追加し、`uploadOrgAsset / getOrgAsset / getOrgAssetPhoto`を共通clientから利用できる。serverは所属を確認して既存の画像検証で正規化し、用途・組織付きIDを発行する。`QUEST_ADMIN_ASSETS_MODE=memory`の明示設定だけが開発用写真を一時保存し、既定は503。素材API自体に実Storage/AI/公開は含まない。PR #30の新しい下書き項目は次節の共有契約を参照する。
+
+## 13. PR #30に対応する管理下書き契約
+
+`ManagedQuestDraft.materials`はname/evidence・requiresBoat/requiresPaidFacility・price/photoNote/photoRights。旧6交通手段と旧materialsのaccess/hoursは廃止して拒否する。クリア後用のaccess/hours/promoComment/explanationは必須の`afterClear`へ分離し、管理APIで作成/更新/取得する。空文字は未完成下書きとして保存でき、条件の真偽値を文字列から補正しない。
+
+共有型はShootingConditions/AfterClearContent。管理プレビューの型もこれを参照する。PublicQuest/通常ヒント/未クリア用データへafterClearを追加せず、登録・本人記録・公開のAPIを混同しない。詳しいpayloadと旧clientからの注意は[接続手順](team-api-handoffs.md)を参照。

@@ -57,13 +57,14 @@ const hint = await api.getHint({
 ```ts
 const draft: ManagedQuestDraft = {
   materials: {
-    name: '', evidence: '', availableModes: [], requiredModes: [],
-    access: '', hours: '', price: '', photoNote: '', photoRights: '',
+    name: '', evidence: '', requiresBoat: false, requiresPaidFacility: false,
+    price: '', photoNote: '', photoRights: '',
   },
   content: {
     title: '', question: '', hints: ['', '', ''],
     verifiedFeatures: '', draftingNotes: '',
   },
+  afterClear: { access: '', hours: '', promoComment: '', explanation: '' },
   referenceAssetId: null,
   hintAssetId: null,
 }
@@ -75,7 +76,9 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 ```
 
 - `OrgMembership`は`{orgId, label, role, areaId}`。uidやactiveを画面から返送して認可しない。公開エリアは所属側の設定で決め、bodyのorgId/areaId/role/statusは拒否する。
-- `materials`はA03に対応。交通手段は`徒歩 / 車 / 電車・バス / 船 / 自転車 / その他`。必須手段は利用可能手段の部分集合。`content`はA04の項目でhintsは3要素。未完成の空欄を保存でき、保存成功は公開可能との判定ではない。
+- `materials`はA03に対応。`requiresBoat`（船上・海上）と`requiresPaidFacility`（有料施設内）は必須のbooleanで、falseは画面の未選択状態。料金priceと撮影制約photoNoteは挑戦前用。`content`はA04の項目でhintsは3要素。未完成の空欄を保存でき、保存成功は公開可能との判定ではない。
+- `afterClear`はクリア後用の`access / hours / promoComment / explanation`。管理APIで保存・復元するが、PublicQuest・通常ヒントへ追加しない。アクセス/時間/コメントは2000文字、解説は4000文字まで。
+- 旧`availableModes / requiredModes`と`materials.access / materials.hours`は受け付けない。旧入力を黙って変換・破棄せず400で拒否する。動作中の旧APIと新しいclientを混ぜない。サーバー再起動では開発用の記録・下書きが消えるため、保持が必要な入力は先に担当者が退避する。
 - `ManagedQuest`は`questId, orgId, areaId, draftRevision, publishedVersion:null, status:'draft', shootingAreaStatus:'unconfigured', draft, source:'mock'`。IDとrevisionはサーバーが発行し、クライアントの指定を信用しない。通常の旅行者GETには出さない。
 - 上限はHTTP本文64 KiB、名称/タイトル200文字、本文/根拠/メモ4000文字、各ヒント/その他素材欄2000文字。開発用の入力保護で、本番O-03を確定しない。下書きは自治体100件・全体1000件で新規作成を停止する。
 - 更新は**draft全体の置換**。現在のrevisionを指定し、成功時に1増える。同時保存は片方だけが成功し、もう片方は409 `DRAFT_CONFLICT`。画面の編集中データを保持して最新版を取得し、人が差分を確認してから再保存する。競合時の自動上書きは禁止。
@@ -93,3 +96,9 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 `npm run check`と`npm --prefix server run check`を実行する。実HTTPと共通clientで通常ヒント・版競合・認証・所属取消・組織/素材分離・同時保存・入力上限を確認する。Firebase verifierをテスト用境界に置き換えた管理APIテストであり、実Googleログイン、実スマートフォン、実自治体権限、実画像・実クラウド保存の確認ではない。
 
 2026-11-05の実行結果：Web `npm run check` は18ファイル230テスト・型/lint/build成功。server `npm --prefix server run check` は108テスト・型/lint/build成功。新規の所属取消・保存競合・公開DTO分離などを実HTTPで確認した。差分の自己レビューを実施し、相対リンクと`git diff --check`も成功。第三者レビューと実Firebase所属接続は未実施。
+
+### PR #30の管理画面との対応
+
+A03の2条件はmaterials.requiresBoat/requiresPaidFacility、アクセス・時間・コメント・解説はafterClearへ明示的にまとめる。管理プレビューは共通のShootingConditions/AfterClearContent型を参照する。画面の自動保存・所属ログイン・実公開はこの契約追加で有効にならない。PublicQuestの通常レスポンスは今回変更しない。
+
+PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル261テスト、`npm --prefix server run check`は159テスト、両方の型/lint/buildが成功。新項目の作成/更新/GET復元、旧項目の拒否、公開GETへの非混入を確認した。自己レビュー・相対リンク・差分検査も実施。実Googleでの管理操作、実自治体所属、永続保存、実公開、実スマートフォン、第三者レビューは未実施。
