@@ -6,7 +6,15 @@
 
 ## 現在の状態
 
-2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、既存のローカル公開APIから架空の問題一覧・詳細・地域名を取得して表示します。Googleログイン・ログアウト・状態復元に対応しています。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。全国地図はGoogle Maps JavaScript APIを設定した場合に表示します。[設定手順](docs/google-maps.md)を参照してください。写真とGPSの送信・判定・記録保存は未実装です。撮影時のGPS情報はC担当の実装で画面内に保持します。
+React・TypeScript・Viteの開発画面で、架空の問題一覧・詳細・地域名をローカルAPIから取得します。閲覧は匿名で行えます。Googleログイン後は、挑戦開始、写真と位置の開発用送信、受付状態の確認を試せます。全国地図の表示にはGoogle Maps JavaScript APIの設定が必要です。[旅行者向けUI](docs/traveler-ui.md)・[Maps設定](docs/google-maps.md)
+
+| 担当 | ローカルで試せる操作 |
+|---|---|
+| B | 問題一覧・詳細、通常ヒントと公開ヒント画像、ログイン後の問題報告。[開発用の問題報告](docs/api.md#20-開発用の問題報告) |
+| C | 写真・位置の送信と受付照会、合成記録の本人一覧・写真・削除。[回答送信](docs/camera-preview.md#ローカルapiで回答を送る)・[合成記録](docs/owner-discoveries.md#合成記録で一覧写真削除を試す) |
+| D | 開発サーバーの `/admin-local` で、所属確認後に下書き・素材・撮影範囲・合成試験・公開・休止・報告を操作。[管理画面の起動と操作](docs/admin-demo.md#開発用の所属問題報告を閲覧する) |
+
+旅行者の写真照合を実行するHTTP worker、クリア確定、Firestore/Storageへの永続保存、実際の自治体権限と本番公開は未接続です。合成記録は回答と独立して起動時に用意します。
 
 設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。共有用の開発プレビューを **[https://tour-513804.web.app/](https://tour-513804.web.app/)** で公開しています。URLを開くだけで閲覧でき、閲覧にログインは不要です。更新方法と公開範囲は [Firebase Hostingの手順](docs/hosting.md) を参照してください。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
@@ -35,7 +43,7 @@ npm run check
 
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)と別パッケージの[ローカルAPI](server/README.md)へWeb画面を接続し、公開問題一覧・詳細・地域名を取得します。APIが利用できない場合は再試行を案内し、固定デモ問題へ切り替えません。APIモードでは静的地図の固定マーカーを隠し、位置とは連動しません。A担当の[サーバーでのログイン確認](docs/local-api.md)と、C担当の[撮影・写真確認](docs/camera-preview.md)も維持します。写真・GPSの画面からの送信・判定・保存は未接続です。
+`npm run dev` の `/` は追加の画面モード設定なしでローカルAPIへ接続します。APIが利用できない場合は再試行を案内します。公開問題が取得できない間も「自分の記録」を開けます。[画面とローカルAPIの接続](docs/local-api.md)
 
 ## A担当のローカルAPIを試す
 
@@ -43,16 +51,22 @@ A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通ap
 
 ```sh
 npm --prefix server ci --ignore-scripts
-QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
+QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
-PowerShellでは2行目を`$env:QUEST_DATA_MODE='demo'; $env:NODE_ENV='development'; npm --prefix server run dev`に置き換えます。
+PowerShellでは2行目の代わりに次を実行します。`dev:api` はルートの `.env.local` を読み込みます。
+
+```powershell
+$env:QUEST_DATA_MODE = 'demo'
+$env:NODE_ENV = 'development'
+npm run dev:api
+```
 
 `http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
 
-認証後に利用者・問題・版を結び付ける[挑戦開始API](docs/challenge-start.md)も追加しました。`local-api`モードでは「挑戦を始める」で開始を確認してから撮影画面を開きます。開発用の一時管理で、再起動すると消えます。写真送信・保存は未実装です。
+「挑戦を始める」で利用者・問題・版を結び付け、サーバーの開始確認後に撮影画面を開きます。挑戦と受付は再起動で消えます。[挑戦開始API](docs/challenge-start.md)
 
-サーバーには[開発用の回答受付・本人照会API](docs/answer-intake.md)を追加しました。写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。[GPS demoモード](docs/gps-validation.md)を明示すると、範囲外と位置不確実を区別できます。範囲内でも写真判定は未接続でRECEIVEDのままです。画面送信・画像保存は未接続です。
+「写真と位置をデモ送信」で写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。`QUEST_LOCATION_MODE=demo` を指定すると範囲外と位置不確実を区別します。範囲内では受付済み（`RECEIVED`）を表示します。[回答受付・本人照会](docs/answer-intake.md)・[GPS demoモード](docs/gps-validation.md)
 
 回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。[Vertex試験](docs/vertex-trial.md)ではADCでの実通信・永続回数制限と合成画像専用CLIを使えます。回答APIの照合worker・記録保存は未接続で、旅行者の実写真でクリアを返す段階ではありません。
 
