@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { AttemptResult } from '../../src/shared/api/types'
+import type { AttemptResult, Challenge } from '../../src/shared/api/types'
 import { parseAttemptResult } from '../../src/shared/api/validation'
 import { HttpError } from './errors'
 import type { LocationDecision } from './location'
 
 interface AnswerOptions { capacity?: number; requestsPerMinute?: number; concurrentUploads?: number; now?: () => number }
-export interface AcceptedAnswerReceipt { challengeId: string; digest: string; receivedAt: number; result: AttemptResult }
+type AnswerChallenge = Pick<Challenge, 'challengeId' | 'questId' | 'version'>
+export interface AcceptedAnswerReceipt extends AnswerChallenge { digest: string; receivedAt: number; result: AttemptResult }
 interface Receipt extends AcceptedAnswerReceipt { ownerUid: string }
 
 // Only bounded receipt metadata is retained, never images or GPS positions.
@@ -51,7 +52,8 @@ export class DemoAnswerStore {
     return () => { if (!released) { released = true; this.active-- } }
   }
 
-  receive(ownerUid: string, challengeId: string, key: string, digest: string, decideLocation?: () => LocationDecision): AttemptResult {
+  receive(ownerUid: string, challenge: AnswerChallenge, key: string, digest: string, decideLocation?: () => LocationDecision): AttemptResult {
+    const { challengeId, questId, version } = challenge
     const index = JSON.stringify([ownerUid, challengeId, key])
     const previousId = this.index.get(index)
     if (previousId) {
@@ -71,22 +73,21 @@ export class DemoAnswerStore {
     if (this.records.has(result.attemptId)) throw this.full()
     const receivedAt = this.now()
     if (!Number.isSafeInteger(receivedAt) || Math.abs(receivedAt) > 8_640_000_000_000_000) throw this.full()
-    this.records.set(result.attemptId, { ownerUid, challengeId, digest, receivedAt, result })
+    this.records.set(result.attemptId, { ownerUid, challengeId, questId, version, digest, receivedAt, result })
     this.index.set(index, result.attemptId)
     return { ...result }
   }
 
   getOwned(attemptId: string, ownerUid: string): AttemptResult | null {
-    const receipt = this.records.get(attemptId)
-    return receipt?.ownerUid === ownerUid ? { ...receipt.result } : null
+    return this.getAcceptedOwned(attemptId, ownerUid)?.result ?? null
   }
 
-  // Server-only context for the optional processing service. HTTP responses
-  // continue to expose only getOwned's result summary, never this context.
+  // Server-only context for publication checks and the optional processor.
   getAcceptedOwned(attemptId: string, ownerUid: string): AcceptedAnswerReceipt | null {
     const receipt = this.records.get(attemptId)
-    return receipt?.ownerUid === ownerUid ? { challengeId: receipt.challengeId, digest: receipt.digest,
-      receivedAt: receipt.receivedAt, result: { ...receipt.result } } : null
+    if (receipt?.ownerUid !== ownerUid) return null
+    const { challengeId, questId, version, digest, receivedAt, result } = receipt
+    return { challengeId, questId, version, digest, receivedAt, result: { ...result } }
   }
 
   private full(): HttpError { return new HttpError(503, 'SYSTEM_ERROR', '処理を完了できませんでした。') }

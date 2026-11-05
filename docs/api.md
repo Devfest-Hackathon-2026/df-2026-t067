@@ -36,7 +36,7 @@
 | POST /quests/:questId/reveal | 不要 | 明示的な最終案内を要求 → 対象名と撮影案内のみ（提案仕様） |
 | POST /challenges | 必要 | questId, expectedVersion → 初回201 Challenge。同じ利用者・問題・版の再要求は200で再利用。開発用の実装範囲は[挑戦開始API](challenge-start.md)を参照。実データでは未公開・版違い・既存発見を確認する |
 | POST /challenges/:challengeId/answers | 必要 | multipartでphotoとCaptureMetadata。Idempotency-Key必須 → AttemptResult |
-| GET /attempts/:attemptId | 必要 | 本人の結果・処理状態のみ。通信中断後も同じ結果を照会 |
+| GET /attempts/:attemptId | 必要 | 本人の結果・処理状態。未判定の休止・版違いは409 |
 | GET /me/discoveries | 必要 | 地域・ページ指定 → 本人の発見一覧 |
 | GET /me/discoveries/:discoveryId | 必要 | 本人のDiscovery。公開中でなくても過去記録は基本保持 |
 | GET /me/discoveries/:discoveryId/photo | 必要 | 本人のJPEG。共通clientはBearer付きで取得してBlobを返す |
