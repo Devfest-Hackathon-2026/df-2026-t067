@@ -126,10 +126,13 @@ function httpError(response: Response, payload: unknown): ApiError {
   })
 }
 
-function liveAttempt(input: unknown, allowDemoReceipt = false): AttemptResult {
+function liveAttempt(input: unknown, allowDemo = false): AttemptResult {
   const result = parseAttemptResult(input)
-  const demoReceipt = allowDemoReceipt && result.source === 'mock' && result.state === 'RECEIVED' && result.nextAction === 'WAIT'
-  if (result.source !== 'real' && !demoReceipt) throw new ContractError('source')
+  const demoReceipt = result.state === 'RECEIVED' && result.nextAction === 'WAIT'
+  const demoLocationFailure = result.state === 'COMPLETED' && (
+    (result.outcome === 'OUTSIDE_AREA' && result.nextAction === 'MOVE_TO_AREA') ||
+    (result.outcome === 'LOCATION_UNCERTAIN' && result.nextAction === 'RETAKE'))
+  if (result.source !== 'real' && !(allowDemo && (demoReceipt || demoLocationFailure))) throw new ContractError('source')
   return result
 }
 

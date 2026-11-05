@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { AttemptResult } from '../../src/shared/api/types'
 import { parseAttemptResult } from '../../src/shared/api/validation'
 import { HttpError } from './errors'
+import type { LocationDecision } from './location'
 
 interface AnswerOptions { capacity?: number; requestsPerMinute?: number; concurrentUploads?: number; now?: () => number }
 interface Receipt { ownerUid: string; digest: string; result: AttemptResult }
@@ -49,7 +50,7 @@ export class DemoAnswerStore {
     return () => { if (!released) { released = true; this.active-- } }
   }
 
-  receive(ownerUid: string, challengeId: string, key: string, digest: string): AttemptResult {
+  receive(ownerUid: string, challengeId: string, key: string, digest: string, decideLocation?: () => LocationDecision): AttemptResult {
     const index = JSON.stringify([ownerUid, challengeId, key])
     const previousId = this.index.get(index)
     if (previousId) {
@@ -58,7 +59,14 @@ export class DemoAnswerStore {
       return { ...previous.result }
     }
     if (this.records.size >= this.capacity) throw this.full()
-    const result = parseAttemptResult({ attemptId: randomUUID(), state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'mock' })
+    // A replay is returned above before reading the clock or policy again.
+    const decision = decideLocation?.()
+    const locationFailure = decision === 'OUTSIDE_AREA' || decision === 'LOCATION_UNCERTAIN'
+    if (decision !== undefined && decision !== 'WITHIN_AREA' && !locationFailure) throw this.full()
+    const result = parseAttemptResult({ attemptId: randomUUID(), source: 'mock',
+      ...(locationFailure ? { state: 'COMPLETED', outcome: decision, nextAction: decision === 'OUTSIDE_AREA' ? 'MOVE_TO_AREA' : 'RETAKE' }
+        : { state: 'RECEIVED', outcome: null, nextAction: 'WAIT' }),
+    })
     if (this.records.has(result.attemptId)) throw this.full()
     this.records.set(result.attemptId, { ownerUid, digest, result })
     this.index.set(index, result.attemptId)
