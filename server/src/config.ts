@@ -2,6 +2,7 @@ export interface ServerConfig {
   mode: 'demo'
   port: number
   firebaseProjectId?: string
+  demoLocation?: true
 }
 
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
@@ -30,6 +31,10 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const port = Number(portText)
   if (!/^[1-9]\d{0,4}$/.test(portText) || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.')
   const config: ServerConfig = { mode: env.QUEST_DATA_MODE, port }
+  if (env.QUEST_LOCATION_MODE !== undefined && env.QUEST_LOCATION_MODE !== 'off') {
+    if (env.QUEST_LOCATION_MODE !== 'demo') throw new Error('QUEST_LOCATION_MODE must be off or demo.')
+    config.demoLocation = true
+  }
   if (env.FIREBASE_PROJECT_ID !== undefined) {
     assertProjectId(env.FIREBASE_PROJECT_ID)
     config.firebaseProjectId = env.FIREBASE_PROJECT_ID

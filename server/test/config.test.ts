@@ -14,6 +14,15 @@ test('missing/real/unknown data modes never fall back to demo', () => {
   }
 })
 
+test('GPS demo must be explicitly enabled and unknown modes never fall back', () => {
+  const enabled = readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: 'demo' })
+  assert.equal('demoLocation' in enabled && enabled.demoLocation, true)
+  for (const mode of ['real', '', 'DEMO', 'unsafe-value']) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: mode }), /QUEST_LOCATION_MODE/)
+  }
+  assert.deepEqual(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: 'off' }), { mode: 'demo', port: 8787 })
+})
+
 test('production/other deployment modes and Auth Emulator cannot start demo server', () => {
   for (const nodeEnv of ['production', 'staging', '']) {
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', NODE_ENV: nodeEnv }), /production startup/)

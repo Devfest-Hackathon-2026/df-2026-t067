@@ -1,11 +1,13 @@
 import { readConfig } from './config'
 import { createFirebaseVerifier } from './firebase-auth'
 import { createServer } from './server'
+import { createDemoLocationValidation } from './demo-location'
 
 async function main(): Promise<void> {
   const config = readConfig(process.env)
   const verifier = config.firebaseProjectId ? createFirebaseVerifier(config.firebaseProjectId) : undefined
-  const server = createServer({ mode: config.mode, verifier })
+  const server = createServer({ mode: config.mode, verifier,
+    locationValidation: config.demoLocation ? createDemoLocationValidation() : undefined })
   let stopping = false
   const stop = () => {
     if (stopping) return
@@ -27,7 +29,7 @@ async function main(): Promise<void> {
   })
   server.listen(config.port, '127.0.0.1', () => {
     console.info('Local API: http://127.0.0.1:' + config.port + ' (FICTIONAL DEMO DATA; auth ' +
-      (verifier ? 'configured' : 'unconfigured') + ')')
+      (verifier ? 'configured' : 'unconfigured') + '; GPS demo ' + (config.demoLocation ? 'enabled' : 'off') + ')')
   })
 }
 

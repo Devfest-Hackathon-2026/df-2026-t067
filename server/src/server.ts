@@ -6,8 +6,10 @@ import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
 import { DemoChallengeStore } from './challenges'
 import { readChallengeInput } from './json-body'
-import { answerKey, readAnswerDigest } from './answer-input'
+import { answerKey, readAnswerInput } from './answer-input'
 import { DemoAnswerStore } from './answers'
+import { evaluateLocation } from './location'
+import type { LocationValidation } from './location'
 import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
@@ -18,6 +20,7 @@ export interface ServerOptions {
   verifier?: IdTokenVerifier
   challenges?: DemoChallengeStore
   answers?: DemoAnswerStore
+  locationValidation?: LocationValidation
 }
 
 function bearerToken(request: IncomingMessage): string {
@@ -94,11 +97,18 @@ export function createServer(options: ServerOptions) {
       const key = answerKey(request)
       const release = answers.acquire(uid)
       try {
-        const digest = await readAnswerDigest(request)
+        const input = await readAnswerInput(request)
         const quest = quests.find((item) => item.questId === challenge.questId)
         if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
         if (quest.version !== challenge.version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
-        send(response, 202, answers.receive(uid, challenge.challengeId, key, digest))
+        const location = options.locationValidation
+        const decide = location ? () => {
+          const policy = location.policyFor(challenge.questId, challenge.version)
+          if (!policy) throw new HttpError(503, 'SYSTEM_ERROR', '位置確認の設定を利用できません。')
+          return evaluateLocation(input.metadata, policy, (location.now ?? Date.now)())
+        } : undefined
+        const result = answers.receive(uid, challenge.challengeId, key, input.digest, decide)
+        send(response, result.state === 'COMPLETED' ? 200 : 202, result)
       } finally { release() }
     } else if (attemptPath) {
       const uid = await authenticate(request)
