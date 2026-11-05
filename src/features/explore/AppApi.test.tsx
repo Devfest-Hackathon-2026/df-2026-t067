@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../../App'
 import { createApiClient } from '../../shared/api'
-import { quest } from '../../shared/api/testFixtures'
+import { challenge, quest } from '../../shared/api/testFixtures'
 import type { AuthClient, AuthSnapshot } from '../auth/authTypes'
 
 const apiQuest = { ...quest, title: 'APIで取得した架空の問題' }
@@ -100,7 +100,7 @@ describe('explicit local API integration', () => {
     expect(document.body).not.toHaveTextContent('private-sdk-details')
     await user.click(screen.getByRole('button', { name: 'ログインを確認し直す' }))
     expect(await screen.findByText('ログインを確認しました。写真はこの画面で確認するだけです。')).toBeVisible()
-    expect(screen.getByRole('button', { name: '撮影を始める' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '挑戦を始める' })).toBeEnabled()
     expect(auth.client.signInWithGoogle).not.toHaveBeenCalled()
     expect(auth.client.getIdToken).toHaveBeenCalledTimes(2)
   })
@@ -151,6 +151,75 @@ describe('explicit local API integration', () => {
       expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(true)
       unmount()
     } finally { vi.useRealTimers() }
+  })
+
+  it('starts the selected API version with a fresh token and accepts both 201 and reused 200', async () => {
+    const stop = vi.fn()
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop }] }) as unknown as MediaStream)
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+    let starts = 0
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => init?.method === 'POST' ? json(challenge, ++starts === 1 ? 201 : 200)
+      : json(String(url).endsWith('/session') ? { uid: 'test-user' } : apiQuest))
+    const { auth, user } = mount(fetcher, true)
+    await openQuest(user)
+    const start = await screen.findByRole('button', { name: '挑戦を始める' })
+    expect(starts).toBe(0)
+    vi.mocked(auth.client.getIdToken).mockResolvedValueOnce('refreshed-token')
+    await user.click(start)
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1))
+    const post = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!
+    expect(post[0]).toBe('/api/v1/challenges')
+    expect(JSON.parse(post[1]!.body as string)).toEqual({ questId: apiQuest.questId, expectedVersion: apiQuest.version })
+    expect(new Headers(post[1]?.headers).get('Authorization')).toBe('Bearer refreshed-token')
+    expect(document.body).not.toHaveTextContent('refreshed-token')
+    await user.click(screen.getByRole('button', { name: '撮影を終了' }))
+    expect(stop).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole('button', { name: '撮影を再開' }))
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(2))
+    expect(starts).toBe(2)
+    expect(auth.client.signInWithGoogle).not.toHaveBeenCalled()
+  })
+
+  it('reloads a changed question and requires a new explicit start with the new version', async () => {
+    let reads = 0
+    let starts = 0
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => init?.method === 'POST'
+      ? (++starts === 1 ? json({ error: { code: 'QUEST_CHANGED', message: 'private-version-details', retryable: false } }, 409) : json(challenge, 201))
+      : json(String(url).endsWith('/session') ? { uid: 'test-user' } : { ...apiQuest, version: ++reads }))
+    const { user } = mount(fetcher, true)
+    await openQuest(user)
+    await user.click(await screen.findByRole('button', { name: '挑戦を始める' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('問題が更新されました')
+    await user.click(screen.getByRole('button', { name: '問題を読み直す' }))
+    await screen.findByRole('button', { name: '挑戦を始める' })
+    expect(reads).toBe(2)
+    expect(starts).toBe(1)
+    // Deliberately return an old version: the request must use v2 and the
+    // response must be rejected before camera permission is requested.
+    await user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('開始を確認できませんでした')
+    const posts = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(posts[1][1]!.body as string)).toEqual({ questId: apiQuest.questId, expectedVersion: 2 })
+    expect(document.body).not.toHaveTextContent('private-version-details')
+  })
+
+  it.each(['close', 'logout', 'switch-user', 'map'] as const)('discards a pending challenge after %s', async (leave) => {
+    let resolve!: (response: Response) => void
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => init?.method === 'POST' ? new Promise((done) => { resolve = done })
+      : json(String(url).endsWith('/session') ? { uid: 'test-user' } : apiQuest))
+    const { auth, user } = mount(fetcher, true)
+    await openQuest(user)
+    await user.click(await screen.findByRole('button', { name: '挑戦を始める' }))
+    const post = fetcher.mock.calls.find(([, init]) => init?.method === 'POST')!
+    if (leave === 'close') await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
+    else if (leave === 'logout') await user.click(screen.getByRole('button', { name: 'ログアウト' }))
+    else if (leave === 'map') await user.click(screen.getAllByRole('link', { name: '謎を探す' })[0])
+    else act(() => auth.emit({ status: 'signed-in', user: { uid: 'next-user', displayName: null } }))
+    expect(post[1]?.signal?.aborted).toBe(true)
+    await act(async () => resolve(json(challenge, 201)))
+    expect(screen.queryByRole('region', { name: '写真撮影と確認' })).not.toBeInTheDocument()
+    expect(screen.queryByText('挑戦を開始しました。写真は送信・保存されません。')).not.toBeInTheDocument()
   })
 
   it.each(['invalid', 'local-api'])('fails closed for invalid source or a production API demo: %s', async (source) => {
