@@ -41,6 +41,56 @@ async function openQuest(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('explicit local API integration', () => {
+  it('logs in from the quest report form and reuses the same key after a network failure', async () => {
+    let sends = 0
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      if (input === '/api/v1/session') return json({ uid: 'test-user' })
+      if (input === '/api/v1/reports') {
+        if (++sends === 1) throw new TypeError('network')
+        return json({ reportId: 'demo-report', source: 'mock' }, 202)
+      }
+      return json(apiQuest)
+    })
+    const { auth, user } = mount(fetcher)
+    const detail = await openQuest(user)
+    await user.click(within(detail).getByRole('button', { name: '問題を報告' }))
+    await user.click(within(detail).getByRole('button', { name: 'Googleログインして報告する' }))
+    expect(auth.client.signInWithGoogle).toHaveBeenCalledTimes(1)
+    await user.type(await screen.findByLabelText('報告内容'), '架空の撮影案内の報告')
+    expect(sends).toBe(0)
+    await user.selectOptions(screen.getByLabelText('分類'), 'UNSAFE_GUIDANCE')
+    await user.click(screen.getByRole('button', { name: 'デモ報告を送信' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('通信状況')
+    await user.click(screen.getByRole('button', { name: 'デモ報告を送信' }))
+    expect(await screen.findByText('開発用の報告を受け付けました。')).toBeVisible()
+    const requests = fetcher.mock.calls.filter(([url]) => url === '/api/v1/reports')
+    expect(requests).toHaveLength(2)
+    const first = requests[0][1]
+    const second = requests[1][1]
+    expect(first?.body).toBe(JSON.stringify({ questId: apiQuest.questId, category: 'UNSAFE_GUIDANCE', text: '架空の撮影案内の報告' }))
+    expect(new Headers(first?.headers).get('Authorization')).toBe('Bearer current-token')
+    expect(new Headers(first?.headers).get('Idempotency-Key')).toBeTruthy()
+    expect(new Headers(second?.headers).get('Idempotency-Key')).toBe(new Headers(first?.headers).get('Idempotency-Key'))
+  })
+  it('cancels a pending quest report when the form closes and ignores its late receipt', async () => {
+    let complete!: (response: Response) => void
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      if (input === '/api/v1/session') return json({ uid: 'test-user' })
+      if (input === '/api/v1/reports') return new Promise((resolve) => { complete = resolve })
+      return json(apiQuest)
+    })
+    const { user } = mount(fetcher, true)
+    const detail = await openQuest(user)
+    await user.click(within(detail).getByRole('button', { name: '問題を報告' }))
+    await user.type(await screen.findByLabelText('報告内容'), '架空の報告')
+    await user.click(screen.getByRole('button', { name: 'デモ報告を送信' }))
+    await waitFor(() => expect(complete).toBeTypeOf('function'))
+    const signal = fetcher.mock.calls.find(([input]) => input === '/api/v1/reports')?.[1]?.signal
+    await user.click(screen.getByRole('button', { name: '報告を閉じる' }))
+    expect(signal?.aborted).toBe(true)
+    await act(async () => complete(json({ reportId: 'demo-report', source: 'mock' }, 202)))
+    expect(screen.queryByText('開発用の報告を受け付けました。')).not.toBeInTheDocument()
+  })
   it('opens only the verified owner records and releases the previous account photo', async () => {
     let uid = 'test-user'
     const photoPath = '/api/v1/me/discoveries/' + discovery.discoveryId + '/photo'

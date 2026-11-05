@@ -1,48 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ApiClient } from '../../shared/api'
+import { useRequestAction } from '../../shared/useRequestAction'
 
 type State = 'idle' | 'confirm' | 'working' | 'pending' | 'send-error' | 'check-error' | 'failed'
-type Operation = { controller: AbortController; deadline?: ReturnType<typeof setTimeout> }
 
 export function DiscoveryDeletion({ api, id, onDeleted }: { api: ApiClient; id: string; onDeleted: () => void }) {
   const [state, setState] = useState<State>('idle')
   const receipt = useRef<string | null>(null)
-  const active = useRef<Operation | null>(null)
-  const abort = useCallback(() => {
-    const operation = active.current
-    active.current = null
-    if (operation) { clearTimeout(operation.deadline); operation.controller.abort() }
-  }, [])
-  useEffect(() => abort, [abort])
+  const begin = useRequestAction()
 
   async function check() {
-    if (active.current) return
-    const operation: Operation = { controller: new AbortController() }
-    active.current = operation
+    const operation = begin(() => setState(receipt.current ? 'check-error' : 'send-error'))
+    if (!operation) return
     setState('working')
-    operation.deadline = setTimeout(() => {
-      if (active.current !== operation) return
-      abort()
-      setState(receipt.current ? 'check-error' : 'send-error')
-    }, 10_000)
     try {
-      const call = { signal: operation.controller.signal }
+      const call = { signal: operation.signal }
       if (receipt.current === null) {
         const result = await api.deleteDiscovery(id, call)
-        if (active.current !== operation) return
+        if (!operation.isCurrent()) return
         receipt.current = result.deletionId
       }
       const result = await api.getDeletion(receipt.current, call)
-      if (active.current !== operation) return
+      if (!operation.isCurrent()) return
       if (result.state === 'completed') onDeleted()
       else if (result.state === 'pending') setState('pending')
       else setState(result.retryable ? 'check-error' : 'failed')
     } catch {
-      if (active.current === operation) setState(receipt.current ? 'check-error' : 'send-error')
-    } finally {
-      clearTimeout(operation.deadline)
-      if (active.current === operation) active.current = null
-    }
+      if (operation.isCurrent()) setState(receipt.current ? 'check-error' : 'send-error')
+    } finally { operation.finish() }
   }
 
   if (state === 'idle') return <button type="button" className="secondary-button" onClick={() => setState('confirm')}>記録を削除</button>
