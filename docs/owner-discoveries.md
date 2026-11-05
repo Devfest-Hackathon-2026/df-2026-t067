@@ -1,6 +1,6 @@
 # C向け：本人記録・写真取得・削除API
 
-T07/T08は既存の`Discovery`と共通clientを使う。ローカルAPIモードの「自分の記録」から、本人一覧、日付、詳細と写真を表示できる。削除はAPIの受付と追跡まで。
+T07/T08は既存の`Discovery`と共通clientを使う。ローカルAPIモードの「自分の記録」から、本人一覧、日付、詳細、写真の閲覧と削除を試せる。
 
 **現在の保存先は開発用メモリーだけ。** 実Firestore/Storage、実写真判定、回答workerからの記録作成、CORRECTへの接続は未実装。再起動で写真・記録・削除追跡が消える。実利用者の写真や実地点の正解データは投入しない。
 
@@ -60,6 +60,8 @@ const status = await api.getDeletion(receipt.deletionId)
 画面は本人uidごとに状態を分け、問題切替・ログアウト・利用者変更・画面離脱で中止する。AbortSignalだけに依存せず、応答世代を確認して古い結果を表示しない。写真URLは不要になった時点で解放する。保存日時はUTC、日付表示は既存方針のAsia/Tokyoを使う。
 
 ### 削除の扱い
+
+記録詳細の「記録を削除」で確認を開き、「記録と写真を削除する」で送信する。受付後に状態を照会し、`completed`を受け取ると写真を解放して一覧を読み直す。受付IDを得た後に通信が途切れたときは、削除状態の再確認だけを行う。
 
 DELETEの202は削除受付で、完了表示は`getDeletion`の`state: completed`を確認してからにする。状態は`pending / completed / failed`。`retryable`は失敗後の再試行可否で、completedではfalse。
 

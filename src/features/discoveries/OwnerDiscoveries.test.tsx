@@ -1,0 +1,39 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { expect, it, vi } from 'vitest'
+import { createApiClient } from '../../shared/api'
+import { discovery } from '../../shared/api/testFixtures'
+import { OwnerDiscoveries } from './OwnerDiscoveries'
+
+it('confirms deletion, checks a known receipt without resending, and refreshes the list after completion', async () => {
+  const user = userEvent.setup()
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = () => 'blob:synthetic-record'; static revokeObjectURL = revokeObjectURL })
+  const listDiscoveries = vi.fn().mockResolvedValueOnce({ items: [discovery], nextCursor: null })
+    .mockResolvedValue({ items: [], nextCursor: null })
+  const deleteDiscovery = vi.fn().mockResolvedValue({ deletionId: 'demo-deletion' })
+  const getDeletion = vi.fn().mockRejectedValueOnce(new Error('network'))
+    .mockResolvedValueOnce({ deletionId: 'demo-deletion', state: 'pending', retryable: false })
+    .mockResolvedValueOnce({ deletionId: 'demo-deletion', state: 'completed', retryable: false })
+  const api = { ...createApiClient(), listDiscoveries, deleteDiscovery, getDeletion,
+    getDiscovery: vi.fn().mockResolvedValue(discovery), getDiscoveryPhoto: vi.fn().mockResolvedValue(new Blob(['fixture'])) }
+  render(<OwnerDiscoveries api={api} />)
+  await user.click(await screen.findByRole('button', { name: discovery.placeName }))
+  await user.click(await screen.findByRole('button', { name: '記録を削除' }))
+  expect(deleteDiscovery).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: 'キャンセル' }))
+  expect(deleteDiscovery).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '記録を削除' }))
+  await user.click(screen.getByRole('button', { name: '記録と写真を削除する' }))
+  await user.click(await screen.findByRole('button', { name: '削除状態を再確認' }))
+  expect(await screen.findByText('削除を受け付けました。')).toBeVisible()
+  expect(screen.queryByText('記録と写真の削除が完了しました。')).not.toBeInTheDocument()
+  expect(deleteDiscovery).toHaveBeenCalledExactlyOnceWith(discovery.discoveryId, { signal: expect.any(AbortSignal) })
+  await user.click(screen.getByRole('button', { name: '削除状態を確認' }))
+  expect(await screen.findByText('記録と写真の削除が完了しました。')).toBeVisible()
+  expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+  expect(getDeletion).toHaveBeenCalledTimes(3)
+  expect(deleteDiscovery).toHaveBeenCalledTimes(1)
+  expect(listDiscoveries).toHaveBeenCalledTimes(2)
+  expect(revokeObjectURL).toHaveBeenCalledWith('blob:synthetic-record')
+})
