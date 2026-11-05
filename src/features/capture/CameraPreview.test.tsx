@@ -29,7 +29,7 @@ function setup() {
   const revokeObjectURL = vi.fn((_url: string) => {})
   vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
   const onClose = vi.fn()
-  return { stop, stream, getUserMedia, getCurrentPosition, play, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
+  return { stop, stream, getUserMedia, getCurrentPosition, play, drawImage, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
 }
 
 async function loadFrame(stream: MediaStream) {
@@ -108,6 +108,7 @@ describe('local camera preview', () => {
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toBeVisible()
     expect(media.toBlob).toHaveBeenCalledTimes(1)
+    expect(media.drawImage.mock.invocationCallOrder[0]).toBeLessThan(media.getCurrentPosition.mock.invocationCallOrder[0])
     expect(screen.getByText('撮影地を取得しています…')).toBeInTheDocument()
     act(() => media.getCurrentPosition.mock.calls[0][0](position()))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
@@ -304,5 +305,45 @@ describe('local camera preview', () => {
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約32m')
     expect(media.getCurrentPosition).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['success', 'error'] as const)('ignores the previous photo location %s while a retake is locating', async (result) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementation(() => {})
+    media.createObjectURL.mockReturnValueOnce('blob:first-photo').mockReturnValueOnce('blob:second-photo')
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const [oldSuccess, oldFailure] = media.getCurrentPosition.mock.calls[0]
+    await media.user.click(screen.getByRole('button', { name: '撮り直す' }))
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    act(() => result === 'success' ? oldSuccess(position({ accuracy: 99 })) : oldFailure?.(positionError(2)))
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'blob:second-photo')
+    expect(screen.getByRole('status')).toHaveTextContent('撮影地を取得しています')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText(/撮影地を写真に紐づけました/)).not.toBeInTheDocument()
+    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:first-photo')
+    act(() => media.getCurrentPosition.mock.calls[1][0](position({ accuracy: 32 })))
+    expect(screen.getByRole('status')).toHaveTextContent('精度 約32m')
+    expect(media.toBlob).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['success', 'error'] as const)('ignores a location %s after photo encoding fails', async (result) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => {})
+    let encode!: BlobCallback
+    media.toBlob.mockImplementationOnce(done => { encode = done })
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const [success, failure] = media.getCurrentPosition.mock.calls[0]
+    act(() => encode(null))
+    act(() => result === 'success' ? success(position()) : failure?.(positionError(2)))
+    expect(screen.getByRole('alert')).toHaveTextContent('写真を作成できませんでした')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'カメラを再試行' })).toBeEnabled()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(media.createObjectURL).not.toHaveBeenCalled()
   })
 })
