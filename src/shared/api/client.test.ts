@@ -66,6 +66,36 @@ describe('public and authenticated requests', () => {
 })
 
 describe('photo answers and recovery', () => {
+  it.each([
+    ['OUTSIDE_AREA', 'MOVE_TO_AREA'], ['LOCATION_UNCERTAIN', 'RETAKE'],
+  ])('accepts only an explicitly marked demo GPS failure: %s', async (outcome, nextAction) => {
+    const result = { attemptId: 'demo-gps', state: 'COMPLETED', outcome, nextAction, source: 'mock' }
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => json(result, 200, { 'X-Quest-Data-Mode': 'demo' }))
+    const api = createApiClient({ fetch: fetcher, getIdToken: async () => 'token', expectedDataMode: 'demo' })
+    expect(await api.getAttempt('demo-gps')).toEqual(result)
+    await expect(createApiClient({ fetch: fetcher, getIdToken: async () => 'token' }).getAttempt('demo-gps')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json(result))
+    await expect(api.getAttempt('demo-gps')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json({ ...result, nextAction: 'OPEN_DISCOVERY' }, 200, { 'X-Quest-Data-Mode': 'demo' }))
+    await expect(api.getAttempt('demo-gps')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json({ ...correct, source: 'mock' }, 200, { 'X-Quest-Data-Mode': 'demo' }))
+    await expect(api.getAttempt('demo-gps')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+
+  it('accepts an explicit demo receipt but rejects mock correct and processing results', async () => {
+    const receipt = { attemptId: 'demo-receipt', state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'mock' }
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => json(receipt, 202, { 'X-Quest-Data-Mode': 'demo' }))
+    const api = createApiClient({ fetch: fetcher, getIdToken: async () => 'token', expectedDataMode: 'demo' })
+    expect(await api.getAttempt('demo-receipt')).toEqual(receipt)
+    await expect(createApiClient({ fetch: fetcher, getIdToken: async () => 'token' }).getAttempt('demo-receipt')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json(receipt, 202))
+    await expect(api.getAttempt('demo-receipt')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json({ ...correct, source: 'mock' }, 200, { 'X-Quest-Data-Mode': 'demo' }))
+    await expect(api.getAttempt('demo-receipt')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    fetcher.mockResolvedValueOnce(json({ ...receipt, state: 'PROCESSING' }, 202, { 'X-Quest-Data-Mode': 'demo' }))
+    await expect(api.getAttempt('demo-receipt')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+
   it('sends photo/metadata with a stable key and leaves multipart boundaries to fetch', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(processing, 202))
     const api = createApiClient({ fetch: fetcher, getIdToken: async () => 'token' })

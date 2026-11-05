@@ -14,6 +14,15 @@ test('missing/real/unknown data modes never fall back to demo', () => {
   }
 })
 
+test('GPS demo must be explicitly enabled and unknown modes never fall back', () => {
+  const enabled = readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: 'demo' })
+  assert.equal('demoLocation' in enabled && enabled.demoLocation, true)
+  for (const mode of ['real', '', 'DEMO', 'unsafe-value']) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: mode }), /QUEST_LOCATION_MODE/)
+  }
+  assert.deepEqual(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: 'off' }), { mode: 'demo', port: 8787 })
+})
+
 test('production/other deployment modes and Auth Emulator cannot start demo server', () => {
   for (const nodeEnv of ['production', 'staging', '']) {
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', NODE_ENV: nodeEnv }), /production startup/)
@@ -29,5 +38,12 @@ test('invalid port and project ID configuration fail with names/constraints, nev
   }
   for (const project of ['', ' ', 'client/path', 'UPPERCASE', 'a', 'a'.repeat(31)]) {
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', FIREBASE_PROJECT_ID: project }), /FIREBASE_PROJECT_ID must/)
+  }
+})
+
+test('admin membership configuration is explicit and rejects relative or invalid file paths', () => {
+  assert.equal(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_MEMBERSHIPS_FILE: '/private/tmp/local.json' }).demoMembershipsFile, '/private/tmp/local.json')
+  for (const file of ['', './local.json', 'https://example.invalid/local.json', '/tmp/' + String.fromCharCode(0), '/' + 'a'.repeat(4096)]) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_MEMBERSHIPS_FILE: file }), /QUEST_DEMO_MEMBERSHIPS_FILE must/)
   }
 })
