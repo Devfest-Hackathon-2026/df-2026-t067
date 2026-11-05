@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import type { SetStateAction } from 'react'
 import './adminDemo.css'
 import DraftEditor, { type DraftFields } from './DraftEditor'
+import { DraftCandidate } from './DraftCandidate'
 import TravelerPreview, { type PreviewMode } from './TravelerPreview'
 import { useLocalDraftSave } from './useLocalDraftSave'
 import type { LocalDraftConnection } from './useLocalDraftSave'
@@ -31,6 +33,7 @@ export default function AdminDemo({ connection }: { connection?: LocalDraftConne
   const [step, setStep] = useState<'A03' | 'A04' | 'A05'>('A03')
   const [previewMode, setPreviewMode] = useState<PreviewMode>('challenge')
   const [draft, setDraft] = useState<DraftFields>(initial?.content ?? { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' })
+  const [draftEdit, setDraftEdit] = useState(0)
   const [draftEntryError, setDraftEntryError] = useState('')
   const [sampleConfirm, setSampleConfirm] = useState(false)
   const [visitedDraft, setVisitedDraft] = useState(false)
@@ -110,6 +113,11 @@ export default function AdminDemo({ connection }: { connection?: LocalDraftConne
     setStep('A05')
   }
 
+  function editDraft(next: SetStateAction<DraftFields>) {
+    setDraft(next)
+    setDraftEdit((value) => value + 1)
+  }
+
   const Root = connection ? 'section' : 'main'
   return <Root className={connection ? 'admin-editor' : 'admin-demo'}>
     <header className="admin-header"><div><span className="eyebrow">自治体向け・操作デモ</span><h1>{step === 'A03' ? '問題の素材と場所を登録' : step === 'A04' ? '問題の下書きを編集' : '旅行者向け表示の確認'}</h1></div><span className="demo-badge">{connection ? '開発用保存' : '未認証・未接続'}</span></header>
@@ -160,7 +168,11 @@ export default function AdminDemo({ connection }: { connection?: LocalDraftConne
       <button className="submit-button" type="button" onClick={enterDraft}>下書き・編集へ</button>
       <button className="submit-button" type="submit">入力内容を確認（デモ）</button>
       {showSummary && <section aria-labelledby="summary-heading" className="form-section summary"><h2 id="summary-heading">入力内容の確認</h2><p>{connection ? 'これは現在の入力の確認表示です。' : 'これは画面内の確認表示です。送信・保存はしていません。'}</p><dl><dt>架空自治体・探索エリア</dt><dd>{areaLabel ?? '青葉みらい市（架空）・青葉みらい市の行政区域（架空）'}</dd><dt>対象名</dt><dd>{name || '未入力'}</dd><dt>根拠</dt><dd>{evidence || '未入力'}</dd><dt>船上・海上での撮影</dt><dd>{requiresBoat ? '必要' : '未選択'}</dd><dt>有料施設内での撮影</dt><dd>{requiresPaidFacility ? '必要' : '未選択'}</dd><dt>挑戦前の料金</dt><dd>{price || '未入力'}</dd><dt>撮影時の注意</dt><dd>{photoNote || '未入力'}</dd><dt>クリア後のアクセス補足</dt><dd>{access || '未入力'}</dd><dt>クリア後に利用できる時間</dt><dd>{hours || '未入力'}</dd><dt>自治体のアピールコメント</dt><dd>{promoComment || '未入力'}</dd><dt>解説</dt><dd>{explanation || '未入力'}</dd><dt>写真の出典と利用権</dt><dd>{photoRights || '未入力'}</dd><dt>参考写真</dt><dd>{photo?.file.name ?? (referenceAssetId ? '保存済み' : '未選択')}</dd><dt>非公開の撮影地点・半径</dt><dd>{areaStatus}</dd></dl></section>}
-    </form> : step === 'A04' ? <DraftEditor draft={draft} setDraft={setDraft} materialChanged={materialChanged} sampleConfirm={sampleConfirm} setSampleConfirm={setSampleConfirm} onBack={() => setStep('A03')} onPreview={enterPreview} headingRef={a04HeadingRef} /> : <TravelerPreview challengeContent={{ title: draft.title, question: draft.question, hints: draft.hints, requiresBoat, requiresPaidFacility, price, photoNote }} afterClearContent={{ access, hours, promoComment, explanation }} mode={previewMode} onModeChange={setPreviewMode} headingRef={a05HeadingRef} onEdit={enterDraft} areaLabel={areaLabel} />}
+    </form> : step === 'A04' ? <>
+      <DraftEditor draft={draft} setDraft={editDraft} materialChanged={materialChanged} sampleConfirm={sampleConfirm}
+        setSampleConfirm={setSampleConfirm} onBack={() => setStep('A03')} onPreview={enterPreview} headingRef={a04HeadingRef} />
+      {connection && record && <DraftCandidate key={record.draftRevision + ':' + draftEdit} api={connection.api} saved={record} onApply={setDraft} />}
+    </> : <TravelerPreview challengeContent={{ title: draft.title, question: draft.question, hints: draft.hints, requiresBoat, requiresPaidFacility, price, photoNote }} afterClearContent={{ access, hours, promoComment, explanation }} mode={previewMode} onModeChange={setPreviewMode} headingRef={a05HeadingRef} onEdit={enterDraft} areaLabel={areaLabel} />}
     </div>
     {connection && <section className="form-section" aria-label="下書きの保存">
       {record && <p>下書き版 {record.draftRevision}</p>}

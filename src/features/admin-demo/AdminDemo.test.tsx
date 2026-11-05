@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, createApiClient } from '../../shared/api'
-import type { ManagedQuestDraft } from '../../shared/api'
+import type { ManagedQuest, ManagedQuestDraft } from '../../shared/api'
 import AdminDemo from './AdminDemo'
 
 const created: string[] = []
@@ -72,6 +72,42 @@ it('blocks a second create when the response is lost and preserves the entered d
   expect(createManagedQuest).toHaveBeenCalledTimes(1)
   await user.click(screen.getByRole('button', { name: '問題一覧へ戻る' }))
   expect(back).toHaveBeenCalledOnce()
+})
+
+it('loads a candidate for the saved version and waits for explicit adoption and save', async () => {
+  const user = userEvent.setup()
+  const initial: ManagedQuest = {
+    orgId: 'demo-org', questId: 'demo-quest', areaId: 'demo-area', draftRevision: 3, publishedVersion: null,
+    source: 'mock', status: 'draft', shootingAreaStatus: 'configured',
+    draft: {
+      materials: { name: '架空の対象', evidence: '確認材料', price: '', photoNote: '', photoRights: '自作',
+        requiresBoat: false, requiresPaidFacility: false },
+      content: { title: '手入力の題名', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+      afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: 'ref', hintAssetId: null,
+    },
+  }
+  const candidate = { ...initial.draft.content, title: '合成素材の候補', question: '架空の問題文', hints: ['1', '2', '3'],
+    verifiedFeatures: '架空の特徴' }
+  const generateManagedQuestDraft = vi.fn().mockResolvedValue({ orgId: initial.orgId, questId: initial.questId,
+    draftRevision: 3, source: 'mock', content: candidate })
+  const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 4 })
+  const api = { ...createApiClient(), generateManagedQuestDraft, updateManagedQuest }
+  render(<AdminDemo connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
+    role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
+  await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+  await user.click(screen.getByRole('button', { name: '保存済み版の候補を取得' }))
+  expect(await screen.findByText(candidate.title)).toBeVisible()
+  expect(screen.getByLabelText('問題タイトル')).toHaveValue('手入力の題名')
+  expect(generateManagedQuestDraft).toHaveBeenCalledExactlyOnceWith(initial.orgId, initial.questId, 3, { signal: expect.any(AbortSignal) })
+  await user.type(screen.getByLabelText('問題タイトル'), '・追記')
+  expect(screen.queryByText(candidate.title)).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '保存済み版の候補を取得' }))
+  await user.click(await screen.findByRole('button', { name: '候補で編集欄を置き換える' }))
+  expect(screen.getByLabelText('問題タイトル')).toHaveValue(candidate.title)
+  expect(updateManagedQuest).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+  expect(await screen.findByText('開発用の下書きに保存しました。')).toBeVisible()
+  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate } })
 })
 
 describe('A03 admin demo', () => {
