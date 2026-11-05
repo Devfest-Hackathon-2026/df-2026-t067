@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:api": "npm --prefix server run build && node --env-file-if-exists=.env.local server/dist/server/src/main.js",
     "typecheck": "tsc -b",
     "lint": "oxlint --deny-warnings",
     "test": "vitest run",

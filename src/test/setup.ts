@@ -10,6 +10,7 @@ const watchPosition = vi.fn()
 const requestCamera = vi.fn()
 
 beforeEach(() => {
+  vi.stubEnv('VITE_QUEST_DATA_SOURCE', 'preview')
   // .env.localの実設定を単体テストへ持ち込まず、明示したテスト用設定だけを使う。
   for (const name of FIREBASE_ENV_NAMES) vi.stubEnv(name, '')
   vi.stubGlobal('fetch', fetchRequest)

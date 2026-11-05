@@ -6,7 +6,7 @@
 
 ## 現在の状態
 
-2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、架空のサンプル問題をログインなしで開閉できます。Googleログイン・ログアウト・状態復元を追加しました。全国地図・GPS・写真判定・記録保存は未実装です。
+2026-11-05時点で、**ローカルで起動できる最小Webアプリ**を用意しました。React・TypeScript・Viteを使い、地図のデザインプレビューから架空のサンプル問題を選べます。Googleログイン・ログアウト・状態復元に対応し、[撮影と写真確認の画面](docs/camera-preview.md)を追加しました。[旅行者向けUIの範囲](docs/traveler-ui.md)も確認してください。Google Maps接続・GPS・写真送信・判定・記録保存は未実装です。
 
 設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。クラウド設定・デプロイ・公開URLはこの実装に含みません。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
@@ -31,7 +31,25 @@ npm run check
 
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)も追加しました。実サーバー・判定・保存は未接続です。Google認証は別途接続しました。
+A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)に加え、別パッケージとして[ローカルAPIの土台](server/README.md)を追加しました。[開発用の接続手順](docs/local-api.md)で、画面から架空の1問を取得し、Googleログインをサーバーでも確認できます。写真判定と保存はまだありません。既定の画面内プレビューはAPIへ通信しません。
+
+## A担当のローカルAPIを試す
+
+実在しない地域・問題だけを返す開発用サーバーです。Firebase未設定でも公開GETを確認できます。認証確認の`GET /api/v1/session`は、設定なしなら503を返します。起動手順・認証の設定・制限は[server/README.md](server/README.md)、契約は[APIの実装範囲](docs/api.md#9-ローカルapiの土台)を確認してください。
+
+```sh
+npm --prefix server ci --ignore-scripts
+QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
+```
+
+`http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
+
+Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
+
+```sh
+npm run check
+npm --prefix server run check
+```
 
 ## 最初に読む資料
 
@@ -45,6 +63,7 @@ A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通ap
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
+| [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
 | [今回の土台の範囲](docs/foundation.md) | 作ったもの、実装判断、完了条件 |
 | [公式参考資料](docs/sources.md) | 技術的な制約の確認先 |
 | [AGENTS.md](AGENTS.md) | 全員のCodexが参照する共通ルール |

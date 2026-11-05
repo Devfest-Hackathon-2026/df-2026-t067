@@ -39,7 +39,7 @@ describe('Google sign-in from the selected quest', () => {
     expect(details).toBeVisible()
     expect(details).toHaveTextContent('この場所はどこ？')
     expect(await screen.findByText('Googleログイン済み')).toBeVisible()
-    expect(within(details).getByRole('button', { name: 'ログイン済み・撮影機能は準備中' })).toBeDisabled()
+    expect(within(details).getByRole('button', { name: '撮影を始める' })).toBeEnabled()
   })
   it('keeps the selected question after cancellation and permits another attempt', async () => {
     const { client } = authFixture()
@@ -75,7 +75,7 @@ describe('Google sign-in from the selected quest', () => {
     render(<App authClient={client} />)
     const { user, details } = await openQuest()
     expect(screen.getByText('Googleログイン済み')).toBeVisible()
-    expect(within(details).getByRole('button', { name: 'ログイン済み・撮影機能は準備中' })).toBeDisabled()
+    expect(within(details).getByRole('button', { name: '撮影を始める' })).toBeEnabled()
     expect(client.signInWithGoogle).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'ログアウト' }))
     await waitFor(() => expect(client.signOut).toHaveBeenCalledTimes(1))
