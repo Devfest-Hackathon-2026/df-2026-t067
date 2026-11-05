@@ -181,11 +181,11 @@ export function CameraPreview({ onClose }: { onClose: () => void }) {
       {photoUrl && metadata && <div className="camera-map-reference">
         <a
           className="secondary-button"
-          href={`https://www.openstreetmap.org/?mlat=${metadata.position.latitude}&mlon=${metadata.position.longitude}#map=18/${metadata.position.latitude}/${metadata.position.longitude}`}
+          href={`https://www.google.com/maps/search/?api=1&query=${metadata.position.latitude}%2C${metadata.position.longitude}`}
           target="_blank"
           rel="noreferrer"
-        >撮影地を地図で見る（OpenStreetMap）</a>
-        <p className="sample-note">リンクを開くと撮影地の座標がOpenStreetMapに送られます。</p>
+        >撮影地を地図で見る（Googleマップ）</a>
+        <p className="sample-note">リンクを開くと撮影地の座標がGoogleマップに送られます。</p>
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
       <div className="camera-actions">
