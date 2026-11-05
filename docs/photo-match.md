@@ -50,13 +50,13 @@ server専用の`sharp 0.35.5`を固定した。既存のNode 26.7.0 / npm 11.19.
 
 ## 接続前に残ること
 
-ユーザーの依頼に従い「Google Cloud・Firebase設定」チャットへ確認した。最新の回答と[試験設定のPR #23](https://github.com/Devfest-Hackathon-2026/df-2026-t067/pull/23)では、小規模試験のモデル・location・費用/回数・送信可能画像の条件を合意し、Cloud側の準備と合成テキスト1回の接続確認を完了している。PR #23は未マージで、画像照合・回数の自動制限・本番運用は未確認。この写真処理PRではCloud設定の変更やVertex通信・実画像送信を行っていない。
+ユーザーの依頼に従い「Google Cloud・Firebase設定」チャットへ確認した。[試験設定](vertex-trial.md)はPR #23でマージ済み。小規模試験のモデル・location・費用/回数・送信可能画像の条件を合意し、Cloud側の準備と合成テキスト1回の接続確認を完了している。画像照合・回数の自動制限・本番運用は未確認。この写真処理PRではCloud設定の変更やVertex通信・実画像送信を行っていない。
 
 後続はPR #23の既使用回数を引き継ぐ回数制限と承認されたtransport、非公開の参考画像/特徴の取得、所有者・GPS通過・公開版/休止・既クリアの確認、回答IDによる処理の一意化/リースと接続する。128出力token・10秒は実モデル未検証の保護値であり、試験条件に合わせた調整が必要。comparePhotos自体が認証や冪等性を保証するものではない。AI呼び出しをFirestoreトランザクションへ入れず、一致後も保存確定まではCORRECTを返さない。
 
 ## 検証
 
-`npm --prefix server run check`は111テスト・型/lint/buildが成功。実codecを使った合成JPEG/PNG/WebP、向き・EXIF除去・過大画素・多フレーム・破損、HTTPの偽画像拒否、raw入力の冪等性、照合の分類・未設定・不正出力・取消/時間切れを確認する。`npm run check`は既存Web223テスト・型/lint/buildが成功。
+最新mainのPR #23/#24/#27を取り込んだ状態で、`npm --prefix server run check`は125テスト・型/lint/buildが成功。実codecを使った合成JPEG/PNG/WebP、向き・EXIF除去・過大画素・多フレーム・破損、HTTPの偽画像拒否、raw入力の冪等性、照合の分類・未設定・不正出力・取消/時間切れを確認する。`npm run check`はWeb230テスト・型/lint/buildが成功。
 
 別の一時フォルダでserverのpackage/lockから`npm ci --ignore-scripts`を再現し、native JPEG処理が動くことを確認した。既存依存の非推奨警告は出るが導入は成功し、既存パッケージの版は変更していない。現Mac環境での確認で、他OSやCloud実行環境は未検証。
 

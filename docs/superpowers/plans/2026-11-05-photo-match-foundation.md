@@ -47,3 +47,5 @@ Files: server/src/answer-input.ts、server/test/answers.test.ts、location-http.
 相対リンク・秘密情報除外も確認し、別PRとIssue #19で共有する。新PRはマージしない。このPRでの実Vertex通信・実写真・保存は未検証/未接続。クラウド設定は指定された既存チャットへ問い合わせ、最新の完了報告と未マージPR #23を確認した。後続のtransport実装は試験の既使用回数と画像送信条件を引き継ぐ。
 
 PR作成前に並行更新のmain 7f3ceb2（UIのPR #21と公開記録の#22）を取り込み、Web checkの223テスト・型/lint/buildが成功。server・共通API・依存はその統合で変わらず、server 111件の検証結果を再利用する。
+
+マージ依頼後にPR #23をレビューしてマージし、最新main 2c6f877（#24の管理APIと#27の公開記録も含む）を取り込んだ。server 125件/Web 230件・型/lint/buildが成功。serverの初回実行はsandboxのlocalhost待受拒否で失敗したため、ローカル通信を許可して再実行した。実Vertex呼び出しはしていない。
