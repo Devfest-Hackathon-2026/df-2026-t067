@@ -81,11 +81,11 @@ function HintItem({ questId, version, index, getHint, onVersionChanged }: {
   </div>
 }
 
-function QuestHints({ quest, getHint, onVersionChanged, onReloadQuest }: { quest: PublicQuest; getHint?: GetHint; onVersionChanged(): void; onReloadQuest(): void }) {
+function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadQuest }: { quest: PublicQuest; getHint?: GetHint; stale: boolean; onVersionChanged(): void; onReloadQuest(): void }) {
   const [changed, setChanged] = useState(false)
   if (!getHint) return null
   if (!quest.hintCount) return <p className="hints-note">この問題には通常ヒントがありません。</p>
-  if (changed) return <div role="alert" className="hint-version-changed"><p>問題の版が変わりました。すべてのヒントと挑戦を無効にしました。</p><button type="button" onClick={onReloadQuest}>最新版の問題を読み直す</button></div>
+  if (stale || changed) return <div role="alert" className="hint-version-changed"><p>問題の版が変わりました。すべてのヒントと挑戦を無効にしました。</p><button type="button" onClick={onReloadQuest}>最新版の問題を読み直す</button></div>
   return <div className="quest-hints" aria-label="段階ヒント">
     <h4>段階ヒント</h4>
     {Array.from({ length: quest.hintCount }, (_, offset) => offset + 1).map(index =>
@@ -131,14 +131,15 @@ interface QuestDetailsProps {
   onReloadQuest?(): void
   children?: ReactNode
   hideStartAction?: boolean
+  stale?: boolean
 }
 
-export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false, getHint, onHintVersionChanged = () => {}, onReloadQuest = () => {} }: QuestDetailsProps) {
+export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false, stale = false, getHint, onHintVersionChanged = () => {}, onReloadQuest = () => {} }: QuestDetailsProps) {
   const detailsId = `quest-details-${useId().replaceAll(':', '')}`
   const hintUrl = quest.optionalHintImage
   const hintIdentity = `${quest.questId}\u0000${quest.version}\u0000${hintUrl ?? ''}\u0000${getHintIdentity(getHint)}`
   const [staleHintIdentity, setStaleHintIdentity] = useState('')
-  const questStale = staleHintIdentity === hintIdentity
+  const questStale = stale || staleHintIdentity === hintIdentity
   return (
     <article className={'quest-card' + (open ? ' is-open' : '')} aria-labelledby={`${detailsId}-title`}>
       <header className="quest-card-heading">
@@ -155,7 +156,7 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
             <h4>この場所はどこ？</h4>
             <p className="clue-text">{quest.clue}</p>
             <p className="sample-note">{quest.visitConditions}</p>
-            <QuestHints key={hintIdentity} quest={quest} getHint={getHint} onVersionChanged={() => { setStaleHintIdentity(hintIdentity); onHintVersionChanged() }} onReloadQuest={onReloadQuest} />
+            <QuestHints key={hintIdentity} quest={quest} getHint={getHint} stale={questStale} onVersionChanged={() => { setStaleHintIdentity(hintIdentity); onHintVersionChanged() }} onReloadQuest={onReloadQuest} />
             {hintUrl && !questStale && <OptionalHintImage key={hintIdentity} url={hintUrl} title={quest.title} />}
             {!hideStartAction && <><button type="button" className="primary-button" disabled={disabled || questStale} onClick={() => { if (!questStale) void onStart({ questId: quest.questId, expectedVersion: quest.version }) }} aria-describedby={`${detailsId}-note`}>
               {buttonLabel}

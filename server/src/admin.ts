@@ -6,7 +6,9 @@ import { HttpError, invalidInput } from './errors'
 export class DemoAdminStore {
   private readonly quests = new Map<string, ManagedQuest>()
   private readonly assets = new Map<string, ManagedAsset>()
-  constructor(options: { assets?: readonly ManagedAsset[] } = {}) {
+  private readonly assetLookup?: (assetId: string) => ManagedAsset | undefined
+  constructor(options: { assets?: readonly ManagedAsset[]; assetLookup?: (assetId: string) => ManagedAsset | undefined } = {}) {
+    this.assetLookup = options.assetLookup
     for (const input of options.assets ?? []) {
       const asset = parseManagedAsset(input)
       if (this.assets.has(asset.assetId)) throw new Error('Duplicate demo asset ID.')
@@ -45,7 +47,7 @@ export class DemoAdminStore {
     const draft = parseManagedQuestDraft(input)
     for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint']] as const) {
       if (assetId === null) continue
-      const asset = this.assets.get(assetId)
+      const asset = this.assetLookup?.(assetId) ?? this.assets.get(assetId)
       if (!asset || asset.orgId !== orgId || asset.purpose !== purpose) invalidInput()
     }
     return draft

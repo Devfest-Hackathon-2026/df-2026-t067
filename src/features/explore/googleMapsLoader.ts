@@ -10,9 +10,11 @@ declare global {
 let loading: Promise<GoogleMapsApi> | undefined
 let generation = 0
 let previousFailure: (() => void) | undefined
+let authFailed = false
 const failureListeners = new Set<() => void>()
 
 function reportAuthFailure() {
+  authFailed = true
   previousFailure?.()
   for (const listener of failureListeners) listener()
 }
@@ -34,6 +36,7 @@ export function subscribeMapsAuthFailure(listener: () => void): () => void {
 
 export function loadGoogleMaps(key: string, timeoutMs = 15000): Promise<GoogleMapsApi> {
   if (!key) return Promise.reject(new Error('missing-key'))
+  if (authFailed) return Promise.reject(new Error('auth'))
   if (typeof window.google?.maps?.Map === 'function') return Promise.resolve(window.google.maps)
   if (loading) return loading
 

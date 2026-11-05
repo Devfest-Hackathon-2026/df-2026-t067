@@ -55,3 +55,11 @@ test('discovery storage is disabled by default and memory storage must be explic
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DISCOVERIES_MODE: mode }), /QUEST_DISCOVERIES_MODE must/)
   }
 })
+
+test('admin asset storage requires an explicit memory mode and cannot silently use a real backend', () => {
+  assert.equal(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'memory' }).demoAdminAssets, true)
+  assert.deepEqual(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'off' }), { mode: 'demo', port: 8787 })
+  for (const mode of ['', 'storage', 'real', 'MEMORY']) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: mode }), /QUEST_ADMIN_ASSETS_MODE must/)
+  }
+})

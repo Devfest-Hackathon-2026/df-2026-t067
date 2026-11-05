@@ -216,7 +216,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
               {questPicker}
               <div ref={questCard}>
                 {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
-                  getHint={providedGetHint ?? api.getHint}
+                  getHint={providedGetHint ?? api.getHint} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
                   onReloadQuest={() => { if (externalQuest) onReloadQuest?.(); else connection.retry() }}
                   hideStartAction={!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null}

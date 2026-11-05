@@ -57,7 +57,7 @@ describe('APIから問題を表示', () => {
 
   it('409で古いヒントと挑戦を止め、既存再読込を案内する', async () => {
     const user = userEvent.setup()
-    const quest = { ...first, hintCount: 2 }
+    const quest = { ...first, hintCount: 2, optionalHintImage: 'https://example.test/public-hint.jpg' }
     const api = apiFixture()
     const latest = { ...quest, version: quest.version + 1 }
     api.getQuest.mockResolvedValueOnce(quest).mockResolvedValue(latest)
@@ -70,6 +70,11 @@ describe('APIから問題を表示', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
     expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.queryByRole('button', { name: 'ヒント1を見る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'ヒント画像を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
     await user.click(screen.getByRole('button', { name: '最新版の問題を読み直す' }))
     await waitFor(() => expect(api.getQuest).toHaveBeenCalledTimes(2))
     await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
