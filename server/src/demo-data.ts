@@ -19,18 +19,24 @@ export function createDemoData() {
     {
       questId: 'demo-quest', version: 1, title: '架空のデモ問題 A',
       clue: '架空の町を想像するための表示サンプルです。', areaId: 'demo-area',
-      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 0,
+      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 3,
     },
     {
       questId: 'demo-quest-b', version: 1, title: '架空のデモ問題 B',
       clue: '架空の広場を想像するための表示サンプルです。', areaId: 'demo-area',
-      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 0,
+      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 3,
     },
     {
       questId: 'demo-quest-c', version: 1, title: '架空のデモ問題 C',
       clue: '別の架空地域を表示するためのサンプルです。', areaId: 'demo-area-b',
-      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 0,
+      visitConditions: 'デモ専用・実在しません。現地への移動や撮影はできません。', hintCount: 3,
     },
   ].map(parsePublicQuest)
-  return { areas, quests }
+  // Only author-approved ordinary hint text belongs here; no automatic final reveal.
+  const hints = new Map(quests.map((quest) => [quest.questId, [
+    '架空の町の広場にあるものを想像してください。',
+    'これは表示を確かめるための架空の手がかりです。',
+    '実在の目的地はありません。現地へ移動しないでください。',
+  ]]))
+  return { areas, quests, hints }
 }

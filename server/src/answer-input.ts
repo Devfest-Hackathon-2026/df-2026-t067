@@ -4,6 +4,8 @@ import { ContractError, parseCaptureMetadata } from '../../src/shared/api/valida
 import type { CaptureMetadata } from '../../src/shared/api/types'
 import { HttpError, invalidInput } from './errors'
 import { readBody, tooLarge } from './request-body'
+import { preparePhoto } from './photo-input'
+import type { PreparedPhoto } from './photo-input'
 
 export function answerKey(request: IncomingMessage): string {
   const count = request.rawHeaders.filter((_, index) => index % 2 === 0)
@@ -15,7 +17,7 @@ export function answerKey(request: IncomingMessage): string {
 
 // Consume bounded bytes only for this call. Retain no photo, position, filename
 // or raw multipart body in the receipt store; compare normalized content hashes.
-export async function readAnswerInput(request: IncomingMessage): Promise<{ digest: string; metadata: CaptureMetadata }> {
+export async function readAnswerInput(request: IncomingMessage): Promise<{ digest: string; metadata: CaptureMetadata; photo: PreparedPhoto }> {
   const count = request.rawHeaders.filter((_, index) => index % 2 === 0)
     .filter((name) => name.toLowerCase() === 'content-type').length
   if (count > 1) invalidInput()
@@ -46,5 +48,7 @@ export async function readAnswerInput(request: IncomingMessage): Promise<{ diges
   let capture: CaptureMetadata
   try { capture = parseCaptureMetadata(JSON.parse(metadata)) }
   catch (error) { if (error instanceof ContractError || error instanceof SyntaxError) invalidInput(); throw error }
-  return { digest: createHash('sha256').update(JSON.stringify([mime, capture])).update('\0').update(image).digest('hex'), metadata: capture }
+  const digest = createHash('sha256').update(JSON.stringify([mime, capture])).update('\0').update(image).digest('hex')
+  const photoInput = await preparePhoto({ bytes: image, mimeType: mime })
+  return { digest, metadata: capture, photo: photoInput }
 }

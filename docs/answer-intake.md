@@ -44,7 +44,7 @@ const sameReceipt = await api.getAttempt(receipt.attemptId)
 | 対象 | 制限・失敗 |
 |---|---|
 | 写真 | JPEG/PNG/WebP、空でない、4MiB以下。非対応MIMEは415 HTTP_ERROR、シグネチャ不一致・空は400 INVALID_INPUT |
-| 画像検査の範囲 | MIMEと先頭シグネチャのみ。実画像デコード、破損・画素数検査、EXIF除去・安全な再エンコードは未実装で、照合・保存前に必要 |
+| 画像検査の範囲 | [実デコードと正規化](photo-match.md)を接続。JPEG/PNG/WebP、破損・多フレーム・画素上限を検査し、向きを画素へ反映してEXIF等を除去。nativeの処理上限も適用 |
 | metadata | UTF-8換算4KiB以下。共通検証で項目・緯度経度・非負精度・UTC日時を確認。時刻鮮度・精度上限・範囲は明示的GPS demoモードで追加検査 |
 | 本文 | 全体4MiB＋16KiB以下。Content-Lengthとchunked受信量を確認。超過は413 MEDIA_TOO_LARGE |
 | メディア | multipart以外・圧縮は415、壊れたmultipart・不正JSON・追加項目は400。Content-TypeとIdempotency-Keyの重複は400 |
@@ -58,10 +58,10 @@ const sameReceipt = await api.getAttempt(receipt.attemptId)
 
 写真・位置・ファイル名は入力の検証に一時的に使い、受付メモリには所有者・挑戦とキーの索引・入力SHA-256・受付結果だけを残す。画像bytes、緯度経度、metadata自体は保持せず、ディスク、ログ、外部AI、Firebaseへ出さない。GETもそれらを返さない。プロセス終了で消え、再起動後の照会は404となる。
 
-写真照合、実データの撮影範囲/閾値接続、クリア確定、Firestore/Storage、本人記録、組織認可、実際の公開・休止処理は未実装。保存リージョン・モデル・料金・削除期間等の未決事項をこのPRで確定しない。
+写真照合は[呼び出し部品](photo-match.md)を準備した段階で、実通信・workerは未接続。実データの撮影範囲/閾値接続、クリア確定、Firestore/Storage、本人記録、組織認可、実際の公開・休止処理も未実装。保存リージョン・モデル・料金・削除期間等の未決事項をこのPRで確定しない。
 
 ## 検証
 
-`npm --prefix server run check`で、実HTTPと合成1px画像・架空座標を使い、受付・再送・同時送信・競合・所有者分離・multipart境界・サイズ・時間・回数・容量・切断後の枠解放・版変更を検証する。認証検証器は明示的な代替で、実Googleによる写真送信ではない。`npm run check`で共通clientのdemo受付・GPS不合格の限定許可、mock正解拒否と既存画面を確認する。
+`npm --prefix server run check`で、実HTTPと合成画像・架空座標を使い、受付・再送・同時送信・競合・所有者分離・multipart境界・サイズ・時間・回数・容量・切断後の枠解放・版変更を検証する。認証検証器は明示的な代替で、実Googleによる写真送信ではない。`npm run check`で共通clientのdemo受付・GPS不合格の限定許可、mock正解拒否と既存画面を確認する。
 
-対応はFR-05/07/08、AT-10/12/18/21/22の一部。[受け入れ条件](acceptance.md)の実画像保存・正解・現地・組織分離の完了を意味しない。実スマートフォン、実Google token＋実写真/GPSの送信、画像デコード、実AI・実DBは未検証。
+対応はFR-05/07/08、AT-10/12/18/21/22の一部。[受け入れ条件](acceptance.md)の実画像保存・正解・現地・組織分離の完了を意味しない。画像デコードは合成画像で確認済み。実スマートフォン、実Google token＋実写真/GPSの送信、実AI・実DBは未検証。

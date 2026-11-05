@@ -36,6 +36,8 @@
 - AI出力は入力検証したデータとして扱う。画像内文字や資料に含まれた指示を実行しない。外部URLをAI判断だけで取得・実行しない。
 - 照合不能、位置精度不足、通信障害、別対象を同じ「不正解」に潰さない。
 - 日本語UIを基準とし、スマートフォンの権限拒否・取消・再試行まで実装する。
+- Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+- Preserve essential labels, accessibility text, error messages, permission explanations, and demo limitations.
 
 ## セキュリティ・費用
 

@@ -15,9 +15,9 @@
 | データ | Firestore | 公開問題、非公開の正解、所属、記録、処理状態 |
 | 画像 | Cloud Storage for Firebase | 非公開の参考画像・一時回答・記録画像 |
 | 地図 | Google Maps JavaScript API | 地図と探索エリア表示。Placesは初期必須でない |
-| AI | Google Cloud側のGemini呼び出し | Vertex AI経由を第一候補。契約・クレジット適用と実エンドポイントを確認 |
+| AI | Google Cloud側のGemini呼び出し | 小規模試験はVertex AI。モデル・接続先・確認状況は[試験設定](vertex-trial.md)。本番構成・クレジット適用は未確認 |
 
-Google AI Studio側のGemini APIへ勝手に変更しない。クレジット対象・データ利用条件・モデル・リージョンは要確認。サーバー認証は実行サービスアカウントとADCを優先し、長期秘密鍵の配布を避ける。[S3](sources.md)
+Google AI Studio側のGemini APIへ勝手に変更しない。小規模試験は[決定D-13](decisions.md)の条件で進める。クレジット対象・一般利用者のデータ利用条件・本番モデルとリージョンは要確認。サーバー認証は実行サービスアカウントとADCを優先し、長期秘密鍵の配布を避ける。[S3](sources.md)
 
 ```mermaid
 flowchart LR
@@ -72,6 +72,8 @@ FirestoreとStorageはクライアントに対して既定拒否とし、本人�
 8. 保存確定後にCORRECTを返す。後片付けは別の再試行可能な処理にし、参照されている記録画像を削除しない。
 
 外部AI呼び出しは再実行され得るFirestoreトランザクションの外で行う。[S5](sources.md) StorageとFirestoreをまたぐ原子的な更新は仮定しない。画像準備→DB確定の間に失敗したら処理段階から再開し、孤立画像を期限付きで清掃する。
+
+現在は[画像の実デコード・EXIF除去と照合呼び出し部品](photo-match.md)までを準備した。HTTP受付に画像検査を接続する一方、非公開参考画像の取得、実Vertex transport、照合worker、保存・クリア確定は未接続。部品の代替providerテストを実照合精度や保存の成功と扱わない。
 
 同じ回答の通常リトライは再照会を優先する。API障害で外部AI課金が完全に一度だけになるとは保証しないが、処理リース・入力hash・結果キャッシュで重複を抑える。発見記録は一意キーで必ず1件にする。
 

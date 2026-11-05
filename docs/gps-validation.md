@@ -56,4 +56,4 @@ QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:a
 
 `npm --prefix server run check`で等号を含む境界、複数範囲、日付変更線・極・対蹠点、古い/未来/乖離した時刻、不正入力/設定、実HTTPの分類・本人照会・再送・競合・設定障害後の再送を確認する。共通clientは`npm run check`でdemo GPS不合格の限定許可とmock成功の拒否を確認する。
 
-FR-06/07、AT-05/08/10/12/22の一部であり、テストは合成画像・架空座標・代替認証。実スマホ・実Google＋写真/GPS送信、実地の精度/時刻閾値、画像デコード・Gemini・Firestore/Storage・クリア確定・本人記録は未実装または未検証。
+FR-06/07、AT-05/08/10/12/22の一部であり、テストは合成画像・架空座標・代替認証。入力の画像デコードは[写真検証](photo-match.md)へ接続した。実スマホ・実Google＋写真/GPS送信、実地の精度/時刻閾値、実Gemini・Firestore/Storage・クリア確定・本人記録は未実装または未検証。
