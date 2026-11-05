@@ -15,9 +15,9 @@
 | データ | Firestore | 公開問題、非公開の正解、所属、記録、処理状態 |
 | 画像 | Cloud Storage for Firebase | 非公開の参考画像・一時回答・記録画像 |
 | 地図 | Google Maps JavaScript API | 地図と探索エリア表示。Placesは初期必須でない |
-| AI | Google Cloud側のGemini呼び出し | Vertex AI経由を第一候補。契約・クレジット適用と実エンドポイントを確認 |
+| AI | Google Cloud側のGemini呼び出し | 小規模試験はVertex AI。モデル・接続先・確認状況は[試験設定](vertex-trial.md)。本番構成・クレジット適用は未確認 |
 
-Google AI Studio側のGemini APIへ勝手に変更しない。クレジット対象・データ利用条件・モデル・リージョンは要確認。サーバー認証は実行サービスアカウントとADCを優先し、長期秘密鍵の配布を避ける。[S3](sources.md)
+Google AI Studio側のGemini APIへ勝手に変更しない。小規模試験は[決定D-13](decisions.md)の条件で進める。クレジット対象・一般利用者のデータ利用条件・本番モデルとリージョンは要確認。サーバー認証は実行サービスアカウントとADCを優先し、長期秘密鍵の配布を避ける。[S3](sources.md)
 
 ```mermaid
 flowchart LR

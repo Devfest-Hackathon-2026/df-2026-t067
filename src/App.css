@@ -25,7 +25,6 @@ p { overflow-wrap: anywhere; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: var(--ui-radius); background: var(--ui-ink); color: var(--ui-surface); }
 .brand-mark .icon { width: 26px; height: 26px; }
 .brand-copy { font-size: 16px; font-weight: var(--ui-weight-display); letter-spacing: .015em; white-space: nowrap; }
-.brand-copy small { display: block; margin-top: 1px; font-size: 12px; font-weight: 400; color: var(--ui-muted); letter-spacing: .08em; }
 .desktop-nav { display: flex; align-items: center; gap: 26px; align-self: stretch; }
 .desktop-nav a, .desktop-nav button { min-height: 44px; display: flex; align-items: center; gap: 7px; border: 0; padding: 6px 0; font-size: 13px; background: transparent; }
 .desktop-nav .nav-active { color: var(--ui-ink); font-weight: var(--ui-weight-display); box-shadow: var(--ui-shadow); }
@@ -50,7 +49,6 @@ p { overflow-wrap: anywhere; }
 .explore-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 25px; }
 .eyebrow { font-size: 12px; color: var(--ui-muted); letter-spacing: .055em; margin-bottom: 6px; }
 h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display); line-height: 1.5; letter-spacing: -.025em; }
-.explore-description { color: var(--ui-muted); font-size: 12px; margin-top: 7px; }
 .preview-label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--ui-radius); color: var(--ui-muted); font-size: 12px; background: var(--ui-muted); white-space: nowrap; }
 .status-dot { width: 5px; height: 5px; border-radius: var(--ui-radius); background: var(--ui-muted); }
 .explore-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 368px; gap: 26px; align-items: start; }
@@ -83,7 +81,6 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .rail-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 1px 1px 0; }
 .rail-heading h2 { font-size: 14px; font-weight: var(--ui-weight-strong); }
 .rail-heading > span { font-size: 12px; color: var(--ui-muted); }
-.rail-description { font-size: 12px; color: var(--ui-muted); margin-top: 7px; margin-bottom: 19px; }
 .quest-card { overflow: hidden; background: var(--ui-surface); border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); box-shadow: var(--ui-shadow); }
 .quest-card.is-open { border-color: var(--ui-line); }
 .quest-pin:disabled { opacity: .45; }
@@ -99,26 +96,18 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .camera-status { margin-top: 10px; color: var(--ui-muted); font-size: 12px; }
 .camera-actions { display: grid; gap: 10px; margin-top: 14px; }
 .camera-actions .secondary-button { min-height: 44px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); padding: 9px 12px; color: var(--ui-ink); background: var(--ui-surface); font-size: 12px; }
-.quest-visual { height: 142px; position: relative; overflow: hidden; display: grid; place-items: center; background: var(--ui-muted); color: var(--ui-muted); }
-.quest-visual > .icon { width: 52px; height: 52px; stroke-width: 1; transform: rotate(-15deg); }
-.visual-orbit { position: absolute; display: block; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); transform: rotate(-25deg); }
-.orbit-one { width: 270px; height: 120px; top: -20px; left: -125px; }
-.orbit-two { width: 270px; height: 150px; bottom: -90px; right: -70px; }
-.visual-caption { position: absolute; bottom: 12px; left: 18px; color: var(--ui-muted); font-size: 12px; letter-spacing: .055em; }
 .quest-card-content { padding: 21px; min-width: 0; }
 .quest-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .area-label { display: inline-flex; align-items: center; gap: 3px; color: var(--ui-muted); font-size: 12px; }
 .area-label .icon { width: 12px; height: 12px; }
 .sample-label { color: var(--ui-muted); border-left: var(--ui-border-width) solid var(--ui-line); padding-left: 8px; font-size: 12px; }
 .quest-card h3 { font-size: 20px; line-height: 1.6; font-weight: var(--ui-weight-strong); letter-spacing: -.015em; }
-.quest-intro { font-size: 12px; color: var(--ui-muted); line-height: 1.85; margin-top: 8px; margin-bottom: 19px; }
 .quest-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 47px; padding: 12px 16px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-ink); color: var(--ui-surface); font-size: 12px; font-weight: var(--ui-weight-strong); }
 .quest-toggle:hover { background: var(--ui-ink); }
 .quest-toggle .icon { width: 17px; height: 17px; }
 .quest-toggle.is-open { background: var(--ui-surface); color: var(--ui-muted); border-color: var(--ui-line); }
 .quest-toggle.is-open .icon { transform: rotate(-90deg); }
 .quest-details { border-top: var(--ui-border-width) solid var(--ui-line); margin-top: 23px; padding-top: 22px; }
-.question-step { font-size: 12px; color: var(--ui-muted); margin-bottom: 5px; }
 .quest-details h4 { font-size: 15px; font-weight: var(--ui-weight-strong); margin-bottom: 14px; }
 .clue-text { border-left: 2px solid var(--ui-muted); padding-left: 12px; color: var(--ui-muted); font-size: 13px; line-height: 1.95; margin-bottom: 16px; }
 .sample-note { background: var(--ui-muted); padding: 10px 12px; border-radius: var(--ui-radius); color: var(--ui-muted); font-size: 12px; line-height: 1.7; margin-bottom: 18px; }
@@ -128,11 +117,6 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .unavailable-note { font-size: 12px; color: var(--ui-muted); line-height: 1.8; margin-top: 9px; }
 .auth-feedback { color: var(--ui-muted); font-size: 12px; line-height: 1.8; margin-top: 14px; }
 .auth-feedback[role="alert"] { color: var(--ui-error); }
-.browse-note { display: flex; gap: 10px; align-items: center; margin-top: 23px; padding: 0 2px; }
-.browse-note-icon { width: 34px; height: 34px; border-radius: var(--ui-radius); display: grid; place-items: center; background: var(--ui-muted); color: var(--ui-muted); flex: none; }
-.browse-note-icon .icon { width: 18px; height: 18px; }
-.browse-note strong { font-size: 12px; font-weight: var(--ui-weight-strong); color: var(--ui-muted); }
-.browse-note p { font-size: 12px; color: var(--ui-muted); margin-top: 2px; }
 .demo-note { display: flex; align-items: start; gap: 7px; margin-top: 21px; padding-top: 17px; border-top: var(--ui-border-width) solid var(--ui-line); color: var(--ui-muted); font-size: 12px; line-height: 1.85; }
 .demo-note-dot { width: 4px; height: 4px; margin-top: 7px; border-radius: var(--ui-radius); background: var(--ui-muted); flex: none; }
 .site-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-block: 21px 25px; border-top: var(--ui-border-width) solid var(--ui-line); color: var(--ui-muted); font-size: 12px; }
@@ -152,8 +136,7 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .desktop-nav { display: none; }
   .explore-workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .map-preview { position: relative; top: 0; height: 420px; }
-  .quest-card { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-  .quest-visual { height: 100%; min-height: 220px; }
+  .quest-card { display: block; }
   .browse-note, .demo-note { max-width: 570px; }
   .site-footer { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
   .mobile-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; align-items: stretch; gap: 40px; justify-content: center; padding: 9px 20px calc(9px + env(safe-area-inset-bottom)); border-top: var(--ui-border-width) solid var(--ui-line); background: var(--ui-surface); backdrop-filter: blur(12px); }
@@ -168,7 +151,6 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .brand-mark { width: 34px; height: 34px; border-radius: var(--ui-radius); }
   .brand-mark .icon { width: 22px; height: 22px; }
   .brand-copy { font-size: 13px; }
-  .brand-copy small { font-size: 12px; }
   .account-area { max-width: 122px; gap: 4px; }
   .account-status { font-size: 12px; gap: 4px; }
   .account-status .icon { width: 13px; height: 13px; }
@@ -178,7 +160,6 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .explore-heading { margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
   .eyebrow { font-size: 12px; }
   h1 { font-size: 25px; }
-  .explore-description { font-size: 12px; margin-top: 5px; }
   .preview-label { display: none; }
   .preview-label.api-source { display: inline-flex; }
   .map-preview { height: 338px; border-radius: var(--ui-radius); }
@@ -186,20 +167,17 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .map-scope { padding: 7px 9px; font-size: 12px; gap: 6px; }
   .map-scope .icon { width: 14px; height: 14px; }
   .demo-map-label { font-size: 12px; padding: 3px 5px; }
-  .map-zoom { right: 11px; bottom: 43px; }
+  .map-zoom { right: 11px; bottom: 72px; }
   .map-zoom button { width: 44px; height: 44px; }
   .map-bottomline { left: 12px; right: 12px; bottom: 11px; font-size: 12px; gap: 6px; }
   .map-credit { font-size: 12px; }
   .quest-card { display: block; border-radius: var(--ui-radius); }
-  .quest-visual { display: none; }
   .quest-card-content { padding: 20px; }
   .quest-card h3 { font-size: 21px; }
   .quest-toggle, .primary-button { font-size: 13px; min-height: 48px; }
-  .sample-label, .area-label, .sample-note, .unavailable-note, .question-step { font-size: 12px; }
+  .sample-label, .area-label, .sample-note, .unavailable-note { font-size: 12px; }
   .clue-text { font-size: 14px; }
-  .browse-note { margin-top: 19px; }
-  .browse-note strong { font-size: 12px; }
-  .browse-note p, .demo-note { font-size: 12px; }
+  .demo-note { font-size: 12px; }
   .site-footer { font-size: 12px; }
   .mobile-nav { gap: 25px; }
   .mobile-nav a, .mobile-nav button { font-size: 12px; }
@@ -211,7 +189,7 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 /* Shared theme treatments for traveler, API, authentication and camera states. */
 .site-header { background: var(--ui-surface); }
 .brand-mark { border: var(--ui-border-width) solid var(--ui-line); background: var(--ui-tint); color: var(--ui-ink); box-shadow: var(--ui-control-shadow); }
-.brand-copy small, .account-status { color: var(--ui-muted); }
+.account-status { color: var(--ui-muted); }
 .desktop-nav .nav-active { color: var(--ui-ink); box-shadow: 0 3px 0 var(--ui-ink); }
 .desktop-nav button { color: var(--ui-muted); }
 .logout-button { color: var(--ui-ink); }
@@ -242,19 +220,14 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .map-zoom button:last-child { border-radius: 0 0 var(--ui-radius) var(--ui-radius); }
 .rail-heading h2 { font-size: 16px; font-weight: var(--ui-weight-display); }
 .rail-heading > span { color: var(--ui-muted); }
-.rail-description { margin-bottom: 20px; }
 .quest-card, .connection-message, .api-load-state { background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow); }
 .quest-rail, .quest-rail > div { min-width: 0; }
-.quest-visual { background: var(--ui-tint); color: var(--ui-ink); border-bottom: var(--ui-border-width) solid var(--ui-line); }
-.quest-visual > .icon { transform: none; stroke-width: 1.5; }
-.visual-orbit { border-color: var(--ui-ink); opacity: .2; }
-.visual-caption { color: var(--ui-muted); letter-spacing: 0; }
 .quest-card-content { padding: 24px; }
 .quest-meta { gap: 8px; }
 .sample-label { border: var(--ui-border-width) solid var(--ui-line); padding: 2px 6px; border-radius: var(--ui-radius); background: var(--ui-badge); color: var(--ui-ink); }
 .area-label { color: var(--ui-muted); }
 .quest-card h3 { font-size: 22px; font-weight: var(--ui-weight-display); }
-.quest-intro, .clue-text, .camera-status, .unavailable-note, .auth-feedback { color: var(--ui-muted); }
+.clue-text, .camera-status, .unavailable-note, .auth-feedback { color: var(--ui-muted); }
 .quest-toggle, .primary-button, .api-load-state > button { background: var(--ui-accent); color: var(--ui-accent-ink); border-color: var(--ui-line); font-weight: var(--ui-weight-control); font-size: 14px; }
 .quest-toggle:hover:not(:disabled), .primary-button:hover:not(:disabled), .api-load-state > button:hover:not(:disabled) { background: var(--ui-accent-hover); color: var(--ui-accent-ink); }
 .quest-toggle.is-open { background: var(--ui-tint); color: var(--ui-ink); }
@@ -269,17 +242,14 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .camera-video, .photo-preview { background: #1d1d1b; border: var(--ui-border-width) solid var(--ui-line); }
 .camera-panel .photo-preview { height: auto; }
 .auth-feedback[role="alert"], .camera-error, .connection-message [role="alert"] { color: var(--ui-error); }
-.browse-note-icon { background: var(--ui-tint); color: var(--ui-ink); border: var(--ui-border-width) solid var(--ui-line); }
-.browse-note strong { color: var(--ui-ink); font-weight: var(--ui-weight-strong); }
 .mobile-nav { background: var(--ui-surface); backdrop-filter: none; }
 .mobile-nav a { color: var(--ui-ink); background: var(--ui-accent); border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); }
 .mobile-nav button { color: var(--ui-muted); }
 .mobile-nav a .icon, .mobile-nav a span { color: var(--ui-accent-ink); }
 @media (max-width: 1100px) { .explore-workspace { grid-template-columns: minmax(0, 1fr) 334px; } }
-@media (max-width: 980px) { .explore-workspace { grid-template-columns: minmax(0, 1fr); } .quest-visual { border-bottom: 0; border-right: var(--ui-border-width) solid var(--ui-line); } }
+@media (max-width: 980px) { .explore-workspace { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) {
   .explore-heading h1 { font-size: 28px; }
-  .brand-copy small { font-size: 10px; }
   .account-status { font-size: 11px; }
   .quest-card-content { padding: 20px; }
   .map-credit { font-size: 10px; }
@@ -288,3 +258,9 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 }
 
 .api-quest-picker select { border-color: var(--ui-control-line); }
+
+/* The card's title and actions communicate its structure without decorative captions. */
+.rail-heading { margin-bottom: 20px; }
+.quest-card-heading { padding: 20px 24px; border-bottom: var(--ui-border-width) solid var(--ui-line); background: var(--ui-tint); }
+.browse-note { margin-top: 20px; color: var(--ui-muted); font-size: 12px; line-height: 1.8; }
+@media (max-width: 640px) { .quest-card-heading { padding: 20px; } }

@@ -59,3 +59,7 @@ A04から表示プレビューへ進み、問題タイトル・問題文・段�
 今回のA05変更は `src/features/admin-demo/` とこの文書・`screens.md`・`acceptance.md`・`decisions.md` のD担当関連箇所のみ。既存のREADME・`src/main.tsx`の未コミット変更を保持し、旅行者画面、共通API、認証、サーバー、依存定義、Codex設定を追加変更していない。
 
 既存依存の `npm audit --omit=dev` は `@grpc/grpc-js` とFirebaseの依存経路に高重要度4件を報告した。今回追加した依存はなく、package.json・ロックファイルは変更していない。依存更新はA担当・共通領域担当への別途確認事項とする。
+
+## A待ちを減らす追加API
+
+[API接続手順](team-api-handoffs.md)に、版指定付き通常ヒントと、サーバー所属確認・revision付き管理下書き保存の共通型/client/HTTPを追加した。この文書の既存画面は自動接続していない。担当画面から既存clientを利用して接続できる。管理保存は開発用一時領域で、画像受付・AI・試験・公開は未実装。

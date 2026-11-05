@@ -1,7 +1,7 @@
 import { ATTEMPT_OUTCOMES, ATTEMPT_STATES } from './types'
 import type {
   AttemptResult, CaptureMetadata, Challenge, Decoder, Discovery, LngLat,
-  Page, Position, PublicArea, PublicGeometry, PublicQuest, SessionIdentity,
+  Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, SessionIdentity,
 } from './types'
 
 export class ContractError extends Error {
@@ -175,4 +175,10 @@ export function parseDiscovery(input: unknown): Discovery {
 export function parsePage<T>(input: unknown, parseItem: Decoder<T>): Page<T> {
   const d = object(input, ['items', 'nextCursor'], 'Page')
   return { items: list(d.items, parseItem, 'items'), nextCursor: d.nextCursor === null ? null : text(d.nextCursor, 'nextCursor') }
+}
+
+export function parseQuestHint(input: unknown): QuestHint {
+  const d = object(input, ['questId', 'version', 'index', 'text'], 'QuestHint')
+  return { questId: text(d.questId, 'questId'), version: integer(d.version, 'version', 1),
+    index: integer(d.index, 'index', 1), text: text(d.text, 'text') }
 }
