@@ -1,6 +1,6 @@
-# ローカル公開API（架空デモ専用）
+# ローカルAPI（架空デモ専用）
 
-Node **26.7.0** / npm **11.19.0**。この独立パッケージは架空データの読み取りAPIと、Firebase ID tokenの検証確認だけを実装する。Firestore、保存、挑戦、GPS、写真判定、自治体権限は含まない。実データのアダプターは未実装で、接続失敗をデモ成功へ切り替える処理もない。
+Node **26.7.0** / npm **11.19.0**。この独立パッケージは架空データの読み取り、Firebase ID tokenの検証確認、開発用の挑戦開始を実装する。Firestore、永続保存、写真回答、GPS、写真判定、自治体権限は含まない。実データのアダプターは未実装で、接続失敗をデモ成功へ切り替える処理もない。
 
 リポジトリのルートから実行する。
 
@@ -44,13 +44,15 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 | `/api/v1/quests/:questId` | 不要 | 公開`PublicQuest`。存在しないIDは404 |
 | `/api/v1/session` | 必要 | **今回追加する接続確認ルート**。検証済み`{"uid":"…"}`だけ |
 
+`POST /api/v1/challenges`の契約は後半の[挑戦開始](#挑戦開始)を参照する。
+
 - `limit`は既定20、1〜100の整数。`Page`は`{items, nextCursor}`。デモデータの固定ID順でページングし、続きがなければ`nextCursor: null`。
 - `cursor`はサーバーが返した値をそのまま再送する。ルート・フィルターが変わったカーソル、不正形式、未知の行は400。カーソルは公開IDを表すページ位置だけで、認可や秘密の保存には使わない。`limit`は途中で変更可能。
 - `areaId`/`questId`はASCII英数字で始まり、英数字・`_`・`-`の1〜128文字。この初期サーバーで採用する入力制限であり、既存クライアントのID検査より狭い。空・区切り文字・制御文字・不正なpercent encodingは400。不明な`areaId`の一覧は空ページ。
 - `bbox=west,south,east,north`。経度±180・緯度±90の有限な十進数、`south <= north`。`west > east`は日付変更線を跨ぐ指定として扱う。デモの公開ポリゴン外接範囲に重なる地域を返す（穴や任意の複雑な形状の精密交差判定ではない）。答えの位置やマーカーから選別しない。
 - `zoom`は0〜24の有限な十進数。現段階では検証とカーソルの条件にだけ使い、集約粒度は変更しない。
-- 公開一覧・詳細とhealthでは未定義・重複queryを400で拒否。`/session`はquery/bodyをidentityとして読まず、`uid`/`role`/`orgId`を渡しても返すuidは検証結果だけ。どのルートもbodyを解釈・保存しない。
-- 対応ルートのGET以外は405と`Allow: GET`。未知のルートは404。CORS許可は設定しない。
+- 公開一覧・詳細とhealthでは未定義・重複queryを400で拒否。`/session`はquery/bodyをidentityとして読まず、`uid`/`role`/`orgId`を渡しても返すuidは検証結果だけ。GETはbodyを解釈・保存しない。挑戦開始だけが認証後に上限付きのJSONを読む。
+- 上表はGET、それ以外は405と`Allow: GET`。挑戦開始はPOSTだけで、異なるメソッドは405と`Allow: POST`。未知のルートは404。CORS許可は設定しない。
 
 エラー封筒は[既存API契約](../docs/api.md)の`{error:{code,message,requestId,retryable}}`。requestIdはサーバー生成で、リクエストヘッダーから引き継がない。
 
@@ -97,6 +99,12 @@ npm --prefix server run check
 
 install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase/util`と`protobufjs`の拒否を明記する。lockfile内のinstall script保持パッケージはこの2つで、ソースを確認した。特に`@firebase/util`のpostinstallは外部設定を読み得るため実行しない。配布済みファイルとoptional platform packageだけでチェックが通ることを確認する。
 
+## 挑戦開始
+
+`POST /api/v1/challenges`は検証済み利用者と公開デモ問題・版からChallengeを作る。初回201、同じ利用者・問題・版の再要求は200で再利用する。JSONは4KiB・受信5秒まで。所有者・ID・日時はクライアントから採用しない。
+
+保存先は最大256件の開発用メモリで、再起動すると消える。正常入力の開始要求は再要求を含め利用者ごとに10回/60秒までで、超過時は429とRetry-Afterを返す。永続保存・回答・クリア記録ではない。[契約・制限・C担当向けの呼び方](../docs/challenge-start.md)を参照する。画面からの呼び出しはまだ追加していない。
+
 ## Webとの接続
 
 ルートのVitestは`src/`だけを対象にし、Node標準テストとビルド済みテストを重複実行しない。サーバー依存はルートlockfileへ移さず、独立したパッケージとして扱う。API契約は[docs/api.md](../docs/api.md#9-ローカルapiの土台)、実装判断は[docs/decisions.md](../docs/decisions.md)にも記録した。
@@ -105,4 +113,4 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 
 共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実ChromeでGoogleログイン、実ID tokenのサーバー検証、再読み込み後の認証復元と再確認、ログアウトを確認済み。詳細は[確認記録](../docs/local-api.md#確認)を参照する。
 
-完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、本番・Emulator拒否。**実Firestore／データ保存、地図・GPS・写真判定、組織認可、デプロイは別作業・未検証**。
+完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、挑戦開始の所有者・版・再要求・上限の確認、本番・Emulator拒否。**実Firestore／データ保存、地図・GPS・写真判定、組織認可、デプロイは別作業・未検証**。

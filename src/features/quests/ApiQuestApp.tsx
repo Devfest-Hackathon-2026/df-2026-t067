@@ -106,7 +106,8 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
   </div>
 
   return state === 'ready' && current?.quest
-    ? <App quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode />
+    ? <App quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode
+        onReloadQuest={() => { catalog.current = null; setRetry((value) => value + 1) }} />
     : <main className="api-load-state" aria-live="polite">
       <p className="eyebrow">公開APIデモ</p>
       <h1>{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>

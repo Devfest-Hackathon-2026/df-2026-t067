@@ -18,9 +18,10 @@ interface QuestDetailsProps {
   onToggle(): void
   onStart(selection: ChallengeSelection): void | Promise<unknown>
   children?: ReactNode
+  hideStartAction?: boolean
 }
 
-export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children }: QuestDetailsProps) {
+export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false }: QuestDetailsProps) {
   const detailsId = `quest-details-${useId().replaceAll(':', '')}`
   return (
     <article className={'quest-card' + (open ? ' is-open' : '')} aria-labelledby={`${detailsId}-title`}>
@@ -42,10 +43,10 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
             <h4>この場所はどこ？</h4>
             <p className="clue-text">{quest.clue}</p>
             <p className="sample-note">{quest.visitConditions}</p>
-            <button type="button" className="primary-button" disabled={disabled} onClick={() => onStart({ questId: quest.questId, expectedVersion: quest.version })} aria-describedby={`${detailsId}-note`}>
+            {!hideStartAction && <><button type="button" className="primary-button" disabled={disabled} onClick={() => onStart({ questId: quest.questId, expectedVersion: quest.version })} aria-describedby={`${detailsId}-note`}>
               {buttonLabel}
             </button>
-            <p id={`${detailsId}-note`} className="unavailable-note">{note}</p>
+            <p id={`${detailsId}-note`} className="unavailable-note">{note}</p></>}
             {children}
             {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
           </section>

@@ -12,6 +12,8 @@
 
 ## まず起動する
 
+D担当の[素材登録・下書き編集・表示確認デモ（A03〜A05）](docs/admin-demo.md)は、開発サーバー起動後に `/admin-demo` で開きます。未認証の架空データ用フォームで、入力・参考写真は画面内だけに保持し、アップロード・保存・AI・公開処理には接続しません。
+
 Node **26.7.0** / npm **11.19.0**を使います。異なる版ではインストールを止め、4人の環境の違いを見つけやすくしています。
 
 このリポジトリのフォルダ（`package.json`がある場所）で実行します。
@@ -47,6 +49,8 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 PowerShellでは2行目を`$env:QUEST_DATA_MODE='demo'; $env:NODE_ENV='development'; npm --prefix server run dev`に置き換えます。
 
 `http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
+
+認証後に利用者・問題・版を結び付ける[挑戦開始API](docs/challenge-start.md)も追加しました。`local-api`モードでは「挑戦を始める」で開始を確認してから撮影画面を開きます。開発用の一時管理で、再起動すると消えます。写真送信・保存は未実装です。
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 

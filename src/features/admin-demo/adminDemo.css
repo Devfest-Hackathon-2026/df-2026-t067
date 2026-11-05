@@ -1,0 +1,48 @@
+.admin-demo { box-sizing: border-box; max-width: 880px; margin: 0 auto; padding: 28px 20px 56px; color: #202b35; font: 16px/1.55 system-ui, sans-serif; }
+.admin-demo *, .admin-demo *::before, .admin-demo *::after { box-sizing: border-box; }
+.admin-demo h1 { margin: 3px 0 0; font-size: clamp(1.5rem, 5vw, 2rem); }
+.admin-demo h2 { margin: 0 0 16px; font-size: 1.2rem; }
+.admin-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.eyebrow, .helper, .private-setting small { color: #566675; font-size: .88rem; }
+.demo-badge { border: 1px solid #9b5720; border-radius: 999px; padding: 5px 10px; color: #783c0f; background: #fff3e5; font-size: .85rem; white-space: nowrap; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 24px 0 16px; }
+.steps > div, .steps > button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px; border: 1px solid #a8c8bc; border-radius: 9px; background: #eff8f3; color: inherit; font: inherit; text-align: left; }
+.steps > button { cursor: pointer; }
+.steps > div b, .steps > button b { color: #176246; font-size: .82rem; }
+.steps .step-disabled { border-color: #d8dde1; background: #f4f5f6; color: #697681; }
+.steps .step-disabled b { color: #697681; }
+.demo-notice { border-left: 4px solid #b96e22; padding: 12px 14px; background: #fff7ed; }
+.form-section { margin: 20px 0; padding: 22px; border: 1px solid #d5dce1; border-radius: 12px; background: white; }
+.form-section > p { margin: 8px 0; }
+.admin-demo label { display: block; margin: 14px 0; font-weight: 600; }
+.admin-demo input:not([type=checkbox]):not([type=file]), .admin-demo textarea { display: block; width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #9aa7b0; border-radius: 6px; background: white; color: inherit; font: inherit; }
+.admin-demo input[type=file] { display: block; max-width: 100%; margin-top: 8px; font: inherit; }
+.admin-demo input[type=checkbox] { width: 18px; height: 18px; margin: 0 8px 0 0; accent-color: #176246; vertical-align: middle; }
+.admin-demo :focus-visible { outline: 3px solid #126b9a; outline-offset: 3px; }
+.admin-demo fieldset { margin: 18px 0; padding: 12px; border: 1px solid #cbd4da; border-radius: 8px; }
+.admin-demo legend { padding: 0 5px; font-weight: 650; }
+.check-grid { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.admin-demo .check-option { display: inline-flex; align-items: center; min-height: 42px; margin: 0; cursor: pointer; }
+.private-setting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 14px; padding: 14px; border-radius: 8px; background: #f2f4f5; }
+.photo-preview { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 12px 0; padding: 12px; border: 1px solid #d5dce1; border-radius: 8px; }
+.photo-preview img { width: min(180px, 100%); max-height: 160px; object-fit: contain; }
+.photo-preview > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.photo-preview button, .submit-button { min-height: 40px; padding: 8px 14px; border: 1px solid #176246; border-radius: 6px; background: white; color: #14583f; font: inherit; cursor: pointer; }
+.submit-button { color: white; background: #176246; }
+.field-error { color: #a32323; font-weight: 600; }
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.summary dl { display: grid; grid-template-columns: minmax(150px, .7fr) 1fr; gap: 8px 16px; }
+.summary dt { font-weight: 650; }
+.summary dd { margin: 0; overflow-wrap: anywhere; }
+.traveler-card { max-width: 640px; margin: 18px auto; padding: 20px; border: 1px solid #d5dce1; border-radius: 12px; background: #fff; box-shadow: 0 4px 16px #17212b12; }
+.traveler-card h3 { margin-top: 0; font-size: 1.35rem; }
+.traveler-card h4 { margin-bottom: 8px; }
+.traveler-card h3, .traveler-card p, .traveler-card dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+.traveler-card section { margin-top: 22px; }
+.traveler-card dl { display: grid; grid-template-columns: minmax(140px, .7fr) 1fr; gap: 8px 14px; }
+.traveler-card dt { font-weight: 650; }
+.traveler-card dd { margin: 0; }
+.traveler-card .preview-hint { margin: 8px 0; padding: 10px; border: 1px solid #d5dce1; border-radius: 7px; }
+.preview-hint > button { min-height: 40px; cursor: pointer; font: inherit; font-weight: 600; color: inherit; background: white; border: 1px solid #9aa7b0; border-radius: 6px; padding: 8px 12px; }
+.traveler-preview > button { min-height: 40px; padding: 8px 14px; border: 1px solid #176246; border-radius: 6px; background: white; color: #14583f; font: inherit; cursor: pointer; }
+@media (max-width: 560px) { .admin-demo { padding: 18px 12px 36px; } .form-section { padding: 16px; } .steps { grid-template-columns: 1fr; } .field-pair { grid-template-columns: 1fr; gap: 0; } }

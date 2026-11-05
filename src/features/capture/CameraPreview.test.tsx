@@ -4,11 +4,23 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CameraPreview } from './CameraPreview'
 
+function position(coords: Partial<GeolocationCoordinates> = {}, timestamp = Date.now()) {
+  return { coords: { latitude: 35, longitude: 135, accuracy: 12.4, altitude: null,
+    altitudeAccuracy: null, heading: null, speed: null, ...coords }, timestamp } as GeolocationPosition
+}
+
+function positionError(code: number): GeolocationPositionError {
+  return { code, message: 'private-location-details', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }
+}
+
 function setup() {
   const stop = vi.fn()
   const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream
   const getUserMedia = vi.fn(async () => stream)
-  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
+  const getCurrentPosition = vi.fn<Geolocation['getCurrentPosition']>((success) => success(position()))
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), {
+    mediaDevices: { getUserMedia }, geolocation: { getCurrentPosition },
+  }))
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
   const drawImage = vi.fn()
   const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
@@ -17,7 +29,7 @@ function setup() {
   const revokeObjectURL = vi.fn((_url: string) => {})
   vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
   const onClose = vi.fn()
-  return { stop, stream, getUserMedia, play, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
+  return { stop, stream, getUserMedia, getCurrentPosition, play, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
 }
 
 async function loadFrame(stream: MediaStream) {
@@ -38,6 +50,7 @@ describe('local camera preview', () => {
     await loadFrame(media.stream)
     expect(screen.getByRole('button', { name: '撮影する' })).toBeEnabled()
     expect(media.getUserMedia).toHaveBeenCalledExactlyOnceWith({ video: { facingMode: 'environment' }, audio: false })
+    expect(media.getCurrentPosition).not.toHaveBeenCalled()
   })
 
   it('explains permission denial and supports retry and closing', async () => {
@@ -79,6 +92,9 @@ describe('local camera preview', () => {
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
     expect(media.stop).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
+    expect(media.getCurrentPosition).toHaveBeenCalledExactlyOnceWith(expect.any(Function), expect.any(Function),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     expect(media.toBlob.mock.calls[0].slice(1)).toEqual(['image/jpeg', .9])
     view.unmount()
     expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo')
@@ -175,5 +191,117 @@ describe('local camera preview', () => {
     expect(media.toBlob).toHaveBeenCalledTimes(1)
     act(() => callback(new Blob(['synthetic-photo'])))
     expect(media.createObjectURL).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([1, 2, 3])('allows a manual retry after location error %s without taking a photo', async (code) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce((_success, failure) => failure?.(positionError(code)))
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(code === 1 ? '許可されませんでした' : '取得できませんでした')
+    expect(document.body).not.toHaveTextContent('private-location-details')
+    expect(media.toBlob).not.toHaveBeenCalled()
+    expect(media.getCurrentPosition).toHaveBeenCalledTimes(1)
+    await media.user.click(screen.getByRole('button', { name: '位置情報を再試行して撮影' }))
+    expect(screen.getByRole('img', { name: '撮影した写真のプレビュー' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
+    expect(media.getCurrentPosition).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports an unavailable location API without creating a photo', async () => {
+    const media = setup()
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: undefined }))
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('位置情報を取得できません')
+    expect(screen.getByRole('button', { name: '位置情報を再試行して撮影' })).toBeEnabled()
+    expect(media.toBlob).not.toHaveBeenCalled()
+  })
+
+  it('recovers from a synchronous location API exception without exposing device details', async () => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => { throw new DOMException('private-location-details', 'SecurityError') })
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('位置情報')
+    expect(document.body).not.toHaveTextContent('private-location-details')
+    expect(screen.getByRole('button', { name: '位置情報を再試行して撮影' })).toBeEnabled()
+    await media.user.click(screen.getByRole('button', { name: '位置情報を再試行して撮影' }))
+    expect(screen.getByRole('img')).toBeVisible()
+  })
+
+  it.each([
+    position({ latitude: NaN }), position({ latitude: 91 }), position({ longitude: 181 }),
+    position({ accuracy: -1 }), position({ accuracy: Infinity }), position({}, NaN),
+  ])('rejects invalid location metadata and enables retry: %o', async (location) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => {})
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const success = media.getCurrentPosition.mock.calls[0][0]
+    expect(() => act(() => success(location))).not.toThrow()
+    expect(screen.getByRole('alert')).toHaveTextContent('位置情報')
+    expect(screen.getByRole('button', { name: '位置情報を再試行して撮影' })).toBeEnabled()
+    expect(media.toBlob).not.toHaveBeenCalled()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    await media.user.click(screen.getByRole('button', { name: '位置情報を再試行して撮影' }))
+    expect(screen.getByRole('img')).toBeVisible()
+  })
+
+  it.each(['success', 'error'] as const)('discards a late location %s after a camera failure', async (result) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => {})
+    render(<CameraPreview onClose={media.onClose} />)
+    const video = await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const [success, failure] = media.getCurrentPosition.mock.calls[0]
+    fireEvent.error(video)
+    act(() => result === 'success' ? success(position()) : failure?.(positionError(2)))
+    expect(screen.getByRole('alert')).toHaveTextContent('カメラ映像を表示できませんでした')
+    expect(screen.queryByText('撮影地を取得しています…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'カメラを再試行' })).toBeEnabled()
+    expect(media.toBlob).not.toHaveBeenCalled()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  it.each(['close', 'unmount', 'pagehide'] as const)('ignores a pending location after %s', async (leave) => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => {})
+    const view = render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const success = media.getCurrentPosition.mock.calls[0][0]
+    if (leave === 'close') await media.user.click(screen.getByRole('button', { name: '撮影を終了' }))
+    else if (leave === 'unmount') view.unmount()
+    else fireEvent(window, new Event('pagehide'))
+    act(() => success(position()))
+    expect(media.stop).toHaveBeenCalledTimes(1)
+    expect(media.toBlob).not.toHaveBeenCalled()
+    expect(media.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('locks capture while locating and requests a new position for a retake', async () => {
+    const media = setup()
+    media.getCurrentPosition.mockImplementationOnce(() => {})
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    const capture = screen.getByRole('button', { name: '撮影する' })
+    fireEvent.click(capture)
+    fireEvent.click(capture)
+    expect(media.getCurrentPosition).toHaveBeenCalledTimes(1)
+    expect(media.toBlob).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '撮影地を取得中…' })).toBeDisabled()
+    act(() => media.getCurrentPosition.mock.calls[0][0](position()))
+    await media.user.click(screen.getByRole('button', { name: '撮り直す' }))
+    await loadFrame(media.stream)
+    expect(screen.queryByText(/撮影地を写真に紐づけました/)).not.toBeInTheDocument()
+    media.getCurrentPosition.mockImplementationOnce(success => success(position({ accuracy: 32 })))
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(screen.getByRole('status')).toHaveTextContent('精度 約32m')
+    expect(media.getCurrentPosition).toHaveBeenCalledTimes(2)
   })
 })
