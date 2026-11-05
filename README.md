@@ -20,7 +20,7 @@
 | [API設計案](docs/api.md) | 画面とサーバーの受け渡し、結果コード |
 | [受け入れ・テスト条件](docs/acceptance.md) | 実装を完了と判断する確認項目 |
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
-| [共同開発・設定手順](docs/development.md) | 最初の作業、4人の分担、クラウド設定の境界 |
+| [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
 | [公式参考資料](docs/sources.md) | 技術的な制約の確認先 |
 | [AGENTS.md](AGENTS.md) | 全員のCodexが参照する共通ルール |
 
