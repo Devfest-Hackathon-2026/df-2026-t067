@@ -18,7 +18,7 @@ HTTPハンドラー・main・環境変数からは起動しない。既存の回
 | authorize(uid) | サーバー側で所有者の認証有効性を再確認し、確認できた場合だけtrue。失効はfalse、確認障害は例外。実接続時は呼出しごとに期限を設けた本人確認が必要 |
 | matcher | 既存PhotoMatcher。未設定・不正出力・通信障害はSYSTEM_ERROR。検証では代替matcherのみ使用した |
 
-PrivateAnswerVersionを公開GET、通常ヒント、PRやログへ出さない。登録の下書きと公開版のサーバー側管理は別に実装する必要があり、この部品へdraftを自動転用しない。
+PrivateAnswerVersionを公開GET、通常ヒント、PRやログへ出さない。開発用の自治体公開では `getPublishedAnswerMaterial(questId, version)` が、現に公開中の指定版に固定した組織ID、参考素材ID、確認済み特徴、撮影範囲を返す。下書き編集の影響を受けず、休止・改版で旧版の参照を止める。開発用の回答受付ではこのうち撮影範囲を利用する。照合時の参考画像の取得と、本人記録の対象ID・クリア後情報を含む `PrivateAnswerVersion` の組み立ては残件。
 
 ## 処理と再送
 
