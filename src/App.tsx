@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { ReactNode } from 'react'
 import { demoAreaLabel } from './features/quests/demoQuest'
 import { QuestDetails } from './features/quests/QuestDetails'
+import { QuestReport } from './features/quests/QuestReport'
 import type { ChallengeSelection } from './features/quests/QuestDetails'
 import { MapPreview } from './features/explore/MapPreview'
 import { Icon } from './components/Icon'
@@ -81,8 +82,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
-  const recordsEnabled = apiMode || source === 'local-api'
-  const showRecords = recordsEnabled && recordsOpen
+  const localApiMode = apiMode || source === 'local-api'
+  const showRecords = localApiMode && recordsOpen
   const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(), expectedDataMode: apiMode || source === 'local-api' ? 'demo' : undefined }), [providedApi, authClient, source, apiMode])
   const connection = useQuestConnection(externalQuest ? 'preview' : source, api)
   const content = connection.result.status === 'ready' ? connection.result.value : null
@@ -196,8 +197,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
           <a className={showRecords ? undefined : 'nav-active'} href="#explore-title" aria-current={showRecords ? undefined : 'page'}
             onClick={() => navigateToRecords(false)}><Icon name="map" />謎を探す</a>
           <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
-            disabled={!recordsEnabled || visiblePending !== null} onClick={() => navigateToRecords(true)}>
-            <Icon name="book" />自分の記録{!recordsEnabled && <span>準備中</span>}
+            disabled={!localApiMode || visiblePending !== null} onClick={() => navigateToRecords(true)}>
+            <Icon name="book" />自分の記録{!localApiMode && <span>準備中</span>}
           </button>
         </nav>
         <div className="account-area">
@@ -263,6 +264,9 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       onReloadQuest={() => { closeCamera(); if (externalQuest) onReloadQuest?.(); else connection.retry() }} />}
                     {auth.status === 'signed-in' && serverIdentity.result?.status === 'error' && <div className="auth-feedback"><p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></div>}
                     {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
+                    {localApiMode && <QuestReport key={questKey} api={api} questId={quest.questId}
+                      ownerUid={canUseCamera && visiblePending === null ? uid : null} canSignIn={auth.status === 'signed-out'}
+                      signInPending={visiblePending !== null} onSignIn={() => void login()} />}
                   </QuestDetails>
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>
@@ -277,8 +281,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       <footer className="site-footer"><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
         <a href="#explore-title" aria-current={showRecords ? undefined : 'page'} onClick={() => navigateToRecords(false)}><Icon name="map" /><span>謎を探す</span></a>
-        <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!recordsEnabled || visiblePending !== null}
-          onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!recordsEnabled && <small>準備中</small>}</span></button>
+        <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!localApiMode || visiblePending !== null}
+          onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!localApiMode && <small>準備中</small>}</span></button>
       </nav>
     </>
   )
