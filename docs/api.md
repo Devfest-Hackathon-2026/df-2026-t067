@@ -90,8 +90,8 @@
 | POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 登録済みの素材と根拠から下書き生成。自動公開しない |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
-| POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開 |
-| POST /orgs/:orgId/quests/:questId/pause | 公開・運営 | 理由を記録し、新規挑戦と進行中の確定を禁止 |
+| POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
+| POST /orgs/:orgId/quests/:questId/pause | 公開・運営 | 理由を記録し、新規挑戦と進行中の確定を禁止。開発用実装は18節 |
 
 素材・assetId・questIdの所有組織を全て検証する。生成結果を任意スクリプト・URL命令として実行しない。公開後に編集しても、旧公開版はそのまま保持して新しい下書きだけを変える。
 
@@ -156,7 +156,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 10. B/Dへの追加接続
 
-[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。未実装の公開・生成は404のまま。写真試験の接続口は16節を参照する。下書き保存は明示した開発用一時領域に限り、実DB/Storage保存ではない。
+[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。生成は404のまま。写真試験は16節、開発用の公開・休止は18節を参照する。下書きは開発用一時領域に保存する。
 
 ## 11. Cへの本人記録API接続
 
@@ -182,14 +182,25 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 15. Dの非公開撮影範囲
 
-[admin-shooting-areas.md](admin-shooting-areas.md)が入力・認可・競合・接続の正本。GET/PUT `/orgs/:orgId/quests/:questId/shooting-areas`を追加し、getShootingAreas/updateShootingAreasで利用する。共有CaptureZoneは既存GPSと共用し、座標・半径は専用の管理応答だけに含める。本文と同じdraftRevisionで全置換/解除し、通常の管理応答はshootingAreaStatusのみ。開発用メモリーだけで、O-03・公開版への固定・実回答判定は変更しない。
+[admin-shooting-areas.md](admin-shooting-areas.md)が入力・認可・競合・接続の正本。GET/PUT `/orgs/:orgId/quests/:questId/shooting-areas`を追加し、getShootingAreas/updateShootingAreasで利用する。共有CaptureZoneは既存GPSと共用し、座標・半径は専用の管理応答だけに含める。本文と同じdraftRevisionで全置換/解除し、通常の管理応答はshootingAreaStatusのみ。18節の開発用公開版に範囲を固定する。実地点の閾値はO-03で扱う。
 
 ## 16. Dの写真判定試験
 
-[admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。結果は開発用の写真照合だけで、訪問記録・CORRECT・公開資格を作らない。通常起動のmatcherは未設定503で、main/envから実Vertexへ接続する変更は含めない。
+[admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。試験結果の用途は開発用の確認と18節の公開操作に限る。通常起動ではmatcher未接続の503。
 
 ## 17. Dの下書き確認依頼
 
 共通clientの`submitManagedQuestReview(orgId, questId, expectedDraftRevision)`は、保存済みの版に対して確認を依頼する。編集者と公開担当者が自組織の下書きに使える。応答は200の`ReviewSubmission`で、`quest`に管理用の最新版、`missing`に不足項目のフィールド名を返す。古い版は409 `DRAFT_CONFLICT`。
 
 開発用の確認対象は対象名、根拠、写真権利の説明、同組織の参考素材、撮影範囲、タイトル、問題文、3本のヒント、試験と同じ条件を満たす確認済み特徴。任意のヒント画像を指定した場合は組織と用途も確認する。不足があれば`draft`、揃えば`review_pending`。同じ版の再送で版番号は進まない。本文・素材ID・撮影範囲を編集すると新しい版の`draft`へ戻る。確認待ちは開発用の私的な状態で、試験合格・公開承認は後段で扱う。
+
+## 18. 開発用の公開と休止
+
+開発サーバーの架空データ専用。自組織の`publisher`のみ実行でき、本文の受信後にも所属と役割を確認する。両操作は200で`ManagedQuest`を返す。
+
+- `publishManagedQuest(orgId, questId, input)` は`expectedDraftRevision`、`matchTestId`、`mismatchTestId`と`confirmations`を送る。確認項目は`fictionalData`、`visitConditions`、`photoRights`、`shootingArea`、`testCases`の全てが`true`。公開担当者が架空データ・訪問条件・画像の権利と公開範囲・撮影範囲・試験ケースを確認する。
+- 現在の確認待ち下書きと、同じ組織・問題・下書き版でサーバーが記録した`MATCH`と`WRONG_TARGET`が必要。正規化後に同じ画像の試験は使えない。版違いは409 `DRAFT_CONFLICT`、確認不足は409 `REVIEW_REQUIRED`、試験不足は409 `PHOTO_TEST_REQUIRED`。任意の公開ヒント画像は同組織の`public_hint`素材で、参考写真と同じ正規化画像は拒否する。
+- 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像、非公開撮影範囲を版へ固定する。旅行者の一覧・詳細には公開項目だけを返す。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
+- `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
+
+`publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。ローカルの統合テストは合成写真と代替matcherを使用。通常起動からの照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。

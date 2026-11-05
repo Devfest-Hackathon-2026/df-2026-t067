@@ -2,7 +2,6 @@ import { createFileMembershipLookup } from './admin-memberships'
 import { readConfig } from './config'
 import { createFirebaseVerifier } from './firebase-auth'
 import { createServer } from './server'
-import { createDemoLocationValidation } from './demo-location'
 import { DemoDiscoveryStore } from './discoveries'
 import { DemoAssetStore } from './admin-assets'
 
@@ -13,7 +12,7 @@ async function main(): Promise<void> {
     memberships: config.demoMembershipsFile ? createFileMembershipLookup(config.demoMembershipsFile) : undefined,
     discoveries: config.demoDiscoveries ? new DemoDiscoveryStore() : undefined,
     adminAssets: config.demoAdminAssets ? new DemoAssetStore() : undefined,
-    locationValidation: config.demoLocation ? createDemoLocationValidation() : undefined })
+    locationValidation: config.demoLocation ? 'demo' : undefined })
   let stopping = false
   const stop = () => {
     if (stopping) return
