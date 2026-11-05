@@ -31,7 +31,7 @@ npm run check
 
 取得方法、未マージのPRを試す方法、困ったときの対処は[共同開発ガイド](docs/development.md)へ進んでください。
 
-A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)に加え、別パッケージとして[ローカルAPIの土台](server/README.md)を追加しました。Web画面からこのAPIへの接続、写真判定、保存はまだありません。Google認証のブラウザ側は別途接続済みです。
+A担当の[共通データとAPI呼び出し口](docs/api.md#8-最初の共通api実装)に加え、別パッケージとして[ローカルAPIの土台](server/README.md)を追加しました。[開発用の接続手順](docs/local-api.md)で、画面から架空の1問を取得し、Googleログインをサーバーでも確認できます。写真判定と保存はまだありません。既定の画面内プレビューはAPIへ通信しません。
 
 ## A担当のローカルAPIを試す
 
@@ -63,6 +63,7 @@ npm --prefix server run check
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
 | [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
+| [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
 | [今回の土台の範囲](docs/foundation.md) | 作ったもの、実装判断、完了条件 |
 | [公式参考資料](docs/sources.md) | 技術的な制約の確認先 |
 | [AGENTS.md](AGENTS.md) | 全員のCodexが参照する共通ルール |
