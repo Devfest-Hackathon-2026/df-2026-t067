@@ -1,6 +1,6 @@
 # API・共通データ契約案 v0.3
 
-サーバーは未実装の提案。旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)を用意した。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
+旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)、公開GETと認証確認は[ローカルAPIの土台](#9-ローカルapiの土台)を用意した。それ以外のサーバー機能は未実装の提案。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
 
 ## 1. 共通ルール
 
@@ -116,3 +116,27 @@ submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempot
 409のQUEST_CHANGED / QUEST_UNAVAILABLE、503のSYSTEM_ERRORも、正しいAttemptResultなら回答IDを保って返す。エラー封筒はApiError（code / status / requestId / retryable / retryAfterSeconds）へ変換し、サーバーのmessageは表示用エラーへ転記しない。実APIからのsource: mockは拒否する。
 
 共通API自体にはサーバー、AI判定、データ保存、自治体編集API、ヒント取得APIは含まれない。Googleログインは[認証ガイド](firebase-auth.md)の別実装で、getIdTokenを介して接続できる。架空の問題を実サーバーへ送信して成功扱いにする処理は追加しない。
+
+## 9. ローカルAPIの土台
+
+`server/`はブラウザ側と別のNode.jsパッケージ。[起動・環境変数・制限](../server/README.md)を参照する。既存のPublicArea / PublicQuest / Pageと境界検証を再利用し、共通型を複製しない。明示した`QUEST_DATA_MODE=demo`だけで動作し、架空の2地域・3問を返す。実サービスの失敗をデモ成功に切り替える処理はない。
+
+| 実装したGET | 認証・返却 |
+|---|---|
+| `/health` | 認証不要。`status: ok`、`dataMode: demo`、`fictionalData: true`、`auth: configured / unconfigured`。configuredは設定の有無で、実認証の成功を意味しない |
+| `/api/v1/areas` | 認証不要。公開地域のPage。bbox・zoom・cursor・limitを検証 |
+| `/api/v1/quests` | 認証不要。公開問題のPage。areaId・cursor・limitを検証 |
+| `/api/v1/quests/:questId` | 認証不要。PublicQuest。存在しなければ404 |
+| `/api/v1/session` | Firebase ID token必須。検証済みの`{ uid: string }`だけを返す、認証接続確認用の追加エンドポイント |
+
+sessionはCookieやサーバーセッションを作らず、クエリ・bodyのuid / orgId / roleを認証の根拠にしない。Firebase Admin SDKで署名・issuer・audience・有効期限を検証する。設定なしやSDK障害は503 AUTH_UNAVAILABLE、認証情報の欠落・不正は401 UNAUTHENTICATEDを返す。設定なしの場合はトークンの有無を問わず503。Auth Emulatorは起動時と検証時に拒否する。
+
+**失効・無効化された利用者の照会は未実装**（`verifyIdToken(token, false)`）。この認証確認は自治体の所属・権限確認ではない。DB・画像・管理操作を追加するときは、失効確認の方針と操作ごとの認可を別途実装・検証する。現時点では保護データの読み書きやクリア確定は行わない。実Google ID tokenを使ったAPIの正常系確認は未実施。
+
+一覧のlimitは既定20、1〜100。IDは英数字で始まる英数字・`_`・`-`の1〜128文字。cursorは同じリソース・フィルター内だけ有効。bboxは公開ポリゴンの外接範囲で絞り、日付変更線をまたぐ範囲も扱う。zoomは0〜24の入力検証だけで、件数集約は行わない。公開GETの未知・重複クエリは400。sessionのクエリは無視する。
+
+すべての応答に`X-Quest-Data-Mode: demo`、サーバー生成の`X-Request-Id`、`Cache-Control: private, no-store`を付ける。エラーは既存の封筒形式。既知ルートのGET以外は405、未実装ルートは404。CORSの一括許可は追加せず、localhostだけで待ち受ける。
+
+検証は[`server.test.ts`](../server/test/server.test.ts)で公開情報のallowlist・ページング・境界入力・認証時のuid優先を、[`firebase-auth.test.ts`](../server/test/firebase-auth.test.ts)でSDKとの境界・失敗時の拒否を確認する。HTTP入力やSDKエラーの詳細をログへ出さない。SDK境界の代替テストと、実SDKによる不正トークンの拒否テストを区別している。
+
+Web画面との接続、Firestore / Storage、挑戦・回答・冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
