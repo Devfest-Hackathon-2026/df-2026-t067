@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../../App'
 import { createApiClient } from '../../shared/api'
-import { challenge, quest } from '../../shared/api/testFixtures'
+import { challenge, discovery, quest } from '../../shared/api/testFixtures'
 import type { AuthClient, AuthSnapshot } from '../auth/authTypes'
 
 const apiQuest = { ...quest, title: 'APIで取得した架空の問題' }
@@ -41,6 +41,48 @@ async function openQuest(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('explicit local API integration', () => {
+  it('opens only the verified owner records and releases the previous account photo', async () => {
+    let uid = 'test-user'
+    const photoPath = '/api/v1/me/discoveries/' + discovery.discoveryId + '/photo'
+    let holdPhoto = false
+    let finishPhoto!: (response: Response) => void
+    const createObjectURL = vi.fn(() => 'blob:owner-fixture')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
+    const photoResponse = () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), { headers: {
+      'Content-Type': 'image/jpeg', 'Content-Length': '4', 'X-Quest-Data-Mode': 'demo', 'X-Quest-Records-Mode': 'memory',
+    } })
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input)
+      if (path === '/api/v1/session') return json({ uid })
+      if (path.startsWith('/api/v1/me/discoveries?')) return json({ items: uid === 'test-user' ? [discovery] : [], nextCursor: null })
+      if (path === '/api/v1/me/discoveries/' + discovery.discoveryId) return json(discovery)
+      if (path === photoPath) return holdPhoto ? new Promise((resolve) => { finishPhoto = resolve }) : photoResponse()
+      return json(apiQuest)
+    })
+    const { auth, user } = mount(fetcher)
+    await user.click(within(screen.getByRole('navigation', { name: '主要ナビゲーション' })).getByRole('button', { name: '自分の記録' }))
+    expect(fetcher.mock.calls.some(([path]) => String(path).includes('/me/discoveries'))).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Googleログインして記録を見る' }))
+    await user.click(await screen.findByRole('button', { name: discovery.placeName }))
+    const photo = await screen.findByRole('img', { name: '本人の記録写真' })
+    await waitFor(() => expect(photo).toHaveAttribute('src', 'blob:owner-fixture'))
+    const photoCall = fetcher.mock.calls.find(([path]) => path === photoPath)
+    expect(new Headers(photoCall?.[1]?.headers).get('Authorization')).toBe('Bearer current-token')
+    await user.click(screen.getByRole('button', { name: '記録一覧へ戻る' }))
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:owner-fixture')
+    holdPhoto = true
+    await user.click(await screen.findByRole('button', { name: discovery.placeName }))
+    await waitFor(() => expect(finishPhoto).toBeTypeOf('function'))
+    const pending = fetcher.mock.calls.findLast(([path]) => path === photoPath)?.[1]?.signal
+    uid = 'next-user'
+    act(() => auth.emit({ status: 'signed-in', user: { uid, displayName: null } }))
+    expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+    expect(pending?.aborted).toBe(true)
+    await act(async () => finishPhoto(photoResponse()))
+    expect(screen.queryByRole('img', { name: '本人の記録写真' })).not.toBeInTheDocument()
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+  })
   it('checks the server identity for a B-supplied quest without loading the fixed quest again', async () => {
     const auth = authFixture(true)
     const fetcher = vi.fn<typeof fetch>(async () => json({ uid: 'another-user' }))
