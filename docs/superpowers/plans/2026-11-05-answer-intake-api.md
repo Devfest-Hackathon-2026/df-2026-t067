@@ -47,3 +47,5 @@ Files: docs/answer-intake.md、api.md、acceptance.md、decisions.md、README.md
 - [x] npm run check（180件）、npm --prefix server run check（81件）、型・lint・build、差分・リンク・秘密情報除外を確認し、重要な変更を単独レビュー。
 
 共有はこのブランチの別PRとし、マージは行わない。認証は代替検証器、画像・位置は合成データだけ。切断テストでは通常のsocketエラーを失敗扱いしていた待機方法を修正してからサーバー全体を再実行した。
+
+共有先はPR #16。作成後、並行してマージされたPR #15/#10を含むmain（102e8f3）を取り込み、npm run checkで型・lint・183テスト・buildが成功。サーバーの実装・条件は変わらず81件の検証結果を再利用する。
