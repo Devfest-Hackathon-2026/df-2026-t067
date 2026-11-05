@@ -5,6 +5,11 @@ export function readIdempotencyKey(request: IncomingMessage): string {
   const count = request.rawHeaders.filter((_, index) => index % 2 === 0)
     .filter((name) => name.toLowerCase() === 'idempotency-key').length
   const key = request.headers['idempotency-key']
-  if (count !== 1 || typeof key !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(key)) invalidInput()
+  if (count !== 1) invalidInput()
+  return parseIdempotencyKey(key)
+}
+
+export function parseIdempotencyKey(key: unknown): string {
+  if (typeof key !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(key)) invalidInput()
   return key
 }

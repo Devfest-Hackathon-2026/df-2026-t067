@@ -3,9 +3,13 @@ import { randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from '../src/firestore-answer-intake'
 import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
 
 const emulator = process.env.QUEST_FIRESTORE_TEST_HOST
+const policy = { maximum: 10, windowMs: 60_000 }
+const metadata = { capturedAt: '2026-11-06T00:00:00.000Z',
+  position: { latitude: 0, longitude: 0, accuracyMeters: 4, measuredAt: '2026-11-06T00:00:00.000Z' } }
 
 test('Firestore leases, resumes and atomically commits answers', {
   skip: !emulator && 'Set QUEST_FIRESTORE_TEST_HOST for the isolated Firestore emulator', timeout: 120_000,
@@ -27,25 +31,29 @@ test('Firestore leases, resumes and atomically commits answers', {
       }),
     ])
 
-    async function seedAnswer(uid = 'owner', state: 'RECEIVED' | 'COMMITTING' = 'COMMITTING') {
-      const attemptId = randomUUID()
+    async function seedChallenge(uid = 'owner') {
       const challenge = db.collection('challenges').doc(randomUUID())
+      await challenge.create({ uid, questId, version: 1 })
+      const submission = { uid, challengeId: challenge.id, idempotencyKey: randomUUID(), digest: 'a'.repeat(64) }
+      return { challenge, submission }
+    }
+
+    async function seedAnswer(uid = 'owner', state: 'RECEIVED' | 'COMMITTING' = 'COMMITTING') {
+      const { challenge, submission } = await seedChallenge(uid)
+      const attemptId = state === 'RECEIVED'
+        ? (await acceptDurableAnswer(db, { ...submission, metadata, generation: '4321' }, policy)).attemptId
+        : randomUUID()
       const receipt = db.collection('attempts').doc(attemptId)
-      const input = { uid, attemptId, digest: 'a'.repeat(64), leaseId: randomUUID() }
-      await Promise.all([
-        challenge.create({ uid, questId, version: 1 }),
-        receipt.create({ uid, digest: input.digest, challengeId: challenge.id, questId, version: 1, state,
-          ...(state === 'COMMITTING' ? {
-            lease: { id: input.leaseId, expiresAt: Timestamp.fromMillis(Date.now() + 180_000) },
-            checkpoint: { placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH', generation: '1234' },
-          } : {}),
-        }),
-      ])
+      const input = { uid, attemptId, digest: submission.digest, leaseId: randomUUID() }
+      if (state === 'COMMITTING') await receipt.create({ uid, digest: input.digest, challengeId: challenge.id, questId, version: 1, state,
+        lease: { id: input.leaseId, expiresAt: Timestamp.fromMillis(Date.now() + 180_000) },
+        checkpoint: { placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH', generation: '1234' },
+      })
       return { input, receipt, challenge, commit: () => commitVerifiedAnswer(db, input) }
     }
 
     const records = () => db.collection('discoveries').where('placeId', '==', placeId).get()
-    return { quest, placeId, seedAnswer, records }
+    return { quest, placeId, seedAnswer, seedChallenge, records }
   }
 
   await t.test('concurrent answers for the same owner and place share one initial photo and time', async () => {
@@ -127,6 +135,11 @@ test('Firestore leases, resumes and atomically commits answers', {
     assert.deepEqual(claims.map(({ kind }) => kind).sort(), ['busy', 'claimed'])
     const first = claims.find((candidate) => candidate.kind === 'claimed')
     assert(first?.kind === 'claimed' && first.step === 'verify')
+    assert.deepEqual(first.source.metadata, metadata)
+    assert(first.source.receivedAt > 0)
+    assert.deepEqual(first.source.photoObject, {
+      path: `answer-photos/${pending.input.attemptId}/incoming-${pending.input.digest}.jpg`, generation: '4321',
+    })
     const firstLease = { ...pending.input, leaseId: first.leaseId }
     const proof = { placeId: fixture.placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH' } as const
     await assert.rejects(recordAnswerPhoto(db, firstLease, '1234'), { code: 'SYSTEM_ERROR', retryable: true })
@@ -140,6 +153,7 @@ test('Firestore leases, resumes and atomically commits answers', {
     await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
     const second = await claim()
     assert(second.kind === 'claimed' && second.step === 'prepare-photo')
+    assert.deepEqual(second.source, first.source)
     const secondLease = { ...pending.input, leaseId: second.leaseId }
     assert.notEqual(secondLease.leaseId, firstLease.leaseId)
     await assert.rejects(recordAnswerPhoto(db, firstLease, '1234'), { code: 'SYSTEM_ERROR', retryable: true })
@@ -152,10 +166,13 @@ test('Firestore leases, resumes and atomically commits answers', {
     await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
     const third = await claim()
     assert(third.kind === 'claimed' && third.step === 'commit')
+    assert(!('source' in third))
     await assert.rejects(commitVerifiedAnswer(db, secondLease), { code: 'SYSTEM_ERROR', retryable: true })
     const result = await commitVerifiedAnswer(db, { ...pending.input, leaseId: third.leaseId })
     assert.equal(result.outcome, 'CORRECT')
     assert.deepEqual(await claim(), { kind: 'completed', result })
+    assert.deepEqual(await getDurableAnswer(db, pending.input.uid, pending.input.attemptId), result)
+    assert.equal((await pending.receipt.get()).get('capture'), undefined)
     assert.equal((await fixture.records()).size, 1)
   })
 
@@ -183,5 +200,47 @@ test('Firestore leases, resumes and atomically commits answers', {
     await assert.rejects(recordAnswerPhoto(db, lease, '1234'), { code: 'QUEST_CHANGED' })
     assert.equal((await pending.receipt.get()).get('state'), 'IMAGE_EVALUATED')
     assert.equal((await fixture.records()).size, 0)
+  })
+
+  await t.test('intake returns an owner-only receipt and deduplicates a concurrent replay without charging the limit', async () => {
+    const fixture = await seedQuest()
+    const { submission } = await fixture.seedChallenge(randomUUID())
+    const limit = { maximum: 1, windowMs: 180_000 }
+    const upload = await prepareAnswerIntake(db, submission, limit)
+    assert(upload.kind === 'upload')
+    assert.equal(upload.objectPath, `answer-photos/${upload.attemptId}/incoming-${submission.digest}.jpg`)
+    await assert.rejects(getDurableAnswer(db, submission.uid, upload.attemptId), { code: 'NOT_FOUND' })
+    const accept = () => acceptDurableAnswer(db, { ...submission, metadata, generation: '1234' }, limit)
+    const [first, second] = await Promise.all([accept(), accept()])
+    assert.deepEqual(first, { attemptId: upload.attemptId, state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'real' })
+    assert.deepEqual(second, first)
+    assert.deepEqual(await prepareAnswerIntake(db, submission, limit), { kind: 'replay', result: first })
+    assert.deepEqual(await getDurableAnswer(db, submission.uid, upload.attemptId), first)
+    await assert.rejects(getDurableAnswer(db, 'another-owner', upload.attemptId), { code: 'NOT_FOUND' })
+    await assert.rejects(prepareAnswerIntake(db, { ...submission, digest: 'b'.repeat(64) }, limit), { code: 'IDEMPOTENCY_CONFLICT' })
+    await assert.rejects(prepareAnswerIntake(db, { ...submission, idempotencyKey: 'second' }, limit), { code: 'RATE_LIMITED' })
+  })
+
+  await t.test('intake rechecks the public version after the upload and enforces a shared limit under concurrency', async () => {
+    const fixture = await seedQuest()
+    const { submission } = await fixture.seedChallenge(randomUUID())
+    const limit = { maximum: 1, windowMs: 180_000 }
+    const upload = await prepareAnswerIntake(db, submission, limit)
+    assert(upload.kind === 'upload')
+    const accept = (idempotencyKey: string = submission.idempotencyKey) =>
+      acceptDurableAnswer(db, { ...submission, idempotencyKey, metadata, generation: '1234' }, limit)
+    await fixture.quest.update({ publishedVersion: null, status: 'paused' })
+    await assert.rejects(accept(), { code: 'QUEST_UNAVAILABLE' })
+    await fixture.quest.update({ publishedVersion: 2, status: 'published' })
+    await assert.rejects(accept(), { code: 'QUEST_CHANGED' })
+    await assert.rejects(getDurableAnswer(db, submission.uid, upload.attemptId), { code: 'NOT_FOUND' })
+    await fixture.quest.update({ publishedVersion: 1 })
+    await assert.rejects(prepareAnswerIntake(db, { ...submission, uid: 'another-owner' }, limit), { code: 'NOT_FOUND' })
+    const results = await Promise.allSettled([accept(), accept('second')])
+    assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1)
+    const rejected = results.find(({ status }) => status === 'rejected')
+    assert(rejected?.status === 'rejected')
+    assert.equal(rejected.reason.code, 'RATE_LIMITED')
+    assert(rejected.reason.retryAfterSeconds > 0)
   })
 })
