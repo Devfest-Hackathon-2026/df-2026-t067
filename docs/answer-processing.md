@@ -77,7 +77,7 @@ MATCH後は、公開版のfingerprintと記録snapshot・正規化JPEGをメモ�
 QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 npm --prefix server run check
 ```
 
-HTTPと通常起動からの呼び出し、照合不合格の結果保存、孤立画像の清掃、実Firestore/Storageの検証は残件。現在の開発用HTTPはこの処理を呼ばない。
+HTTPと通常起動からの呼び出し、孤立画像の清掃、実Firestore/Storageの検証は残件。現在の開発用HTTPはこの処理を呼ばない。
 
 ## 非公開JPEGの保存
 
@@ -90,3 +90,11 @@ HTTPと通常起動からの呼び出し、照合不合格の結果保存、孤�
 ```sh
 QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 QUEST_STORAGE_TEST_HOST=127.0.0.1:9688 npm --prefix server run check
 ```
+
+## 永続回答worker
+
+`runDurableAnswer` に本人の認証を再確認する関数、公開版に対応する位置条件と非公開の照合素材の取得関数、matcherを渡す。本人の記録が既にあれば初回写真を維持して `ALREADY_CLEARED` にする。新規の位置判定には受付時刻を使い、`OUTSIDE_AREA` と `LOCATION_UNCERTAIN` では照合素材を取得しない。
+
+matcherを呼ぶ直前に本人・公開版・リースを再確認する。`WRONG_TARGET` と `IMAGE_UNCERTAIN` は区別して保存し、記録は作らない。照合サービスの障害は `SYSTEM_ERROR` を返し、照合中のリースと結果未確定の状態を保つ。照合結果を保存した後の画像書き込み障害は、後から画像保存へ戻って再開できる。確定と不合格結果の保存時には撮影情報を削除する。
+
+両方のローカル代替環境と合成JPEG・代替matcherで、位置判定、4種類の不合格、既存記録での照合省略、照合直前の休止、照合障害、写真保存からの再開を確認する。実サービス用の素材取得・matcher、HTTPやジョブ実行の起動、写真の清掃は残件。
