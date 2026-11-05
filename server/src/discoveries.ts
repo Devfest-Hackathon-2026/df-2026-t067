@@ -5,6 +5,8 @@ import { parseDiscovery } from '../../src/shared/api/validation'
 import { HttpError, invalidInput } from './errors'
 import type { LocationDecision } from './location'
 import { paginate, parseId } from './query'
+import { syntheticPng } from './demo-photo-test'
+import { preparePhoto } from './photo-input'
 
 export interface DiscoveryQuery { areaId?: string; cursor?: string; limit?: number }
 export interface DiscoveryPhoto { bytes: Uint8Array; contentType: 'image/jpeg' }
@@ -47,10 +49,26 @@ export class DemoDiscoveryStore implements DiscoveryRepository {
     }
   }
 
+  static async withFixture(uid: string): Promise<DemoDiscoveryStore> {
+    const store = new DemoDiscoveryStore()
+    const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+    store.insertFirst(uid, {
+      placeId: 'demo-fixture-place', questId: 'demo-quest', questVersion: 1, areaId: 'demo-area',
+      placeName: '架空のデモ記録',
+      descriptionSnapshot: '起動時に用意した合成記録です。写真・位置・日時は実際の訪問を表しません。',
+      revealedLocation: { latitude: 0, longitude: 0 }, photo: photo.bytes,
+    })
+    return store
+  }
+
   async saveFirstClear(uid: string, input: FirstDiscoveryInput, verification: ClearVerification): Promise<{ source: 'mock'; created: boolean; discovery: Discovery }> {
     if (verification.location !== 'WITHIN_AREA' || verification.photo !== 'MATCH') {
       throw new HttpError(503, 'SYSTEM_ERROR', '確認済みの条件がそろわず保存できません。')
     }
+    return this.insertFirst(uid, input)
+  }
+
+  private insertFirst(uid: string, input: FirstDiscoveryInput): { source: 'mock'; created: boolean; discovery: Discovery } {
     if (typeof uid !== 'string' || !uid.trim() || uid.length > 128) invalidInput()
     parseId(input.placeId); parseId(input.questId); parseId(input.areaId)
     const key = JSON.stringify([uid, input.placeId])

@@ -9,9 +9,15 @@ Issue #19のT07/T08の接続待ちを減らす追加。既存の`Discovery`を�
 既存の[ローカルAPI・Google認証設定](local-api.md)に加え、サーバーの`.env.local`へ`QUEST_DISCOVERIES_MODE=memory`を明示し、`npm run dev:api`で起動する。`VITE_`は付けない。`QUEST_DATA_MODE=demo`専用で、本番起動は引き続き拒否する。
 
 - 未指定または`off`：認証後503 `SYSTEM_ERROR`。保存先未接続を空一覧や保存成功へ切り替えない。
-- `memory`：空のストアで起動し、記録一覧は200・0件になる。架空のクリアを自動追加しない。現在の回答受付も引き続きRECEIVEDで、GPS通過だけでは記録を作らない。
+- `memory`：合成記録の設定を省略すると空のストアで起動し、記録一覧は200・0件になる。回答は引き続きRECEIVEDで、GPS通過だけでは記録を作らない。
 - すべての操作に毎回最新のFirebase ID tokenが必要。未ログイン401、認証設定なし503 `AUTH_UNAVAILABLE`。uidや自治体のroleをURL/bodyへ渡しても所有者にはならない。
 - 記録の応答は`X-Quest-Data-Mode: demo`と`X-Quest-Records-Mode: memory`を持つ。共通clientは`expectedDataMode: 'demo'`を明示した場合だけmemoryの成功応答を受け付ける。
+
+### 合成記録で一覧・写真・削除を試す
+
+`QUEST_DISCOVERIES_MODE=memory`と共に`QUEST_DEMO_DISCOVERY_OWNER_UID`へテスト用GoogleアカウントのFirebase uidを設定して起動する。uidはサーバー側の`.env.local`に置く。対象アカウントでログインすると、`demo-area`の「架空のデモ記録」1件が一覧に表示される。別アカウントは空一覧で、同じIDを指定した詳細・写真・削除は404。所属権限の追加は不要。
+
+記録は起動時に用意した合成写真と架空の位置を持ち、回答の判定とは独立している。削除後はその起動中の一覧が空になり、同じ設定で再起動すると新しい合成記録が入る。空一覧で起動する場合はuidの設定行を外す。
 
 ## Cが使うメソッド
 
@@ -73,7 +79,7 @@ placeId・対象名・紹介snapshot・revealedLocationは登録済みの非公�
 - 記録は最大256件・写真合計32 MiB、1枚2 MiB。削除追跡も最大256件。上限では429で拒否し、既存の記録や写真を追い出さない。
 - `DiscoveryRepository`は一覧/詳細/写真/削除/追跡の所有者付き境界。実永続化の追加時は保存mode、認証失効、処理途中の回復とO-04を別途実装・確認する。現実装に実DBへ接続する設定はない。
 
-通常起動では記録を自動生成しないので、Cの空一覧・未接続・失敗表示を接続できる。保存済み詳細の自動テストは同じサーバー境界へ合成写真と架空snapshotを渡して確認する。
+保存先の設定を変えることで、Cは空一覧・未接続・合成記録の詳細を同じサーバー境界で確認できる。
 
 [開発用回答処理](answer-processing.md)で、受付の所有者/challenge/digest・GPS・写真照合を確認してから、このストアへ保存する内部接続を追加した。既存記録の内部lookupはfindByPlaceOwnedで本人だけに限定する。HTTP回答からの起動・実保存・CORRECTは依然として未接続。
 

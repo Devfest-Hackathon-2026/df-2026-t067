@@ -5,6 +5,7 @@ export interface ServerConfig {
   demoLocation?: true
   demoMembershipsFile?: string
   demoDiscoveries?: true
+  demoDiscoveryOwnerUid?: string
   demoAdminAssets?: true
   demoAdminPhotoTest?: true
 }
@@ -47,6 +48,15 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   if (env.QUEST_DISCOVERIES_MODE !== undefined && env.QUEST_DISCOVERIES_MODE !== 'off') {
     if (env.QUEST_DISCOVERIES_MODE !== 'memory') throw new Error('QUEST_DISCOVERIES_MODE must be off or memory.')
     config.demoDiscoveries = true
+  }
+  if (env.QUEST_DEMO_DISCOVERY_OWNER_UID !== undefined) {
+    const uid = env.QUEST_DEMO_DISCOVERY_OWNER_UID
+    if (!config.demoDiscoveries) throw new Error('QUEST_DEMO_DISCOVERY_OWNER_UID requires QUEST_DISCOVERIES_MODE=memory.')
+    if (!uid || uid !== uid.trim() || uid.length > 128 || Array.from(uid).some((char) => {
+      const code = char.charCodeAt(0)
+      return code < 32 || code === 127
+    })) throw new Error('QUEST_DEMO_DISCOVERY_OWNER_UID must be a valid local UID.')
+    config.demoDiscoveryOwnerUid = uid
   }
   if (env.QUEST_LOCATION_MODE !== undefined && env.QUEST_LOCATION_MODE !== 'off') {
     if (env.QUEST_LOCATION_MODE !== 'demo') throw new Error('QUEST_LOCATION_MODE must be off or demo.')
