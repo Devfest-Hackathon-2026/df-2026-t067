@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ApiClient, ApiErrorCode } from '../../shared/api'
 import { useRemote } from '../../shared/useRemote'
+import { DiscoveryDeletion } from './DiscoveryDeletion'
 
 const localDate = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'long', timeZone: 'Asia/Tokyo' })
 
@@ -31,7 +32,7 @@ function RecordPhoto({ blob }: { blob: Blob }) {
   return <img ref={image} className="photo-preview" alt="本人の記録写真" />
 }
 
-function DiscoveryDetail({ api, id, onBack }: { api: ApiClient; id: string; onBack: () => void }) {
+function DiscoveryDetail({ api, id, onBack, onDeleted }: { api: ApiClient; id: string; onBack: () => void; onDeleted: () => void }) {
   const read = useCallback(async (signal: AbortSignal) => {
     const [record, photo] = await Promise.all([
       api.getDiscovery(id, { signal }),
@@ -49,6 +50,7 @@ function DiscoveryDetail({ api, id, onBack }: { api: ApiClient; id: string; onBa
       <h2>{result.value.record.placeName}</h2>
       <p>初回の記録 <RecordDate date={result.value.record.firstClearedAt} /></p>
       <p>{result.value.record.descriptionSnapshot}</p>
+      <DiscoveryDeletion api={api} id={id} onDeleted={onDeleted} />
     </>}
   </section>
 }
@@ -56,17 +58,21 @@ function DiscoveryDetail({ api, id, onBack }: { api: ApiClient; id: string; onBa
 export function OwnerDiscoveries({ api }: { api: ApiClient }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [deleted, setDeleted] = useState(false)
   const read = useCallback((signal: AbortSignal) => api.listDiscoveries({ limit: 20, cursor }, { signal }), [api, cursor])
   const { result, retry } = useRemote(selected === null, read)
-  if (selected !== null) return <DiscoveryDetail api={api} id={selected} onBack={() => { setSelected(null); retry() }} />
-  if (result.status === 'loading') return <p role="status">記録を読み込んでいます…</p>
+  if (selected !== null) return <DiscoveryDetail api={api} id={selected} onBack={() => { setSelected(null); retry() }}
+    onDeleted={() => { setDeleted(true); setSelected(null); setCursor(undefined); retry() }} />
+  const confirmation = deleted && <p role="status">記録と写真の削除が完了しました。</p>
+  if (result.status === 'loading') return <>{confirmation}<p role="status">記録を読み込んでいます…</p></>
   const firstPage = cursor !== undefined && <button type="button" className="secondary-button" onClick={() => setCursor(undefined)}>最初のページへ</button>
-  if (result.status === 'error') return <><ReadFailure code={result.code} retry={retry} />{firstPage}</>
+  if (result.status === 'error') return <>{confirmation}<ReadFailure code={result.code} retry={retry} />{firstPage}</>
   const { items, nextCursor } = result.value
   return <>
+    {confirmation}
     {items.length === 0 ? <p>自分の記録はまだありません。</p> : <ul className="record-list">
       {items.map((record) => <li key={record.discoveryId}>
-        <button type="button" className="secondary-button" onClick={() => setSelected(record.discoveryId)}>{record.placeName}</button>
+        <button type="button" className="secondary-button" onClick={() => { setDeleted(false); setSelected(record.discoveryId) }}>{record.placeName}</button>
         <RecordDate date={record.firstClearedAt} />
       </li>)}
     </ul>}
