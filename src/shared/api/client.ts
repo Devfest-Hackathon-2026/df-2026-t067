@@ -1,5 +1,5 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseOrgMembership, parseUpdateManagedQuest } from './admin'
-import type { ManagedQuestDraft, UpdateManagedQuest } from './admin'
+import { parseManagedQuest, parseManagedQuestDraft, parseOrgAssetMetadata, parseOrgMembership, parseUpdateManagedQuest, parseUploadedOrgAsset } from './admin'
+import type { AssetPurpose, ManagedQuestDraft, UpdateManagedQuest } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
@@ -61,6 +61,7 @@ interface RequestOptions extends CallOptions {
   headers?: HeadersInit
   attempt?: boolean
   records?: boolean
+  assets?: boolean
   photo?: boolean
 }
 
@@ -177,8 +178,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
     if (response.ok && options.expectedDataMode && response.headers.get('X-Quest-Data-Mode') !== options.expectedDataMode) {
       throw new ApiError('INVALID_RESPONSE', { status: response.status })
     }
-    const storage = response.headers.get('X-Quest-Records-Mode')
-    if (response.ok && init.records && storage !== null && (storage !== 'memory' || options.expectedDataMode !== 'demo')) {
+    const storage = response.headers.get(init.assets ? 'X-Quest-Assets-Mode' : 'X-Quest-Records-Mode')
+    if (response.ok && (init.records || init.assets) && storage !== null && (storage !== 'memory' || options.expectedDataMode !== 'demo')) {
       throw new ApiError('INVALID_RESPONSE', { status: response.status })
     }
     return response
@@ -223,7 +224,49 @@ export function createApiClient(options: ApiClientOptions = {}) {
     catch (error) { if (error instanceof ContractError) throw new ApiError('INVALID_INPUT'); throw error }
   }
 
+  function orgAsset(orgId: string, assetId?: string, purpose?: AssetPurpose) {
+    return (data: unknown) => {
+      const asset = parseUploadedOrgAsset(data)
+      if (asset.orgId !== orgId || (assetId !== undefined && asset.assetId !== assetId) || (purpose !== undefined && asset.purpose !== purpose) ||
+        (asset.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('UploadedOrgAsset.identity')
+      return asset
+    }
+  }
+
+  async function privatePhoto(path: string, init: RequestOptions): Promise<Blob> {
+    const response = await exchange(path, { ...init, authenticated: true, photo: true })
+    if (!response.ok) {
+      let payload: unknown
+      try { payload = await response.json() } catch { /* Preserve non-JSON HTTP failures. */ }
+      init.signal?.throwIfAborted()
+      throw httpError(response, payload)
+    }
+    return readPrivatePhoto(response, init.signal)
+  }
+
   return {
+    async uploadOrgAsset(orgId: string, input: { photo: Blob; purpose: AssetPurpose; photoRights: string; idempotencyKey: string }, call: CallOptions = {}) {
+      const org = id(orgId)
+      const metadata = adminInput(parseOrgAssetMetadata, { purpose: input.purpose, photoRights: input.photoRights })
+      if (!(input.photo instanceof Blob) || input.photo.size === 0 ||
+        !['image/jpeg', 'image/png', 'image/webp'].includes(input.photo.type) ||
+        typeof input.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(input.idempotencyKey)) throw new ApiError('INVALID_INPUT')
+      if (input.photo.size > 4 * 1024 * 1024) throw new ApiError('MEDIA_TOO_LARGE')
+      const encoded = JSON.stringify(metadata)
+      if (new TextEncoder().encode(encoded).byteLength > 4096) throw new ApiError('MEDIA_TOO_LARGE')
+      const body = new FormData()
+      body.append('photo', input.photo, 'asset')
+      body.append('metadata', encoded)
+      return request('/orgs/' + org + '/assets', orgAsset(orgId, undefined, metadata.purpose), {
+        ...call, authenticated: true, assets: true, method: 'POST', body, headers: { 'Idempotency-Key': input.idempotencyKey },
+      })
+    },
+    async getOrgAsset(orgId: string, assetId: string, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/assets/' + id(assetId), orgAsset(orgId, assetId), { ...call, authenticated: true, assets: true })
+    },
+    async getOrgAssetPhoto(orgId: string, assetId: string, call: CallOptions = {}) {
+      return privatePhoto('/orgs/' + id(orgId) + '/assets/' + id(assetId) + '/photo', { ...call, assets: true })
+    },
     async listMemberships(query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
       return request('/me/memberships' + queryString(query), (data) => parsePage(data, parseOrgMembership), { ...call, authenticated: true })
     },
@@ -306,14 +349,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }, { ...call, authenticated: true, records: true })
     },
     async getDiscoveryPhoto(discoveryId: string, call: CallOptions = {}) {
-      const response = await exchange('/me/discoveries/' + id(discoveryId) + '/photo', { ...call, authenticated: true, records: true, photo: true })
-      if (!response.ok) {
-        let payload: unknown
-        try { payload = await response.json() } catch { /* Non-JSON failures still preserve the HTTP error. */ }
-        call.signal?.throwIfAborted()
-        throw httpError(response, payload)
-      }
-      return readDiscoveryPhoto(response, call.signal)
+      return privatePhoto('/me/discoveries/' + id(discoveryId) + '/photo', { ...call, records: true })
     },
     async deleteDiscovery(discoveryId: string, call: CallOptions = {}) {
       return request('/me/discoveries/' + id(discoveryId), parseDeletionReceipt, { ...call, authenticated: true, records: true, method: 'DELETE' })
@@ -330,7 +366,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
 
 export type ApiClient = ReturnType<typeof createApiClient>
 
-async function readDiscoveryPhoto(response: Response, signal?: AbortSignal): Promise<Blob> {
+async function readPrivatePhoto(response: Response, signal?: AbortSignal): Promise<Blob> {
   const invalid = () => new ApiError('INVALID_RESPONSE', { status: response.status })
   const rawLength = response.headers.get('Content-Length')
   const length = rawLength === null ? null : Number(rawLength)

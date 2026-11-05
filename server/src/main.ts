@@ -4,6 +4,7 @@ import { createFirebaseVerifier } from './firebase-auth'
 import { createServer } from './server'
 import { createDemoLocationValidation } from './demo-location'
 import { DemoDiscoveryStore } from './discoveries'
+import { DemoAssetStore } from './admin-assets'
 
 async function main(): Promise<void> {
   const config = readConfig(process.env)
@@ -11,6 +12,7 @@ async function main(): Promise<void> {
   const server = createServer({ mode: config.mode, verifier,
     memberships: config.demoMembershipsFile ? createFileMembershipLookup(config.demoMembershipsFile) : undefined,
     discoveries: config.demoDiscoveries ? new DemoDiscoveryStore() : undefined,
+    adminAssets: config.demoAdminAssets ? new DemoAssetStore() : undefined,
     locationValidation: config.demoLocation ? createDemoLocationValidation() : undefined })
   let stopping = false
   const stop = () => {
