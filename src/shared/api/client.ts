@@ -1,7 +1,7 @@
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
   ContractError, parseAttemptResult, parseCaptureMetadata, parseChallenge,
-  parseDiscovery, parsePage, parsePublicArea, parsePublicQuest,
+  parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseSessionIdentity,
 } from './validation'
 
 const ERROR_CODES = [
@@ -41,6 +41,7 @@ export interface ApiClientOptions {
   fetch?: typeof globalThis.fetch
   getIdToken?: () => Promise<string | null>
   basePath?: string
+  expectedDataMode?: 'demo'
 }
 export interface CallOptions { signal?: AbortSignal }
 export interface ListQuery { areaId?: string; cursor?: string; limit?: number }
@@ -162,6 +163,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
       if (init.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
       throw new ApiError('NETWORK_ERROR', { retryable: (init.method ?? 'GET') === 'GET' })
     }
+    if (response.ok && options.expectedDataMode && response.headers.get('X-Quest-Data-Mode') !== options.expectedDataMode) {
+      throw new ApiError('INVALID_RESPONSE', { status: response.status })
+    }
     let payload: unknown
     try { payload = await response.json() }
     catch (error) {
@@ -186,6 +190,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
   }
 
   return {
+    async getSession(call: CallOptions = {}) {
+      return request('/session', parseSessionIdentity, { ...call, authenticated: true })
+    },
     async listAreas(query: AreaQuery = {}, call: CallOptions = {}) {
       return request('/areas' + queryString(query), (data) => parsePage(data, parsePublicArea), call)
     },
@@ -231,3 +238,5 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
   }
 }
+
+export type ApiClient = ReturnType<typeof createApiClient>

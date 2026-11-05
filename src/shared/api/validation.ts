@@ -1,7 +1,7 @@
 import { ATTEMPT_OUTCOMES, ATTEMPT_STATES } from './types'
 import type {
   AttemptResult, CaptureMetadata, Challenge, Decoder, Discovery, LngLat,
-  Page, Position, PublicArea, PublicGeometry, PublicQuest,
+  Page, Position, PublicArea, PublicGeometry, PublicQuest, SessionIdentity,
 } from './types'
 
 export class ContractError extends Error {
@@ -22,6 +22,13 @@ function object(input: unknown, keys: readonly string[], path: string): Record<s
 function text(input: unknown, path: string, allowEmpty = false): string {
   if (typeof input !== 'string' || (!allowEmpty && input.trim().length === 0)) throw new ContractError(path)
   return input
+}
+
+export function parseSessionIdentity(input: unknown): SessionIdentity {
+  const data = object(input, ['uid'], 'session')
+  const uid = text(data.uid, 'session.uid')
+  if (uid.length > 128) throw new ContractError('session.uid')
+  return { uid }
 }
 
 function number(input: unknown, path: string, min: number, max = Infinity): number {

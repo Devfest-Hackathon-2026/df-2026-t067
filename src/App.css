@@ -85,6 +85,11 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.5; 
 .rail-description { font-size: 11px; color: #6a7765; margin-top: 7px; margin-bottom: 19px; }
 .quest-card { overflow: hidden; background: #fff; border: 1px solid #e0e6db; border-radius: 15px; box-shadow: 0 5px 24px #345a3d04; }
 .quest-card.is-open { border-color: #a6bcaa; }
+.quest-pin:disabled { opacity: .45; }
+.connection-message { min-height: 240px; padding: 25px 21px; border: 1px solid #dce3d8; border-radius: 15px; background: #fff; color: #60735e; font-size: 13px; }
+.connection-message [role="alert"] { color: #a34834; }
+.retry-button { min-height: 44px; margin-top: 12px; padding: 8px 12px; border: 1px solid #ccd9c4; border-radius: 7px; color: #245745; background: #fff; font-size: 12px; }
+.retry-button:hover { background: #f5f7f1; }
 .quest-visual { height: 142px; position: relative; overflow: hidden; display: grid; place-items: center; background: #eaeedf; color: #839b7c; }
 .quest-visual > .icon { width: 52px; height: 52px; stroke-width: 1; transform: rotate(-15deg); }
 .visual-orbit { position: absolute; display: block; border: 1px solid #c6d2be; border-radius: 50%; transform: rotate(-25deg); }
@@ -161,11 +166,12 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.5; 
   .logout-button { min-height: 44px; font-size: 10px; padding: 4px 8px; }
   .page, .site-footer { width: calc(100% - 32px); }
   .page { padding-top: 25px; padding-bottom: 24px; }
-  .explore-heading { margin-bottom: 20px; }
+  .explore-heading { margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
   .eyebrow { font-size: 10px; }
   h1 { font-size: 25px; }
   .explore-description { font-size: 11px; margin-top: 5px; }
   .preview-label { display: none; }
+  .preview-label.api-source { display: inline-flex; }
   .map-preview { height: 338px; border-radius: 13px; }
   .map-topline { top: 12px; left: 12px; right: 12px; gap: 6px; }
   .map-scope { padding: 7px 9px; font-size: 11px; gap: 6px; }

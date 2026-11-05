@@ -3,6 +3,7 @@ export type PublicGeometry =
   | { type: 'Polygon'; coordinates: LngLat[][] }
   | { type: 'MultiPolygon'; coordinates: LngLat[][][] }
 export interface Position { latitude: number; longitude: number }
+export interface SessionIdentity { uid: string }
 export interface PublicArea {
   areaId: string
   label: string

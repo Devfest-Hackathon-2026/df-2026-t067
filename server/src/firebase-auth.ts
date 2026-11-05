@@ -3,11 +3,12 @@ import { deleteApp, initializeApp } from 'firebase-admin/app'
 import type { App, AppOptions } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import type { DecodedIdToken } from 'firebase-admin/auth'
+import type { SessionIdentity } from '../../src/shared/api/types'
 import { assertNoAuthEmulator, assertProjectId } from './config'
 import { authUnavailable, unauthenticated } from './errors'
 
 export interface IdTokenVerifier {
-  verify(token: string): Promise<{ uid: string }>
+  verify(token: string): Promise<SessionIdentity>
 }
 
 // Only this Firebase SDK boundary is replaced in unit tests. The executable
@@ -32,7 +33,7 @@ export function createFirebaseVerifier(projectId: string, sdk: FirebaseBoundary 
   let app: App | undefined
   let closed = false
   return {
-    async verify(token: string): Promise<{ uid: string }> {
+    async verify(token: string): Promise<SessionIdentity> {
       if (closed || process.env.FIREBASE_AUTH_EMULATOR_HOST !== undefined) throw authUnavailable()
       let decoded: Pick<DecodedIdToken, 'uid'>
       try {

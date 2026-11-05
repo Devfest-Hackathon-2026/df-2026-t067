@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { demoQuest } from './features/quests/demoQuest'
 import { MapPreview } from './features/explore/MapPreview'
+import { readDataSource, useQuestConnection, useServerIdentity } from './features/explore/useQuestConnection'
 import { Icon } from './components/Icon'
+import { createApiClient } from './shared/api'
+import type { ApiClient } from './shared/api'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
 import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
 import './App.css'
@@ -21,11 +23,18 @@ function connectionNotice(auth: AuthSnapshot): { title: string; description: str
   }
 }
 
-export default function App({ authClient: providedClient }: { authClient?: AuthClient } = {}) {
+export default function App({ authClient: providedClient, apiClient: providedApi }: { authClient?: AuthClient; apiClient?: ApiClient } = {}) {
   const [isQuestOpen, setIsQuestOpen] = useState(false)
   const questCard = useRef<HTMLElement>(null)
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
+  const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
+  const api = useMemo(() => providedApi ?? createApiClient({
+    getIdToken: () => authClient.getIdToken(), expectedDataMode: source === 'local-api' ? 'demo' : undefined,
+  }), [providedApi, authClient, source])
+  const connection = useQuestConnection(source, api)
+  const quest = connection.result.status === 'ready' ? connection.result.value : null
+  const serverIdentity = useServerIdentity(source === 'local-api', api, auth)
   const [pending, setPending] = useState<'sign-in' | 'sign-out' | null>(null)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
   const notice = connectionNotice(auth)
@@ -85,26 +94,26 @@ export default function App({ authClient: providedClient }: { authClient?: AuthC
               <h1 id="explore-title">全国から謎を探す</h1>
               <p className="explore-description">気になる謎を選んで、次の旅のきっかけに。</p>
             </div>
-            <span className="preview-label"><span className="status-dot" />開発用プレビュー</span>
+            <span className={'preview-label' + (source === 'local-api' ? ' api-source' : '')}><span className="status-dot" />{source === 'local-api' ? 'ローカルAPI・デモ' : '開発用プレビュー'}</span>
           </div>
 
           <div className="explore-workspace">
-            <MapPreview selected={isQuestOpen} onSelectQuest={() => {
+            <MapPreview selected={isQuestOpen && quest !== null} disabled={!quest} areaLabel={quest?.areaLabel} onSelectQuest={() => {
               setIsQuestOpen(true)
               questCard.current?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
             }} />
 
             <aside className="quest-rail" aria-label="選べる謎">
-              <div className="rail-heading"><h2>旅のきっかけになる謎</h2><span>デモ 1件</span></div>
+              <div className="rail-heading"><h2>旅のきっかけになる謎</h2><span>{quest ? 'デモ 1件' : 'デモ'}</span></div>
               <p className="rail-description">ヒントを頼りに、街の新しい一面を見つけよう。</p>
-              <article ref={questCard} className={'quest-card' + (isQuestOpen ? ' is-open' : '')} aria-labelledby="quest-title">
+              {quest ? <article ref={questCard} className={'quest-card' + (isQuestOpen ? ' is-open' : '')} aria-labelledby="quest-title">
                 <div className="quest-visual" aria-hidden="true">
                   <span className="visual-orbit orbit-one" /><span className="visual-orbit orbit-two" />
                   <Icon name="compass" /><span className="visual-caption">その街の、まだ知らない話。</span>
                 </div>
                 <div className="quest-card-content">
-                  <div className="quest-meta"><span className="area-label"><Icon name="pin" />{demoQuest.areaLabel}</span><span className="sample-label">架空のサンプル問題</span></div>
-                  <h3 id="quest-title">{demoQuest.title}</h3>
+                  <div className="quest-meta"><span className="area-label"><Icon name="pin" />{quest.areaLabel}</span><span className="sample-label">架空のサンプル問題</span></div>
+                  <h3 id="quest-title">{quest.title}</h3>
                   <p className="quest-intro">文章のヒントから、街の中に隠れた場所を見つけよう。</p>
                   <button type="button" className={'quest-toggle' + (isQuestOpen ? ' is-open' : '')}
                     aria-expanded={isQuestOpen} aria-controls="demo-quest-details"
@@ -115,27 +124,39 @@ export default function App({ authClient: providedClient }: { authClient?: AuthC
                     <section id="demo-quest-details" className="quest-details" aria-label="サンプル問題の詳細">
                       <p className="question-step">この街をめぐる、小さな問い</p>
                       <h4>この場所はどこ？</h4>
-                      <p className="clue-text">{demoQuest.clue}</p>
-                      <p className="sample-note">{demoQuest.visitConditions}</p>
+                      <p className="clue-text">{quest.clue}</p>
+                      <p className="sample-note">{quest.visitConditions}</p>
                       <button type="button" className="primary-button"
                         disabled={auth.status !== 'signed-out' || pending !== null}
                         onClick={login} aria-describedby="login-unavailable">
-                        {auth.status === 'signed-in' ? 'ログイン済み・撮影機能は準備中'
+                        {auth.status === 'signed-in' ? serverIdentity.result?.status === 'loading' ? 'ログインの確認中…'
+                          : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : 'ログイン済み・撮影機能は準備中'
                           : pending === 'sign-in' ? 'Googleログイン中…' : 'Googleログインして挑戦する'}
                       </button>
-                      <p id="login-unavailable" className="unavailable-note">
-                        {auth.status === 'signed-in' ? '選んだ問題を表示しています。撮影機能ができるまでお待ちください。'
+                      <p id="login-unavailable" className="unavailable-note" role={serverIdentity.result && serverIdentity.result.status !== 'error' ? 'status' : undefined}>
+                        {auth.status === 'signed-in' ? serverIdentity.result?.status === 'loading' ? 'ログインを確認しています…'
+                          : serverIdentity.result?.status === 'ready' ? 'ログインを確認しました。撮影機能は準備中です。'
+                            : serverIdentity.result?.status === 'error' ? '問題の閲覧は続けられます。'
+                              : '選んだ問題を表示しています。撮影機能ができるまでお待ちください。'
                           : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
                             : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
                               : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
                       </p>
+                      {serverIdentity.result?.status === 'error' && <div className="auth-feedback">
+                        <p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p>
+                        <button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button>
+                      </div>}
                       {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
                     </section>
                   )}
                 </div>
-              </article>
+              </article> : <div className="connection-message">
+                {connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p>
+                  : <><p role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。接続を確認して再試行してください。'}</p>
+                    {source !== 'invalid' && <button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button>}</>}
+              </div>}
               <div className="browse-note"><span className="browse-note-icon"><Icon name="compass" /></span><div><strong>まずは、気になる謎をひとつ。</strong><p>問題の閲覧にログインは必要ありません。</p></div></div>
-              <div className="demo-note"><span className="demo-note-dot" /><p>今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。</p></div>
+              <div className="demo-note"><span className="demo-note-dot" /><p>{source === 'local-api' ? 'ローカルAPIの接続確認用に、架空の1問を読み込みます。' : '今はデザイン確認用の架空の1問を表示しています。'}実際に訪問できる場所ではありません。</p></div>
             </aside>
           </div>
         </section>

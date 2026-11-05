@@ -101,8 +101,8 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 ルートのVitestは`src/`だけを対象にし、Node標準テストとビルド済みテストを重複実行しない。サーバー依存はルートlockfileへ移さず、独立したパッケージとして扱う。API契約は[docs/api.md](../docs/api.md#9-ローカルapiの土台)、実装判断は[docs/decisions.md](../docs/decisions.md)にも記録した。
 
-Web画面との接続は後続作業。必要になったらViteの`/api`を`http://127.0.0.1:8787`へ開発proxyし、既存`createApiClient()`の同一originパスを保つ。今回proxyやUIのデータ接続は追加していない。ブラウザから別originへ直接接続するための広いCORSは追加しない。
+Web画面は[開発用モード](../docs/local-api.md)で架空の1問を取得できる。Viteの`/api`だけを`http://127.0.0.1:8787`へ開発proxyし、既存`createApiClient()`の同一originパスを保つ。ブラウザから別originへ直接接続するための広いCORSは追加しない。ルートの`dev:api`は`.env.local`を読み込む起動コマンドで、明示的なデモ指定を引き続き必要とする。
 
-共通clientにはまだ`/session`のメソッドがない。追加する場合は既存の`getIdToken`を使う認証済み呼び出しとし、uid以外のclaimを公開しない。
+共通clientの`getSession()`は既存の`getIdToken`を使って認証確認を呼び、共通の`SessionIdentity`でuidだけを返す。画面はFirebaseの現在の利用者と照合する。実Google ID tokenを使った正常系E2Eは未検証。
 
 完了条件は、上記serverチェック成功、明示デモでlocalhost起動、公開APIの契約一致、未設定sessionの503、検証境界のuid固定、本番・Emulator拒否。**実Firestore／データ保存、実Firebase tokenのE2E、地図・GPS・写真判定、組織認可、デプロイは別作業・未検証**。

@@ -139,4 +139,12 @@ sessionはCookieやサーバーセッションを作らず、クエリ・bodyの
 
 検証は[`server.test.ts`](../server/test/server.test.ts)で公開情報のallowlist・ページング・境界入力・認証時のuid優先を、[`firebase-auth.test.ts`](../server/test/firebase-auth.test.ts)でSDKとの境界・失敗時の拒否を確認する。HTTP入力やSDKエラーの詳細をログへ出さない。SDK境界の代替テストと、実SDKによる不正トークンの拒否テストを区別している。
 
-Web画面との接続、Firestore / Storage、挑戦・回答・冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
+Firestore / Storage、挑戦・回答・冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
+
+### 9-1. 開発用のWeb接続
+
+[接続手順](local-api.md)の`local-api`モードだけで、画面は`GET /quests/demo-quest`を呼ぶ。公開閲覧にtokenを送らない。サーバー全体の一覧や実Mapsとの接続は後続作業。既定の`preview`モードは問題取得・サーバー認証確認を行わない。
+
+共通clientに`getSession()`と`SessionIdentity { uid: string }`を追加。保護APIと同じ経路で毎回最新のID tokenを取得し、余分なclaimや空・128文字超のuidを拒否する。画面は現在のFirebase利用者とuidを照合し、不一致を成功にしない。
+
+`createApiClient({ expectedDataMode: 'demo' })`を指定した開発用接続では、成功応答の`X-Quest-Data-Mode: demo`を必須にする。未指定の既存clientの動作は維持する。画面の通信は10秒で中止し、明示的な再試行を用意する。ログアウトや利用者変更後の古い応答は破棄する。実tokenの正常系、失効確認、組織認可は未検証・未実装のまま区別する。
