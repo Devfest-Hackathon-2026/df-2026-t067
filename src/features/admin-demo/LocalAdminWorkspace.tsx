@@ -6,6 +6,7 @@ import { useRemote } from '../../shared/useRemote'
 import type { AuthClient } from '../auth/authTypes'
 import { AuthError, createFirebaseAuthClient } from '../auth/firebaseAuth'
 import { useServerIdentity } from '../explore/useQuestConnection'
+import { PausePublication } from './PausePublication'
 import './adminDemo.css'
 
 const statusLabels: Record<ManagedQuest['status'], string> = {
@@ -23,16 +24,18 @@ function Pager({ cursor, next, onMove }: { cursor?: string; next?: string | null
 function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMembership }) {
   const [section, setSection] = useState<'quests' | 'reports'>('quests')
   const [cursor, setCursor] = useState<string>()
+  const [notice, setNotice] = useState('')
   const read = useCallback((signal: AbortSignal) => section === 'quests'
     ? api.listManagedQuests(member.orgId, { cursor, limit: 20 }, { signal })
     : api.listManagedReports(member.orgId, { cursor, limit: 20 }, { signal }), [api, member.orgId, cursor, section])
   const { result, retry } = useRemote<Page<ManagedQuest | ManagedReport>>(true, read)
   const heading = section === 'quests' ? '自組織の問題' : '自組織の報告'
-  function select(next: typeof section) { setCursor(undefined); setSection(next) }
+  function select(next: typeof section) { setNotice(''); setCursor(undefined); setSection(next) }
 
   return <section className="form-section" aria-labelledby="org-workspace-title">
     <h2 id="org-workspace-title">{heading}</h2>
     <p>{member.label}・{roleLabels[member.role]}</p>
+    {notice && <p role="status">{notice}</p>}
     {member.role === 'publisher' && <div className="admin-list-actions">
       <button type="button" aria-pressed={section === 'quests'} onClick={() => select('quests')}>問題一覧</button>
       <button type="button" aria-pressed={section === 'reports'} onClick={() => select('reports')}>問題報告</button>
@@ -44,7 +47,11 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
     {result.status === 'ready' && (result.value.items.length === 0 ? <p>{section === 'quests' ? '問題はまだありません。' : '報告はまだありません。'}</p>
       : <ul className="admin-read-list">{result.value.items.map((item) => 'draft' in item
         ? <li key={item.questId}><strong>{item.draft.content.title || '無題の下書き'}</strong>
-          <p>{statusLabels[item.status]}・下書き版 {item.draftRevision}{item.publishedVersion !== null && '・公開版 ' + item.publishedVersion}</p></li>
+          <p>問題 {item.questId}・{statusLabels[item.status]}・下書き版 {item.draftRevision}{item.publishedVersion !== null && '・公開版 ' + item.publishedVersion}</p>
+          {member.role === 'publisher' && item.publishedVersion !== null &&
+            <PausePublication key={item.publishedVersion} api={api} orgId={member.orgId} questId={item.questId} version={item.publishedVersion}
+              onReload={retry} onPaused={() => { setNotice('開発用の公開を休止しました。'); retry() }} />}
+        </li>
         : <li key={item.reportId}><strong>{reportCategoryLabels[item.category]}</strong>
           <p>{item.text}</p><p>問題 {item.questId}・版 {item.questVersion}・<time dateTime={item.receivedAt}>{item.receivedAt}</time></p></li>)}</ul>)}
     <Pager cursor={cursor} next={result.status === 'ready' ? result.value.nextCursor : undefined} onMove={setCursor} />
