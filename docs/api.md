@@ -131,7 +131,7 @@ submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempot
 
 sessionはCookieやサーバーセッションを作らず、クエリ・bodyのuid / orgId / roleを認証の根拠にしない。Firebase Admin SDKで署名・issuer・audience・有効期限を検証する。設定なしやSDK障害は503 AUTH_UNAVAILABLE、認証情報の欠落・不正は401 UNAUTHENTICATEDを返す。設定なしの場合はトークンの有無を問わず503。Auth Emulatorは起動時と検証時に拒否する。
 
-**失効・無効化された利用者の照会は未実装**（`verifyIdToken(token, false)`）。この認証確認は自治体の所属・権限確認ではない。DB・画像・管理操作を追加するときは、失効確認の方針と操作ごとの認可を別途実装・検証する。現時点では保護データの読み書きやクリア確定は行わない。実Google ID tokenを使ったAPIの正常系確認は未実施。
+**失効・無効化された利用者の照会は未実装**（`verifyIdToken(token, false)`）。この認証確認は自治体の所属・権限確認ではない。DB・画像・管理操作を追加するときは、失効確認の方針と操作ごとの認可を別途実装・検証する。現時点では保護データの読み書きやクリア確定は行わない。実Google ID tokenを使ったAPIの正常系は、2026-11-05にChromeから確認済み。確認範囲は[接続手順](local-api.md#確認)に記録する。
 
 一覧のlimitは既定20、1〜100。IDは英数字で始まる英数字・`_`・`-`の1〜128文字。cursorは同じリソース・フィルター内だけ有効。bboxは公開ポリゴンの外接範囲で絞り、日付変更線をまたぐ範囲も扱う。zoomは0〜24の入力検証だけで、件数集約は行わない。公開GETの未知・重複クエリは400。sessionのクエリは無視する。
 
@@ -147,4 +147,4 @@ Firestore / Storage、挑戦・回答・冪等処理・判定・本人記録・�
 
 共通clientに`getSession()`と`SessionIdentity { uid: string }`を追加。保護APIと同じ経路で毎回最新のID tokenを取得し、余分なclaimや空・128文字超のuidを拒否する。画面は現在のFirebase利用者とuidを照合し、不一致を成功にしない。
 
-`createApiClient({ expectedDataMode: 'demo' })`を指定した開発用接続では、成功応答の`X-Quest-Data-Mode: demo`を必須にする。未指定の既存clientの動作は維持する。画面の通信は10秒で中止し、明示的な再試行を用意する。ログアウトや利用者変更後の古い応答は破棄する。実tokenの正常系、失効確認、組織認可は未検証・未実装のまま区別する。
+`createApiClient({ expectedDataMode: 'demo' })`を指定した開発用接続では、成功応答の`X-Quest-Data-Mode: demo`を必須にする。未指定の既存clientの動作は維持する。画面の通信は10秒で中止し、明示的な再試行を用意する。ログアウトや利用者変更後の古い応答は破棄する。実tokenの正常系と認証復元・ログアウトはChromeで確認済み。失効確認と組織認可は未実装のまま区別する。
