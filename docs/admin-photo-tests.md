@@ -2,7 +2,30 @@
 
 A05の接続口として、POST `/api/v1/orgs/:orgId/quests/:questId/test`と共通clientのtestManagedQuestを追加した。保存済み参考写真・確認済み特徴と試験写真を照合し、結果を特定draftRevisionへ結び付ける。FR-11/12、AT-09/15/16/21/22の部分実装。
 
-**通常起動の照合は未接続で503。** main.tsや環境変数から実Vertexを有効にする設定は追加していない。開発/testのcreateServerでServerOptions.adminPhotoTestへmatcherを明示注入したときだけ試験する。検証は合成画像と代替matcherだけで行い、実サービスの利用には既存の試験条件・回数台帳と承認に沿う接続が別途必要。
+既定は照合未接続の503。開発サーバーで明示設定すると、以下の合成素材を使ってA05からA07まで試せる。実Vertex接続は既存の試験条件・回数台帳と承認に沿う別作業。
+
+## 合成素材で公開・休止を試す
+
+1. 開発用の自組織に`publisher`の所属を設定する。[所属設定](team-api-handoffs.md#開発用の所属を設定する)
+2. リポジトリのルートから `QUEST_DATA_MODE=demo QUEST_ADMIN_ASSETS_MODE=memory QUEST_ADMIN_PHOTO_TEST_MODE=fixtures NODE_ENV=development npm run dev:api` で起動する。起動ログに `admin photo test fixtures` が出る。
+3. 別ターミナルで次を実行し、生成したPNGを使う。ビルド済みのサーバーと同じ合成素材を出力する。
+
+   ```sh
+   fixture_dir=$(mktemp -d /tmp/quest-fixtures.XXXXXX)
+   node - "$fixture_dir" <<'NODE'
+   const { writeFileSync } = require('node:fs')
+   const { join } = require('node:path')
+   const { syntheticPng, otherSyntheticPng } = require('./server/dist/server/src/demo-photo-test.js')
+   const directory = process.argv[2]
+   writeFileSync(join(directory, 'match.png'), syntheticPng)
+   writeFileSync(join(directory, 'other-target.png'), otherSyntheticPng)
+   console.log(directory)
+   NODE
+   ```
+
+4. `match.png`を参考素材として下書きに登録する。撮影範囲・確認済み特徴・公開用本文などを保存し、同じ版で`match.png`を一致試験、`other-target.png`を別対象試験に使う。試験ごとに別のキーを付け、返された試験IDで確認依頼後に公開する。[公開・休止の入力](api.md#18-開発用の公開と休止)
+
+照合は正規化後の合成画像とバイト比較し、指定外の画像は再試行不可の503を返す。結果は`source:mock`。この設定で外部のAIを呼ばず、試験素材と公開状態は再起動で消える。
 
 ## Dの呼び出し
 

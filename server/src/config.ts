@@ -6,6 +6,7 @@ export interface ServerConfig {
   demoMembershipsFile?: string
   demoDiscoveries?: true
   demoAdminAssets?: true
+  demoAdminPhotoTest?: true
 }
 
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
@@ -37,6 +38,11 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   if (env.QUEST_ADMIN_ASSETS_MODE !== undefined && env.QUEST_ADMIN_ASSETS_MODE !== 'off') {
     if (env.QUEST_ADMIN_ASSETS_MODE !== 'memory') throw new Error('QUEST_ADMIN_ASSETS_MODE must be off or memory.')
     config.demoAdminAssets = true
+  }
+  if (env.QUEST_ADMIN_PHOTO_TEST_MODE !== undefined && env.QUEST_ADMIN_PHOTO_TEST_MODE !== 'off') {
+    if (env.QUEST_ADMIN_PHOTO_TEST_MODE !== 'fixtures') throw new Error('QUEST_ADMIN_PHOTO_TEST_MODE must be off or fixtures.')
+    if (!config.demoAdminAssets) throw new Error('QUEST_ADMIN_PHOTO_TEST_MODE=fixtures requires QUEST_ADMIN_ASSETS_MODE=memory.')
+    config.demoAdminPhotoTest = true
   }
   if (env.QUEST_DISCOVERIES_MODE !== undefined && env.QUEST_DISCOVERIES_MODE !== 'off') {
     if (env.QUEST_DISCOVERIES_MODE !== 'memory') throw new Error('QUEST_DISCOVERIES_MODE must be off or memory.')

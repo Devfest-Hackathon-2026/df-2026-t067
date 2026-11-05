@@ -186,7 +186,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 16. Dの写真判定試験
 
-[admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。試験結果の用途は開発用の確認と18節の公開操作に限る。通常起動ではmatcher未接続の503。
+[admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。試験結果の用途は開発用の確認と18節の公開操作に限る。既定は照合未接続の503。開発用fixtures設定では指定の合成画像で試験できる。
 
 ## 17. Dの下書き確認依頼
 
@@ -203,4 +203,4 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 - 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像、非公開撮影範囲を版へ固定する。旅行者の一覧・詳細には公開項目だけを返す。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
 - `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
 
-`publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。ローカルの統合テストは合成写真と代替matcherを使用。通常起動からの照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。
+`publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。合成画像の試験は明示fixtures設定で使える。実AI照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。

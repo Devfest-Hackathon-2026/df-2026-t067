@@ -63,3 +63,15 @@ test('admin asset storage requires an explicit memory mode and cannot silently u
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: mode }), /QUEST_ADMIN_ASSETS_MODE must/)
   }
 })
+
+test('admin photo tests only enable the local fixture matcher with memory assets', () => {
+  const demo = { QUEST_DATA_MODE: 'demo', QUEST_ADMIN_ASSETS_MODE: 'memory' }
+  assert.deepEqual(readConfig({ ...demo, QUEST_ADMIN_PHOTO_TEST_MODE: 'fixtures' }),
+    { mode: 'demo', port: 8787, demoAdminAssets: true, demoAdminPhotoTest: true })
+  assert.deepEqual(readConfig({ ...demo, QUEST_ADMIN_PHOTO_TEST_MODE: 'off' }),
+    { mode: 'demo', port: 8787, demoAdminAssets: true })
+  assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_ADMIN_PHOTO_TEST_MODE: 'fixtures' }), /QUEST_ADMIN_ASSETS_MODE=memory/)
+  for (const mode of ['', 'real', 'vertex']) {
+    assert.throws(() => readConfig({ ...demo, QUEST_ADMIN_PHOTO_TEST_MODE: mode }), /QUEST_ADMIN_PHOTO_TEST_MODE/)
+  }
+})

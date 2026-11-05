@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import sharp from 'sharp'
 import { createApiClient } from '../../src/shared/api/client'
-import type { ManagedQuestDraft, OrgMembership, PhotoDecision } from '../../src/shared/api/admin'
+import type { ManagedQuestDraft, OrgMembership } from '../../src/shared/api/admin'
 import { DemoAssetStore } from '../src/admin-assets'
+import { createFixturePhotoMatcher } from '../src/demo-photo-test'
 import { otherSyntheticPng, syntheticPng } from './photo-fixtures'
 import { expectError, startServer } from './helpers'
 
@@ -10,7 +12,8 @@ const confirmations = { fictionalData: true, visitConditions: true, photoRights:
 const image = (bytes: Uint8Array) => new Blob([new Uint8Array(bytes)], { type: 'image/png' })
 
 test('only a publisher can publish tested versions and pause the public snapshot', async (t) => {
-  let outcome: PhotoDecision = 'MATCH'
+  const fixtureMatcher = await createFixturePhotoMatcher()
+  let wrongTargetForDuplicate = false
   let revokeOnRecheck = false
   let publisherChecks = 0
   const { base } = await startServer(t, {
@@ -20,7 +23,9 @@ test('only a publisher can publish tested versions and pause the public snapshot
       return [{ orgId: uid === 'other' ? 'other-org' : 'demo-org', label: '架空',
         role: uid === 'editor' || (uid === 'publisher' && revokeOnRecheck && ++publisherChecks === 2) ? 'editor' : 'publisher', areaId: 'demo-area' }]
     },
-    adminAssets: new DemoAssetStore(), adminPhotoTest: { matcher: async () => outcome }, locationValidation: 'demo',
+    adminAssets: new DemoAssetStore(),
+    adminPhotoTest: { matcher: async (input, call) => wrongTargetForDuplicate ? 'WRONG_TARGET' : fixtureMatcher(input, call) },
+    locationValidation: 'demo',
   })
   const api = (uid: string) => createApiClient({ fetch: (input, init) => fetch(base + String(input), init),
     getIdToken: async () => uid, expectedDataMode: 'demo' })
@@ -48,10 +53,15 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const compare = (photo: Blob, key: string, rev: number) => editor.testManagedQuest(org, id, {
     photo, photoRights: '自作合成', expectedDraftRevision: rev, idempotencyKey: key,
   })
+  const unrecognized = await sharp({ create: { width: 3, height: 3, channels: 3, background: 'red' } }).png().toBuffer()
+  await assert.rejects(compare(image(unrecognized), 'unrecognized', 2), { code: 'SYSTEM_ERROR', retryable: false })
   const match = await compare(image(syntheticPng), 'match', 2)
-  outcome = 'WRONG_TARGET'
+  assert.equal(match.outcome, 'MATCH')
+  wrongTargetForDuplicate = true
   const reused = await compare(image(syntheticPng), 'reused', 2)
+  wrongTargetForDuplicate = false
   const mismatch = await compare(image(otherSyntheticPng), 'mismatch', 2)
+  assert.equal(mismatch.outcome, 'WRONG_TARGET')
   const body = { expectedDraftRevision: 2, matchTestId: match.testId, mismatchTestId: mismatch.testId, confirmations }
   await expectError(await send('/publish', 'editor', body), 403, 'FORBIDDEN')
   await expectError(await send('/publish', 'other', body, endpoint.replace(org, 'other-org')), 404, 'NOT_FOUND')
@@ -107,9 +117,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'paused' }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(editor.submitManagedQuestReview(org, id, 4), { code: 'DRAFT_CONFLICT' })
   await editor.submitManagedQuestReview(org, id, 5)
-  outcome = 'MATCH'
   const secondMatch = await compare(image(syntheticPng), 'match-v2', 5)
-  outcome = 'WRONG_TARGET'
   const secondMismatch = await compare(image(otherSyntheticPng), 'mismatch-v2', 5)
   assert.equal((await publisher.publishManagedQuest(org, id, { ...body, expectedDraftRevision: 5,
     matchTestId: secondMatch.testId, mismatchTestId: secondMismatch.testId })).publishedVersion, 2)

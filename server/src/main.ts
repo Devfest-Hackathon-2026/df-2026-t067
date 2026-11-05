@@ -4,14 +4,17 @@ import { createFirebaseVerifier } from './firebase-auth'
 import { createServer } from './server'
 import { DemoDiscoveryStore } from './discoveries'
 import { DemoAssetStore } from './admin-assets'
+import { createFixturePhotoMatcher } from './demo-photo-test'
 
 async function main(): Promise<void> {
   const config = readConfig(process.env)
+  const matcher = config.demoAdminPhotoTest ? await createFixturePhotoMatcher() : undefined
   const verifier = config.firebaseProjectId ? createFirebaseVerifier(config.firebaseProjectId) : undefined
   const server = createServer({ mode: config.mode, verifier,
     memberships: config.demoMembershipsFile ? createFileMembershipLookup(config.demoMembershipsFile) : undefined,
     discoveries: config.demoDiscoveries ? new DemoDiscoveryStore() : undefined,
     adminAssets: config.demoAdminAssets ? new DemoAssetStore() : undefined,
+    adminPhotoTest: matcher ? { matcher } : undefined,
     locationValidation: config.demoLocation ? 'demo' : undefined })
   let stopping = false
   const stop = () => {
@@ -34,7 +37,8 @@ async function main(): Promise<void> {
   })
   server.listen(config.port, '127.0.0.1', () => {
     console.info('Local API: http://127.0.0.1:' + config.port + ' (FICTIONAL DEMO DATA; auth ' +
-      (verifier ? 'configured' : 'unconfigured') + '; GPS demo ' + (config.demoLocation ? 'enabled' : 'off') + ')')
+      (verifier ? 'configured' : 'unconfigured') + '; GPS demo ' + (config.demoLocation ? 'enabled' : 'off') +
+      '; admin photo test ' + (matcher ? 'fixtures' : 'off') + ')')
   })
 }
 
