@@ -106,3 +106,7 @@ PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル
 ### A03の非公開撮影範囲
 
 `getShootingAreas / updateShootingAreas`と共通CaptureZoneを追加した。PUTは最大10地点の全置換、空配列で解除し、本文と同じdraftRevisionを更新する。競合や応答断では編集中の値を保持し、本文と範囲の最新版を確認する。[手順と制約](admin-shooting-areas.md)を使い、Dの画面を接続できる。Web266/server188テスト・型/lint/build成功。画面の自動接続、実地点・本番GPS閾値や公開/判定は追加しない。
+
+### A05の写真試験
+
+[testManagedQuestの接続口](admin-photo-tests.md)を追加した。保存済みのreference素材・確認済み特徴を使い、試験写真と権利説明・revision・キーを渡す。古い版や所属取消では結果を返さず、同じキーのAI再実行を抑える。通常起動はmatcher未接続503。Dはこの結果を旅行者のクリアや公開資格に流用せず、未接続・失敗・一致候補を区別して接続する。Web271/server201テスト・型/lint/build成功、実Vertexの追加送信はしていない。

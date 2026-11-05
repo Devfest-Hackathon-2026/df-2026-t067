@@ -2,6 +2,7 @@ import { createAdminHandler } from './admin-http'
 import type { MembershipLookup } from './admin-http'
 import type { DemoAdminStore } from './admin'
 import type { DemoAssetStore } from './admin-assets'
+import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import { createDiscoveryHandler } from './discoveries-http'
 import type { DiscoveryRepository } from './discoveries'
 import { randomUUID } from 'node:crypto'
@@ -24,6 +25,7 @@ export interface ServerOptions {
   mode: 'demo'
   admin?: DemoAdminStore
   adminAssets?: DemoAssetStore
+  adminPhotoTest?: AdminPhotoTestOptions
   memberships?: MembershipLookup
   discoveries?: DiscoveryRepository
   nodeEnv?: string
@@ -59,6 +61,7 @@ export function createServer(options: ServerOptions) {
   const challenges = options.challenges ?? new DemoChallengeStore()
   const answers = options.answers ?? new DemoAnswerStore()
   const adminHandler = createAdminHandler({ store: options.admin, assets: options.adminAssets, memberships: options.memberships,
+    photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid),
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
   const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {

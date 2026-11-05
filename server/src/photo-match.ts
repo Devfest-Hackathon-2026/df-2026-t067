@@ -1,8 +1,9 @@
 import { preparePhoto } from './photo-input'
 import type { PhotoInput, PreparedPhoto } from './photo-input'
 import { HttpError } from './errors'
+import type { PhotoDecision } from '../../src/shared/api/admin'
+export type { PhotoDecision } from '../../src/shared/api/admin'
 
-export type PhotoDecision = 'MATCH' | 'WRONG_TARGET' | 'IMAGE_UNCERTAIN'
 export interface MatchInput { reference: PreparedPhoto; candidate: PreparedPhoto; features: readonly string[] }
 export type PhotoMatcher = (input: MatchInput, call: { signal: AbortSignal }) => Promise<unknown>
 export interface CompareInput { reference?: PhotoInput; candidate: PhotoInput; features: readonly string[] }

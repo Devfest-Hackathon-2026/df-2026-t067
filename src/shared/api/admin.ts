@@ -7,6 +7,11 @@ export interface ManagedShootingAreas {
   orgId: string; questId: string; draftRevision: number; zones: CaptureZone[]; source: 'real' | 'mock'
 }
 export interface UpdateShootingAreas { expectedDraftRevision: number; zones: CaptureZone[] }
+export type PhotoDecision = 'MATCH' | 'WRONG_TARGET' | 'IMAGE_UNCERTAIN'
+export interface PhotoTestMetadata { expectedDraftRevision: number; photoRights: string }
+export interface PhotoTestResult {
+  testId: string; orgId: string; questId: string; draftRevision: number; outcome: PhotoDecision; source: 'real' | 'mock'
+}
 export type AssetPurpose = 'reference' | 'public_hint'
 export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
@@ -75,6 +80,19 @@ export function parseManagedShootingAreas(input: unknown): ManagedShootingAreas 
 export function parseUpdateShootingAreas(input: unknown): UpdateShootingAreas {
   const d = fields(input, ['expectedDraftRevision', 'zones'], 'shootingAreas')
   return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: captureZones(d.zones) }
+}
+export function parsePhotoTestMetadata(input: unknown): PhotoTestMetadata {
+  const d = fields(input, ['expectedDraftRevision', 'photoRights'], 'photoTest')
+  const photoRights = text(d.photoRights, 'photoRights', 2000)
+  if (!photoRights.trim()) throw new ContractError('photoRights')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), photoRights }
+}
+export function parsePhotoTestResult(input: unknown): PhotoTestResult {
+  const d = fields(input, ['testId', 'orgId', 'questId', 'draftRevision', 'outcome', 'source'], 'photoTest')
+  if (!['MATCH', 'WRONG_TARGET', 'IMAGE_UNCERTAIN'].includes(d.outcome as string) ||
+    (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('photoTest.result')
+  return { testId: identifier(d.testId, 'testId'), orgId: identifier(d.orgId, 'orgId'), questId: identifier(d.questId, 'questId'),
+    draftRevision: revision(d.draftRevision), outcome: d.outcome as PhotoDecision, source: d.source }
 }
 
 export function parseOrgMembership(input: unknown): OrgMembership {

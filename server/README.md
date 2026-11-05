@@ -143,3 +143,7 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 ## 自治体写真素材APIの開発用設定
 
 `QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、所属確認・画像検証付き写真登録と認可付き取得を使える。既定offは所属確認後503。通常の下書きストアは登録assetIdの台帳を共有し、組織・用途を検証する。画像/台帳は再起動で消え、実Storage・AI・公開へは接続しない。[設定・再送・制約](../docs/admin-assets.md)。
+
+## 自治体写真試験APIの接続口
+
+[写真試験API](../docs/admin-photo-tests.md)は所属・参考用途・下書きrevisionに結び付くPOST testを提供する。main/envから照合器を有効にせず、通常起動は未接続503。開発/testのServerOptionsへ明示注入したmatcherで合成画像の検証を行い、旅行者の記録・CORRECT・公開資格は作らない。
