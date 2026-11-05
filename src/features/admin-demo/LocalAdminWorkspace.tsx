@@ -9,6 +9,7 @@ import { useServerIdentity } from '../explore/useQuestConnection'
 import { PausePublication } from './PausePublication'
 import AdminDemo from './AdminDemo'
 import { ShootingAreasEditor } from './ShootingAreasEditor'
+import { PublicationWorkspace } from './PublicationWorkspace'
 import './adminDemo.css'
 
 const statusLabels: Record<ManagedQuest['status'], string> = {
@@ -16,6 +17,7 @@ const statusLabels: Record<ManagedQuest['status'], string> = {
 }
 const roleLabels: Record<OrgMembership['role'], string> = { editor: '編集担当', publisher: '公開担当' }
 type Editor = { kind: 'draft'; initial: ManagedQuest | null } | { kind: 'areas'; questId: string }
+  | { kind: 'publication'; initial: ManagedQuest }
 
 function Pager({ cursor, next, onMove }: { cursor?: string; next?: string | null; onMove: (cursor?: string) => void }) {
   return <div className="admin-list-actions">
@@ -39,6 +41,8 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
   function closeEditor() { setEditor(null); retry() }
   if (editor?.kind === 'draft') return <AdminDemo connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
   if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
+  if (editor?.kind === 'publication') return <PublicationWorkspace api={api} initial={editor.initial} member={member} onBack={closeEditor}
+    onPublished={() => { setNotice('開発用に公開しました。'); closeEditor() }} />
 
   return <section className="form-section" aria-labelledby="org-workspace-title">
     <h2 id="org-workspace-title">{heading}</h2>
@@ -60,6 +64,8 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
           <p>問題 {item.questId}・{statusLabels[item.status]}・下書き版 {item.draftRevision}{item.publishedVersion !== null && '・公開版 ' + item.publishedVersion}</p>
           <button type="button" onClick={() => setEditor({ kind: 'draft', initial: item })}>下書きを編集</button>
           <button type="button" onClick={() => setEditor({ kind: 'areas', questId: item.questId })}>撮影範囲を設定</button>
+          {item.status !== 'published' &&
+            <button type="button" onClick={() => setEditor({ kind: 'publication', initial: item })}>試験と公開確認</button>}
           {member.role === 'publisher' && item.publishedVersion !== null &&
             <PausePublication key={item.publishedVersion} api={api} orgId={member.orgId} questId={item.questId} version={item.publishedVersion}
               onReload={retry} onPaused={() => { setNotice('開発用の公開を休止しました。'); retry() }} />}
