@@ -1,5 +1,6 @@
 import type { PublicQuest } from '../../shared/api/types'
 import { Icon } from '../../components/Icon'
+import { ShootingConditionIndicators } from '../../components/ShootingConditionIndicators'
 import type { createApiClient } from '../../shared/api/client'
 import { ApiError } from '../../shared/api/client'
 import { useEffect, useRef, useState } from 'react'
@@ -144,7 +145,10 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
     <article className={'quest-card' + (open ? ' is-open' : '')} aria-labelledby={`${detailsId}-title`}>
       <header className="quest-card-heading">
         <div className="quest-meta"><span className="area-label"><Icon name="pin" />{areaLabel}</span><span className="sample-label">{sourceLabel}</span></div>
-        <h3 id={`${detailsId}-title`}>{quest.title}</h3>
+        <div className="quest-title-row">
+          <h3 id={`${detailsId}-title`}>{quest.title}</h3>
+          <ShootingConditionIndicators conditions={quest.shootingConditions} />
+        </div>
       </header>
       <div className="quest-card-content">
         <button type="button" className={'quest-toggle' + (open ? ' is-open' : '')}

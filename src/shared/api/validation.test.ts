@@ -15,6 +15,12 @@ describe('public data boundary', () => {
   it.each(['placeId', 'answerCoordinates', 'referenceImage', 'unexpected'])('rejects unexpected public field %s', (key) => {
     expect(() => parsePublicQuest({ ...quest, [key]: 'private-value' })).toThrow(ContractError)
   })
+  it('accepts only the two public shooting condition flags', () => {
+    const shootingConditions = { requiresBoat: true, requiresPaidFacility: false }
+    expect(parsePublicQuest({ ...quest, shootingConditions }).shootingConditions).toEqual(shootingConditions)
+    expect(() => parsePublicQuest({ ...quest, shootingConditions: { ...shootingConditions, requiresBoat: 'true' } })).toThrow(ContractError)
+    expect(() => parsePublicQuest({ ...quest, shootingConditions: { ...shootingConditions, zones: [] } })).toThrow(ContractError)
+  })
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'])('rejects invalid public version %s', (version) => {
     expect(() => parsePublicQuest({ ...quest, version })).toThrow(ContractError)
   })

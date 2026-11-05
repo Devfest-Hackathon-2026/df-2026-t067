@@ -52,6 +52,21 @@ it('opens an optional public hint image only on request and supports loading, fa
   expect(document.querySelector('img.optional-hint-image')).toBeInTheDocument()
 })
 
+it('shows only the required shooting conditions on the quest card', () => {
+  const props = { areaLabel: '架空の地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '',
+    onToggle: vi.fn(), onStart: vi.fn() }
+  const { rerender } = render(<QuestDetails {...props} quest={{ ...demoQuest,
+    shootingConditions: { requiresBoat: true, requiresPaidFacility: false } }} />)
+  expect(screen.getByRole('img', { name: '船上・海上での撮影が必要' })).toBeVisible()
+  expect(screen.queryByRole('img', { name: '有料施設内での撮影が必要' })).not.toBeInTheDocument()
+  rerender(<QuestDetails {...props} quest={{ ...demoQuest,
+    shootingConditions: { requiresBoat: false, requiresPaidFacility: true } }} />)
+  expect(screen.getByRole('img', { name: '有料施設内での撮影が必要' })).toBeVisible()
+  expect(screen.queryByRole('img', { name: '船上・海上での撮影が必要' })).not.toBeInTheDocument()
+  rerender(<QuestDetails {...props} quest={demoQuest} />)
+  expect(screen.queryByRole('group', { name: '撮影に必要な条件' })).not.toBeInTheDocument()
+})
+
 it('hides the image control when absent and resets the open image on quest, version, or URL change', async () => {
   const user = userEvent.setup()
   const base = { areaLabel: '地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '', onToggle: vi.fn(), onStart: vi.fn() }

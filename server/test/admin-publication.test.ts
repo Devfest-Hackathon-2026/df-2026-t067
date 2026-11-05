@@ -84,6 +84,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const traveler = api('traveler')
   const visible = await traveler.getQuest(id)
   assert.equal(visible.title, draft.content.title)
+  assert.deepEqual(visible.shootingConditions, { requiresBoat: true, requiresPaidFacility: false })
   assert.equal((await traveler.listAreas()).items.find((area) => area.areaId === 'demo-area')?.publishedCount, 3)
   assert.doesNotMatch(JSON.stringify(visible), /内部|非公開|クリア後|0\.1221|0\.2332/)
   for (const assetId of [reference.assetId, hint.assetId]) assert(!JSON.stringify(visible).includes(assetId))
@@ -94,9 +95,11 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const storedHint = await editor.getOrgAssetPhoto(org, hint.assetId)
   assert.deepEqual(await publicHint.arrayBuffer(), await storedHint.arrayBuffer())
   const edited = await editor.updateManagedQuest(org, id, { expectedDraftRevision: 2,
-    draft: { ...draft, content: { ...draft.content, title: '編集中の新しい題名' } } })
+    draft: { ...draft, materials: { ...draft.materials, requiresBoat: false, requiresPaidFacility: true },
+      content: { ...draft.content, title: '編集中の新しい題名' } } })
   assert.equal(edited.publishedVersion, 1)
   assert.equal((await traveler.getQuest(id)).title, draft.content.title)
+  assert.deepEqual((await traveler.getQuest(id)).shootingConditions, visible.shootingConditions)
   await editor.updateShootingAreas(org, id, { expectedDraftRevision: 3, zones: [{ latitude: 1, longitude: 1, radiusMeters: 80 }] })
   assert.equal((await editor.submitManagedQuestReview(org, id, 4)).quest.status, 'review_pending')
   await expectError(await send('/publish', 'publisher', { ...body, expectedDraftRevision: 4 }), 409, 'PHOTO_TEST_REQUIRED')
@@ -134,6 +137,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const secondMismatch = await compare(image(otherSyntheticPng), 'mismatch-v2', 5)
   assert.equal((await publisher.publishManagedQuest(org, id, { ...body, expectedDraftRevision: 5,
     matchTestId: secondMatch.testId, mismatchTestId: secondMismatch.testId })).publishedVersion, 2)
+  assert.deepEqual((await traveler.getQuest(id)).shootingConditions, { requiresBoat: false, requiresPaidFacility: true })
   await expectError(await fetch(base + visible.optionalHintImage), 409, 'QUEST_CHANGED')
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'old-version' }), { code: 'QUEST_CHANGED' })
   await assert.rejects(traveler.getAttempt(pending.attemptId), { code: 'QUEST_CHANGED' })

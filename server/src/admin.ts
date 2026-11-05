@@ -101,6 +101,7 @@ export class DemoAdminStore {
     if (materials.photoNote.trim()) conditions.push('撮影時の注意 ' + materials.photoNote.trim())
     const visible = parsePublicQuest({ questId, version, title: content.title.trim(), clue: content.question.trim(), areaId: quest.areaId,
       visitConditions: conditions.join('\n'), hintCount: content.hints.length,
+      shootingConditions: { requiresBoat: materials.requiresBoat, requiresPaidFacility: materials.requiresPaidFacility },
       ...(hintAssetId ? { optionalHintImage: '/api/v1/quests/' + questId + '/hint-image?expectedVersion=' + version } : {}) })
     const updated: ManagedQuest = { ...quest, status: 'published', publishedVersion: version }
     this.publications.set(questId, { quest: visible, orgId, hints: content.hints.map((hint) => hint.trim()),
@@ -124,7 +125,7 @@ export class DemoAdminStore {
     return structuredClone(updated)
   }
   listPublished(): PublicQuest[] {
-    return [...this.publications.values()].filter((publication) => publication.pauseReason === null).map(({ quest }) => ({ ...quest }))
+    return [...this.publications.values()].filter((publication) => publication.pauseReason === null).map(({ quest }) => structuredClone(quest))
   }
   getPublished(questId: string): Publication | undefined {
     const publication = this.publications.get(questId)
