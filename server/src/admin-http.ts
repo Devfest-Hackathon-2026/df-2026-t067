@@ -5,6 +5,9 @@ import { ContractError } from '../../src/shared/api/validation'
 import { DemoAdminStore } from './admin'
 import { handleAssetRequest } from './admin-assets-http'
 import type { DemoAssetStore } from './admin-assets'
+import { DemoPhotoTestStore } from './admin-photo-tests'
+import { handlePhotoTest } from './admin-photo-tests-http'
+import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import { HttpError, invalidInput } from './errors'
 import { readJsonObject } from './json-body'
 import { paginate, parseId, validateQuery } from './query'
@@ -12,10 +15,12 @@ import { paginate, parseId, validateQuery } from './query'
 export type MembershipLookup = (uid: string) => Promise<OrgMembership[]>
 export function createAdminHandler(options: {
   store?: DemoAdminStore; assets?: DemoAssetStore; memberships?: MembershipLookup; areaIds: ReadonlySet<string>
+  photoTest?: AdminPhotoTestOptions; acquirePhotoTest?: (uid: string) => () => void
   authenticate: (request: IncomingMessage) => Promise<string>
   send: (response: ServerResponse, status: number, body: unknown) => void
 }) {
   const store = options.store ?? new DemoAdminStore({ assetLookup: (assetId) => options.assets?.metadata(assetId) })
+  const photoTests = options.photoTest ? new DemoPhotoTestStore(options.photoTest.capacity) : undefined
   function requireMember(memberships: OrgMembership[], orgId: string): OrgMembership {
     const member = memberships.find((item) => item.orgId === orgId)
     if (!member) throw new HttpError(403, 'FORBIDDEN', 'この自治体の操作権限がありません。')
@@ -27,8 +32,9 @@ export function createAdminHandler(options: {
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
-    if (!isMemberships && !route && !assetRoute && !shootingRoute) return false
-    const allowed = shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
+    const testRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/test$/.exec(path)
+    if (!isMemberships && !route && !assetRoute && !shootingRoute && !testRoute) return false
+    const allowed = testRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -40,8 +46,22 @@ export function createAdminHandler(options: {
       options.send(response, 200, paginate(memberships, params, 'memberships:' + uid, (item) => item.orgId))
       return true
     }
-    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute)![1]))
+    const orgId = parseId(decodeURIComponent((route ?? assetRoute ?? shootingRoute ?? testRoute)![1]))
     let membership = requireMember(memberships, orgId)
+    if (testRoute) {
+      validateQuery(params, [])
+      const questId = parseId(decodeURIComponent(testRoute[2]))
+      store.get(orgId, questId)
+      await handlePhotoTest(request, response, { store: photoTests, assets: options.assets, options: options.photoTest,
+        acquire: options.acquirePhotoTest, uid, orgId, questId, send: options.send,
+        recheck: async (expectedRevision) => {
+          requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
+          const current = store.get(orgId, questId)
+          if (current.draftRevision !== expectedRevision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
+          return current
+        } })
+      return true
+    }
     if (assetRoute) {
       validateQuery(params, [])
       await handleAssetRequest(request, response, { store: options.assets, orgId, uid,

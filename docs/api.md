@@ -156,7 +156,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 10. B/Dへの追加接続
 
-[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。未実装の公開・生成等は404のまま。下書き保存は明示した開発用一時領域に限り、実DB/Storage保存ではない。
+[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。未実装の公開・生成は404のまま。写真試験の接続口は16節を参照する。下書き保存は明示した開発用一時領域に限り、実DB/Storage保存ではない。
 
 ## 11. Cへの本人記録API接続
 
@@ -183,3 +183,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 ## 15. Dの非公開撮影範囲
 
 [admin-shooting-areas.md](admin-shooting-areas.md)が入力・認可・競合・接続の正本。GET/PUT `/orgs/:orgId/quests/:questId/shooting-areas`を追加し、getShootingAreas/updateShootingAreasで利用する。共有CaptureZoneは既存GPSと共用し、座標・半径は専用の管理応答だけに含める。本文と同じdraftRevisionで全置換/解除し、通常の管理応答はshootingAreaStatusのみ。開発用メモリーだけで、O-03・公開版への固定・実回答判定は変更しない。
+
+## 16. Dの写真判定試験
+
+[admin-photo-tests.md](admin-photo-tests.md)にPOST `/orgs/:orgId/quests/:questId/test`の接続口を定義する。共通clientのtestManagedQuestは写真・権利説明・expectedDraftRevisionと試験キーを送り、版付きPhotoTestResultを受け取る。参考用途/組織・所属/版を照合前後に確認し、同じキーの処理を共有する。結果は開発用の写真照合だけで、訪問記録・CORRECT・公開資格を作らない。通常起動のmatcherは未設定503で、main/envから実Vertexへ接続する変更は含めない。

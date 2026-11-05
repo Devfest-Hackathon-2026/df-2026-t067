@@ -1,5 +1,5 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
-import type { AssetPurpose, ManagedQuestDraft, UpdateManagedQuest, UpdateShootingAreas } from './admin'
+import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePhotoTestMetadata, parsePhotoTestResult, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import type { AssetPurpose, ManagedQuestDraft, PhotoTestMetadata, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
@@ -287,6 +287,23 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getShootingAreas(orgId: string, questId: string, call: CallOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/shooting-areas', shootingAreas(orgId, questId), { ...call, authenticated: true })
+    },
+    async testManagedQuest(orgId: string, questId: string, input: PhotoTestMetadata & { photo: Blob; idempotencyKey: string }, call: CallOptions = {}) {
+      const path = '/orgs/' + id(orgId) + '/quests/' + id(questId) + '/test'
+      const metadata = adminInput(parsePhotoTestMetadata, { expectedDraftRevision: input.expectedDraftRevision, photoRights: input.photoRights })
+      if (!(input.photo instanceof Blob) || !input.photo.size || !['image/jpeg', 'image/png', 'image/webp'].includes(input.photo.type) ||
+        typeof input.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(input.idempotencyKey)) throw new ApiError('INVALID_INPUT')
+      const encoded = JSON.stringify(metadata)
+      if (input.photo.size > 4 * 1024 * 1024 || new TextEncoder().encode(encoded).byteLength > 4096) throw new ApiError('MEDIA_TOO_LARGE')
+      const body = new FormData()
+      body.append('photo', input.photo, 'test-photo')
+      body.append('metadata', encoded)
+      return request(path, (data) => {
+        const result = parsePhotoTestResult(data)
+        if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== metadata.expectedDraftRevision ||
+          (result.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('photoTest.identity')
+        return result
+      }, { ...call, authenticated: true, method: 'POST', body, headers: { 'Idempotency-Key': input.idempotencyKey } })
     },
     async updateShootingAreas(orgId: string, questId: string, input: UpdateShootingAreas, call: CallOptions = {}) {
       const body = adminInput(parseUpdateShootingAreas, input)
