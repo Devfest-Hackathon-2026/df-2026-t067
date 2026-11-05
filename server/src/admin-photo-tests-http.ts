@@ -47,11 +47,13 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
     const index = JSON.stringify([input.uid, input.orgId, input.questId, key])
     const result = await store.execute(index, digest, async (track) => {
       let gateFailure: unknown
+      let photoDigest = ''
       const guarded = track(async (value, call) => {
         try {
           await input.recheck(metadata.expectedDraftRevision)
           call.signal.throwIfAborted()
         } catch (error) { gateFailure = error; throw error }
+        photoDigest = createHash('sha256').update(value.candidate.bytes).digest('hex')
         return matcher(value, call)
       })
       let outcome
@@ -62,8 +64,8 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
       } catch (error) { throw gateFailure ?? error }
       await input.recheck(metadata.expectedDraftRevision)
       controller.signal.throwIfAborted()
-      return { testId: randomUUID(), orgId: input.orgId, questId: input.questId,
-        draftRevision: metadata.expectedDraftRevision, outcome, source: 'mock' }
+      return { photoDigest, result: { testId: randomUUID(), orgId: input.orgId, questId: input.questId,
+        draftRevision: metadata.expectedDraftRevision, outcome, source: 'mock' } }
     })
     await input.recheck(metadata.expectedDraftRevision)
     controller.signal.throwIfAborted()

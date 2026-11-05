@@ -30,7 +30,7 @@ export interface ManagedQuestDraft {
 }
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
-  publishedVersion: null; status: 'draft' | 'review_pending'; shootingAreaStatus: 'unconfigured' | 'configured'
+  publishedVersion: number | null; status: 'draft' | 'review_pending' | 'published' | 'paused'; shootingAreaStatus: 'unconfigured' | 'configured'
   draft: ManagedQuestDraft; source: 'real' | 'mock'
 }
 export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
@@ -40,6 +40,14 @@ export const REVIEW_FIELDS = [
 ] as const
 export type ReviewField = typeof REVIEW_FIELDS[number]
 export interface ReviewSubmission { quest: ManagedQuest; missing: ReviewField[] }
+const PUBLISH_CONFIRMATIONS = ['fictionalData', 'visitConditions', 'photoRights', 'shootingArea', 'testCases'] as const
+export interface PublishManagedQuest {
+  expectedDraftRevision: number
+  matchTestId: string
+  mismatchTestId: string
+  confirmations: Record<typeof PUBLISH_CONFIRMATIONS[number], true>
+}
+export interface PauseManagedQuest { expectedPublishedVersion: number; reason: string }
 
 function fields(input: unknown, keys: readonly string[], path: string): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input) ||
@@ -171,17 +179,35 @@ export function parseReviewSubmission(input: unknown): ReviewSubmission {
     if (!REVIEW_FIELDS.includes(value as ReviewField)) throw new ContractError('reviewSubmission.missing')
     return value as ReviewField
   })
-  if (new Set(missing).size !== missing.length || (quest.status === 'review_pending') !== (missing.length === 0)) {
+  if (new Set(missing).size !== missing.length || quest.status !== (missing.length === 0 ? 'review_pending' : 'draft')) {
     throw new ContractError('reviewSubmission.status')
   }
   return { quest, missing }
 }
+export function parsePublishManagedQuest(input: unknown): PublishManagedQuest {
+  const d = fields(input, ['expectedDraftRevision', 'matchTestId', 'mismatchTestId', 'confirmations'], 'publish')
+  const confirmations = fields(d.confirmations, PUBLISH_CONFIRMATIONS, 'publish.confirmations')
+  if (PUBLISH_CONFIRMATIONS.some((key) => confirmations[key] !== true)) throw new ContractError('publish.confirmations')
+  const matchTestId = identifier(d.matchTestId, 'matchTestId')
+  const mismatchTestId = identifier(d.mismatchTestId, 'mismatchTestId')
+  if (matchTestId === mismatchTestId) throw new ContractError('publish.testIds')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), matchTestId, mismatchTestId,
+    confirmations: { ...confirmations } as PublishManagedQuest['confirmations'] }
+}
+export function parsePauseManagedQuest(input: unknown): PauseManagedQuest {
+  const d = fields(input, ['expectedPublishedVersion', 'reason'], 'pause')
+  const reason = text(d.reason, 'reason', 1000).trim()
+  if (!reason) throw new ContractError('reason')
+  return { expectedPublishedVersion: revision(d.expectedPublishedVersion), reason }
+}
 export function parseManagedQuest(input: unknown): ManagedQuest {
   const d = fields(input, ['questId', 'orgId', 'areaId', 'draftRevision', 'publishedVersion', 'status', 'shootingAreaStatus', 'draft', 'source'], 'ManagedQuest')
-  if (d.publishedVersion !== null || (d.status !== 'draft' && d.status !== 'review_pending') ||
+  const publishedVersion = d.publishedVersion === null ? null : revision(d.publishedVersion)
+  if ((d.status !== 'draft' && d.status !== 'review_pending' && d.status !== 'published' && d.status !== 'paused') ||
+    (d.status === 'published' && publishedVersion === null) || (d.status === 'paused' && publishedVersion !== null) ||
     (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured') ||
     (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('ManagedQuest.state')
   return { questId: identifier(d.questId, 'questId'), orgId: identifier(d.orgId, 'orgId'), areaId: identifier(d.areaId, 'areaId'),
-    draftRevision: revision(d.draftRevision), publishedVersion: null, status: d.status, shootingAreaStatus: d.shootingAreaStatus,
+    draftRevision: revision(d.draftRevision), publishedVersion, status: d.status, shootingAreaStatus: d.shootingAreaStatus,
     draft: parseManagedQuestDraft(d.draft), source: d.source }
 }

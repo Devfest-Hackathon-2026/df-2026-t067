@@ -1,5 +1,5 @@
-import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePhotoTestMetadata, parsePhotoTestResult, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
-import type { AssetPurpose, ManagedQuestDraft, PhotoTestMetadata, UpdateManagedQuest, UpdateShootingAreas } from './admin'
+import { parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import type { AssetPurpose, ManagedQuestDraft, PauseManagedQuest, PhotoTestMetadata, PublishManagedQuest, UpdateManagedQuest, UpdateShootingAreas } from './admin'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
@@ -10,6 +10,7 @@ import {
 const ERROR_CODES = [
   'INVALID_INPUT', 'MEDIA_TOO_LARGE', 'UNAUTHENTICATED', 'FORBIDDEN', 'RATE_LIMITED',
   'DRAFT_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUEST_UNAVAILABLE', 'QUEST_CHANGED', 'SYSTEM_ERROR',
+  'REVIEW_REQUIRED', 'PHOTO_TEST_REQUIRED',
   'NOT_FOUND', 'HTTP_ERROR', 'NETWORK_ERROR', 'INVALID_RESPONSE', 'AUTH_UNAVAILABLE',
 ] as const
 export type ApiErrorCode = typeof ERROR_CODES[number]
@@ -29,6 +30,8 @@ export class ApiError extends Error {
       INVALID_INPUT: '送信内容を確認してください。',
       INVALID_RESPONSE: 'データを読み取れませんでした。',
       NETWORK_ERROR: '通信状況を確認してください。',
+      REVIEW_REQUIRED: '入力項目を確認し、最新版の確認を依頼してください。',
+      PHOTO_TEST_REQUIRED: '最新版の一致と別対象の写真試験を確認してください。',
     }
     super(messages[code] ?? '処理を完了できませんでした。')
     this.name = 'ApiError'
@@ -331,6 +334,22 @@ export function createApiClient(options: ApiClientOptions = {}) {
         if (quest.orgId !== orgId || quest.questId !== questId || quest.draftRevision !== expectedDraftRevision ||
           (quest.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('reviewSubmission.identity')
         return result
+      }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    },
+    async publishManagedQuest(orgId: string, questId: string, input: PublishManagedQuest, call: CallOptions = {}) {
+      const body = adminInput(parsePublishManagedQuest, input)
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/publish', (data) => {
+        const quest = managed(orgId, questId)(data)
+        if (quest.status !== 'published' || quest.draftRevision !== body.expectedDraftRevision) throw new ContractError('publication.identity')
+        return quest
+      }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    },
+    async pauseManagedQuest(orgId: string, questId: string, input: PauseManagedQuest, call: CallOptions = {}) {
+      const body = adminInput(parsePauseManagedQuest, input)
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/pause', (data) => {
+        const quest = managed(orgId, questId)(data)
+        if (quest.publishedVersion !== null) throw new ContractError('publication.pause')
+        return quest
       }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },
     async getSession(call: CallOptions = {}) {

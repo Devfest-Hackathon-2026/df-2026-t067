@@ -1,6 +1,6 @@
 import { createAdminHandler } from './admin-http'
 import type { MembershipLookup } from './admin-http'
-import type { DemoAdminStore } from './admin'
+import { DemoAdminStore } from './admin'
 import type { DemoAssetStore } from './admin-assets'
 import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import { createDiscoveryHandler } from './discoveries-http'
@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePage, parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
 import { assertDemoMode, assertNoAuthEmulator } from './config'
 import { createDemoData } from './demo-data'
+import { createDemoLocationValidation } from './demo-location'
 import { DemoChallengeStore } from './challenges'
 import { readChallengeInput } from './json-body'
 import { answerKey, readAnswerInput } from './answer-input'
@@ -32,7 +33,7 @@ export interface ServerOptions {
   verifier?: IdTokenVerifier
   challenges?: DemoChallengeStore
   answers?: DemoAnswerStore
-  locationValidation?: LocationValidation
+  locationValidation?: LocationValidation | 'demo'
 }
 
 function bearerToken(request: IncomingMessage): string {
@@ -54,13 +55,25 @@ function requestTarget(request: IncomingMessage): { path: string; params: URLSea
   return { path: rawPath, params: new URLSearchParams(split < 0 ? '' : raw.slice(split + 1)) }
 }
 
+function positiveRouteNumber(value: string): number {
+  const parsed = Number(value)
+  if (!/^[1-9]\d{0,15}$/.test(value) || !Number.isSafeInteger(parsed)) invalidInput()
+  return parsed
+}
+
 export function createServer(options: ServerOptions) {
   assertDemoMode(options.mode, options.nodeEnv ?? process.env.NODE_ENV)
   assertNoAuthEmulator(process.env)
   const { areas, quests, hints } = createDemoData()
   const challenges = options.challenges ?? new DemoChallengeStore()
   const answers = options.answers ?? new DemoAnswerStore()
-  const adminHandler = createAdminHandler({ store: options.admin, assets: options.adminAssets, memberships: options.memberships,
+  const admin = options.admin ?? new DemoAdminStore({ assetLookup: (assetId) => options.adminAssets?.metadata(assetId) })
+  const findPublicQuest = (questId: string) => admin.getPublished(questId)?.quest ?? quests.find((item) => item.questId === questId)
+  const location = options.locationValidation === 'demo' ? createDemoLocationValidation((questId, version) => {
+    const publication = admin.getPublished(questId)
+    return publication?.quest.version === version ? publication.zones : undefined
+  }) : options.locationValidation
+  const adminHandler = createAdminHandler({ store: admin, assets: options.adminAssets, memberships: options.memberships,
     photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid),
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
   const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
@@ -97,11 +110,12 @@ export function createServer(options: ServerOptions) {
     if (await discoveryHandler(request, response, path, params)) return
     if (await adminHandler(request, response, path, params)) return
     const hintPath = /^\/api\/v1\/quests\/([^/]+)\/hints\/([^/]+)$/.exec(path)
+    const hintImagePath = /^\/api\/v1\/quests\/([^/]+)\/hint-image$/.exec(path)
     const isDetail = path.startsWith('/api/v1/quests/')
     const isStart = path === '/api/v1/challenges'
     const answerPath = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
     const attemptPath = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
-    if (isDetail && !hintPath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+    if (isDetail && !hintPath && !hintImagePath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || answerPath || attemptPath
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const method = isStart || answerPath ? 'POST' : 'GET'
@@ -109,17 +123,27 @@ export function createServer(options: ServerOptions) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    if (hintPath) {
+    if (hintPath || hintImagePath) {
       validateQuery(params, ['expectedVersion'])
-      const questId = parseId(decodeURIComponent(hintPath[1]))
-      const rawIndex = decodeURIComponent(hintPath[2])
-      const rawVersion = params.get('expectedVersion') ?? ''
-      if (![rawIndex, rawVersion].every((value) => /^[1-9]\d{0,15}$/.test(value) && Number.isSafeInteger(Number(value)))) invalidInput()
-      const quest = quests.find((item) => item.questId === questId)
+      const questId = parseId(decodeURIComponent((hintPath ?? hintImagePath)![1]))
+      const index = hintPath ? positiveRouteNumber(decodeURIComponent(hintPath[2])) : undefined
+      const version = positiveRouteNumber(params.get('expectedVersion') ?? '')
+      const publication = admin.getPublished(questId)
+      const quest = publication?.quest ?? quests.find((item) => item.questId === questId)
       if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
-      if (quest.version !== Number(rawVersion)) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
-      const index = Number(rawIndex)
-      const text = hints.get(questId)?.[index - 1]
+      if (quest.version !== version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
+      if (index === undefined) {
+        const assetId = publication?.hintAssetId
+        if (!publication || !assetId || options.adminAssets?.getOwned(publication.orgId, assetId)?.purpose !== 'public_hint') {
+          throw new HttpError(404, 'NOT_FOUND', 'ヒント画像が見つかりません。')
+        }
+        const bytes = options.adminAssets.getPhotoOwned(publication.orgId, assetId)
+        if (!bytes) throw new HttpError(404, 'NOT_FOUND', 'ヒント画像が見つかりません。')
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': bytes.length, 'Content-Disposition': 'inline' })
+        response.end(bytes)
+        return
+      }
+      const text = (publication?.hints ?? hints.get(questId))?.[index - 1]
       if (!text || index > quest.hintCount) throw new HttpError(404, 'NOT_FOUND', 'ヒントが見つかりません。')
       send(response, 200, parseQuestHint({ questId, version: quest.version, index, text }))
     } else if (answerPath) {
@@ -127,14 +151,14 @@ export function createServer(options: ServerOptions) {
       validateQuery(params, [])
       const challenge = challenges.getOwned(parseId(decodeURIComponent(answerPath[1])), uid)
       if (!challenge) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      if (admin.isPaused(challenge.questId)) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
       const key = answerKey(request)
       const release = answers.acquire(uid)
       try {
         const input = await readAnswerInput(request)
-        const quest = quests.find((item) => item.questId === challenge.questId)
+        const quest = findPublicQuest(challenge.questId)
         if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
         if (quest.version !== challenge.version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
-        const location = options.locationValidation
         const decide = location ? () => {
           const policy = location.policyFor(challenge.questId, challenge.version)
           if (!policy) throw new HttpError(503, 'SYSTEM_ERROR', '位置確認の設定を利用できません。')
@@ -153,7 +177,8 @@ export function createServer(options: ServerOptions) {
       const uid = await authenticate(request)
       validateQuery(params, [])
       const input = await readChallengeInput(request)
-      const quest = quests.find((item) => item.questId === input.questId)
+      if (admin.isPaused(input.questId)) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
+      const quest = findPublicQuest(input.questId)
       if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
       if (quest.version !== input.expectedVersion) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
       const result = challenges.start(uid, quest)
@@ -166,14 +191,17 @@ export function createServer(options: ServerOptions) {
       })
     } else if (path === '/api/v1/areas') {
       const filter = parseAreaQuery(params)
-      const items = filter.bbox ? areas.filter((area) => intersectsBbox(area, filter.bbox!)) : areas
+      const published = admin.listPublished()
+      const items = (filter.bbox ? areas.filter((area) => intersectsBbox(area, filter.bbox!)) : areas)
+        .map((area) => ({ ...area, publishedCount: area.publishedCount + published.filter((quest) => quest.areaId === area.areaId).length }))
       const page = paginate(items, params, 'areas:' + JSON.stringify(filter), (area) => area.areaId)
       send(response, 200, parsePage(page, parsePublicArea))
     } else if (path === '/api/v1/quests') {
       validateQuery(params, ['areaId', 'cursor', 'limit'])
       const rawAreaId = params.get('areaId')
       const areaId = rawAreaId === null ? undefined : parseId(rawAreaId)
-      const items = areaId ? quests.filter((quest) => quest.areaId === areaId) : quests
+      const available = [...quests, ...admin.listPublished()]
+      const items = areaId ? available.filter((quest) => quest.areaId === areaId) : available
       const page = paginate(items, params, 'quests:' + (areaId ?? ''), (quest) => quest.questId)
       send(response, 200, parsePage(page, parsePublicQuest))
     } else if (path === '/api/v1/session') {
@@ -182,7 +210,7 @@ export function createServer(options: ServerOptions) {
     } else {
       validateQuery(params, [])
       const questId = parseId(decodeURIComponent(path.slice('/api/v1/quests/'.length)))
-      const quest = quests.find((item) => item.questId === questId)
+      const quest = findPublicQuest(questId)
       if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
       send(response, 200, parsePublicQuest(quest))
     }

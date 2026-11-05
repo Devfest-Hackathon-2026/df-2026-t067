@@ -29,7 +29,7 @@ it('requires explicit demo mode for a mock draft and binds its response to the r
 it('rejects unsupported status, private identity claims and unbounded or malformed draft fields', () => {
   expect(parseManagedQuest(quest)).toEqual(quest)
   expect(parseManagedQuest({ ...quest, shootingAreaStatus: 'configured' }).shootingAreaStatus).toBe('configured')
-  for (const patch of [{ status: 'published' }, { publishedVersion: 1 }, { draftRevision: 0 }, { shootingAreaStatus: 'unknown' }, { source: 'pretend' }]) {
+  for (const patch of [{ status: 'published' }, { publishedVersion: 0 }, { draftRevision: 0 }, { shootingAreaStatus: 'unknown' }, { source: 'pretend' }]) {
     expect(() => parseManagedQuest({ ...quest, ...patch })).toThrow(ContractError)
   }
   expect(() => parseOrgMembership({ orgId: 'demo-org', label: 'demo', role: 'owner', areaId: 'demo-area' })).toThrow(ContractError)

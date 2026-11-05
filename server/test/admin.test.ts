@@ -113,7 +113,7 @@ test('draft writes reject unknown claims, invalid transport and excess input', a
   const response = await fetch(base + basePath, { method: 'DELETE', headers })
   assert.equal(response.headers.get('Allow'), 'GET, POST')
   await expectError(response, 405, 'HTTP_ERROR')
-  for (const action of ['generate', 'test', 'publish', 'pause']) {
+  for (const action of ['generate', 'test']) {
     await expectError(await fetch(base + basePath + '/missing/' + action, { method: 'POST', headers }), 404, 'NOT_FOUND')
   }
 })

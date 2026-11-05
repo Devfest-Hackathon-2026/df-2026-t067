@@ -16,11 +16,11 @@ QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:a
 
 ## 開発用の設定
 
-`server/src/demo-location.ts`は架空の3問題の版1だけへ、合成した中心0,0の円を返す。公開問題のgeometry/markerや、本文の座標・半径から撮影範囲を作らない。
+`server/src/demo-location.ts`は既定の架空3問題の版1へ、合成した中心0,0の円を返す。管理APIから開発用に公開した問題では、サーバーがその公開版へ固定した非公開の範囲を使う。[開発用の公開と休止](api.md#18-開発用の公開と休止)
 
 | 項目 | 試作用の値 |
 |---|---|
-| 撮影半径 | 100m |
+| 既定の架空3問題の撮影半径 | 100m |
 | 許容するaccuracyMetersの上限 | 50m |
 | 撮影・測位それぞれの最大経過 | 120秒 |
 | サーバー時計に対する未来の許容 | 5秒 |

@@ -4,16 +4,23 @@ import { HttpError } from './errors'
 import { photoSystemError } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 
+export interface PhotoTestEvidence extends PhotoTestResult { photoDigest: string }
+
 // Result-only memory cache. Candidate photos and visitor records are never
 // stored here. Authentication and current draft checks belong to each request.
 export class DemoPhotoTestStore {
   private readonly jobs = new Map<string, { digest: string; result: Promise<PhotoTestResult> }>()
+  private readonly evidence = new Map<string, PhotoTestEvidence>()
   private active = false
   constructor(private readonly capacity = 128) {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 128) throw new Error('Invalid photo test capacity.')
   }
+  getEvidence(testId: string): PhotoTestEvidence | undefined {
+    const evidence = this.evidence.get(testId)
+    return evidence && { ...evidence }
+  }
   async execute(key: string, digest: string,
-    work: (track: (matcher: PhotoMatcher) => PhotoMatcher) => Promise<PhotoTestResult>): Promise<PhotoTestResult> {
+    work: (track: (matcher: PhotoMatcher) => PhotoMatcher) => Promise<{ result: PhotoTestResult; photoDigest: string }>): Promise<PhotoTestResult> {
     const previous = this.jobs.get(key)
     if (previous) {
       if (previous.digest !== digest) throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', '同じ試験キーで異なる内容は送信できません。')
@@ -30,7 +37,11 @@ export class DemoPhotoTestStore {
       void pending.then(settle, settle)
       return pending
     })
-    const result = Promise.resolve().then(() => work(track)).then(parsePhotoTestResult)
+    const result = Promise.resolve().then(() => work(track)).then(({ result, photoDigest }) => {
+      const decoded = parsePhotoTestResult(result)
+      this.evidence.set(decoded.testId, { ...decoded, photoDigest })
+      return decoded
+    })
       .catch((error: unknown) => { throw error instanceof HttpError ? error : photoSystemError() })
     this.jobs.set(key, { digest, result })
     const complete = () => { finished = true; release() }

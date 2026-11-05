@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parseOrgMembership, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parseOrgMembership, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import type { OrgMembership } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
-import { DemoAdminStore } from './admin'
+import type { DemoAdminStore } from './admin'
 import { handleAssetRequest } from './admin-assets-http'
 import type { DemoAssetStore } from './admin-assets'
 import { DemoPhotoTestStore } from './admin-photo-tests'
@@ -14,12 +14,12 @@ import { paginate, parseId, validateQuery } from './query'
 
 export type MembershipLookup = (uid: string) => Promise<OrgMembership[]>
 export function createAdminHandler(options: {
-  store?: DemoAdminStore; assets?: DemoAssetStore; memberships?: MembershipLookup; areaIds: ReadonlySet<string>
+  store: DemoAdminStore; assets?: DemoAssetStore; memberships?: MembershipLookup; areaIds: ReadonlySet<string>
   photoTest?: AdminPhotoTestOptions; acquirePhotoTest?: (uid: string) => () => void
   authenticate: (request: IncomingMessage) => Promise<string>
   send: (response: ServerResponse, status: number, body: unknown) => void
 }) {
-  const store = options.store ?? new DemoAdminStore({ assetLookup: (assetId) => options.assets?.metadata(assetId) })
+  const store = options.store
   const photoTests = options.photoTest ? new DemoPhotoTestStore(options.photoTest.capacity) : undefined
   function requireMember(memberships: OrgMembership[], orgId: string): OrgMembership {
     const member = memberships.find((item) => item.orgId === orgId)
@@ -27,12 +27,15 @@ export function createAdminHandler(options: {
     if (!options.areaIds.has(member.areaId)) throw new HttpError(503, 'SYSTEM_ERROR', '自治体の公開エリア設定を利用できません。')
     return member
   }
+  function requirePublisher(member: OrgMembership): void {
+    if (member.role !== 'publisher') throw new HttpError(403, 'FORBIDDEN', '公開担当者の権限が必要です。')
+  }
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const isMemberships = path === '/api/v1/me/memberships'
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
     const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
-    const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review)$/.exec(path)
+    const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review|publish|pause)$/.exec(path)
     if (!isMemberships && !route && !assetRoute && !shootingRoute && !actionRoute) return false
     const allowed = actionRoute ? ['POST'] : shootingRoute ? ['GET', 'PUT'] : assetRoute ? (assetRoute[2] ? ['GET'] : ['POST']) : isMemberships ? ['GET'] : route?.[2] ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
@@ -51,14 +54,36 @@ export function createAdminHandler(options: {
     if (actionRoute) {
       validateQuery(params, [])
       const questId = parseId(decodeURIComponent(actionRoute[2]))
+      const action = actionRoute[3]
+      const publisherOnly = action === 'publish' || action === 'pause'
+      if (publisherOnly) requirePublisher(membership)
       store.get(orgId, questId)
-      if (actionRoute[3] === 'submit-review') {
+      if (action !== 'test') {
         const body = await readJsonObject(request)
-        requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
+        const currentMember = requireMember((await options.memberships?.(uid) ?? []).map(parseOrgMembership), orgId)
+        if (publisherOnly) requirePublisher(currentMember)
         if (response.destroyed) return true
         try {
-          const { expectedDraftRevision } = parseSubmitReview(body)
-          options.send(response, 200, store.submitReview(orgId, questId, expectedDraftRevision))
+          if (action === 'publish') {
+            const input = parsePublishManagedQuest(body)
+            const quest = store.getAtRevision(orgId, questId, input.expectedDraftRevision)
+            const { hintAssetId, referenceAssetId } = quest.draft
+            if (hintAssetId) {
+              const asset = options.assets?.getOwned(orgId, hintAssetId)
+              const image = options.assets?.getPhotoOwned(orgId, hintAssetId)
+              const reference = referenceAssetId && options.assets?.getPhotoOwned(orgId, referenceAssetId)
+              if (asset?.purpose !== 'public_hint' || !image || !reference || image.equals(reference)) {
+                throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
+              }
+            }
+            options.send(response, 200, store.publish(orgId, questId, input,
+              photoTests?.getEvidence(input.matchTestId), photoTests?.getEvidence(input.mismatchTestId)))
+          } else if (action === 'pause') {
+            options.send(response, 200, store.pause(orgId, questId, parsePauseManagedQuest(body)))
+          } else {
+            const { expectedDraftRevision } = parseSubmitReview(body)
+            options.send(response, 200, store.submitReview(orgId, questId, expectedDraftRevision))
+          }
         } catch (error) { if (error instanceof ContractError) invalidInput(); throw error }
         return true
       }
