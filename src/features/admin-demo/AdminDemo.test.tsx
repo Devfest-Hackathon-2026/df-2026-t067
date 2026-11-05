@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, createApiClient } from '../../shared/api'
+import type { ManagedQuestDraft } from '../../shared/api'
 import AdminDemo from './AdminDemo'
 
 const created: string[] = []
@@ -19,6 +21,58 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 function image(name = 'reference.png', size = 100, type = 'image/png') {
   return new File([new Uint8Array(size)], name, { type })
 }
+
+it('saves a local draft with its reference, then updates the saved revision and preserves a conflicting edit', async () => {
+  const user = userEvent.setup()
+  const uploadOrgAsset = vi.fn().mockResolvedValue({ assetId: 'demo-reference' })
+  const saved = { questId: 'demo-draft', orgId: 'demo-org', areaId: 'demo-area', draftRevision: 1, publishedVersion: null,
+    status: 'draft', source: 'mock', shootingAreaStatus: 'unconfigured' }
+  const createManagedQuest = vi.fn().mockImplementation(async (_orgId: string, draft: ManagedQuestDraft) => ({ ...saved, draft }))
+  const updateManagedQuest = vi.fn().mockRejectedValue(new ApiError('DRAFT_CONFLICT'))
+  const api = { ...createApiClient(), uploadOrgAsset, createManagedQuest, updateManagedQuest }
+  render(<AdminDemo connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+    role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
+  const file = image()
+  await user.type(screen.getByLabelText('対象名'), '架空の時計')
+  await user.type(screen.getByLabelText('対象とする根拠'), '架空の根拠')
+  await user.type(screen.getByLabelText('写真の出典と利用権'), '自作の合成画像')
+  await user.upload(screen.getByLabelText('参考写真（公開ヒントには自動流用しません）'), file)
+  expect(uploadOrgAsset).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+  expect(await screen.findByText('開発用の下書きに保存しました。')).toBeVisible()
+  expect(uploadOrgAsset).toHaveBeenCalledExactlyOnceWith('demo-org', {
+    purpose: 'reference', photoRights: '自作の合成画像', photo: file, idempotencyKey: expect.any(String),
+  }, { signal: expect.any(AbortSignal) })
+  expect(createManagedQuest.mock.calls[0][1]).toMatchObject({
+    referenceAssetId: 'demo-reference', hintAssetId: null, materials: { name: '架空の時計', evidence: '架空の根拠' },
+  })
+  await user.type(screen.getByLabelText('料金'), '架空の料金')
+  await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('下書きの版が変わりました')
+  expect(screen.getByLabelText('料金')).toHaveValue('架空の料金')
+  expect(screen.getByRole('button', { name: '下書きを保存' })).toBeDisabled()
+  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({
+    expectedDraftRevision: 1, draft: { referenceAssetId: 'demo-reference', materials: { price: '架空の料金' } },
+  })
+  expect(uploadOrgAsset).toHaveBeenCalledTimes(1)
+})
+
+it('blocks a second create when the response is lost and preserves the entered draft', async () => {
+  const user = userEvent.setup()
+  const createManagedQuest = vi.fn().mockRejectedValue(new ApiError('NETWORK_ERROR'))
+  const api = { ...createApiClient(), createManagedQuest }
+  const back = vi.fn()
+  render(<AdminDemo connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+    role: 'editor', areaId: 'demo-area' }, onBack: back }} />)
+  await user.type(screen.getByLabelText('対象名'), '架空の対象')
+  await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('再作成する前に一覧を確認')
+  expect(screen.getByLabelText('対象名')).toHaveValue('架空の対象')
+  expect(screen.getByRole('button', { name: '下書きを保存' })).toBeDisabled()
+  expect(createManagedQuest).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole('button', { name: '問題一覧へ戻る' }))
+  expect(back).toHaveBeenCalledOnce()
+})
 
 describe('A03 admin demo', () => {
   it('keeps text input in component state and exposes A04/A05', async () => {

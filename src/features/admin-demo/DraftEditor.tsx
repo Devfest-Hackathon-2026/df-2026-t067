@@ -1,12 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
+import type { ManagedQuestDraft } from '../../shared/api'
 
-export type DraftFields = {
-  title: string
-  question: string
-  hints: [string, string, string]
-  verifiedFeatures: string
-  draftingNotes: string
-}
+export type DraftFields = ManagedQuestDraft['content']
 
 type Props = {
   draft: DraftFields

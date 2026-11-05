@@ -15,13 +15,14 @@ type Props = {
   onModeChange: (mode: PreviewMode) => void
   headingRef: RefObject<HTMLHeadingElement | null>
   onEdit: () => void
+  areaLabel?: string
 }
 
 function shown(value: string) {
   return value.trim() || '未入力'
 }
 
-function ChallengePreview({ content }: { content: ChallengePreviewContent }) {
+function ChallengePreview({ content, areaLabel }: { content: ChallengePreviewContent; areaLabel?: string }) {
   const [openHints, setOpenHints] = useState([false, false, false])
 
   return <article className="traveler-card" id="challenge-preview">
@@ -30,7 +31,7 @@ function ChallengePreview({ content }: { content: ChallengePreviewContent }) {
       <ShootingConditionIndicators conditions={content} />
     </header>
     <p>{shown(content.question)}</p>
-    <section aria-labelledby="preview-area-heading"><h4 id="preview-area-heading">公開探索エリア</h4><p>青葉みらい市の行政区域（デモ用の架空エリア）</p></section>
+    <section aria-labelledby="preview-area-heading"><h4 id="preview-area-heading">公開探索エリア</h4><p>{areaLabel ?? '青葉みらい市の行政区域（デモ用の架空エリア）'}</p></section>
     <section aria-labelledby="preview-conditions-heading"><h4 id="preview-conditions-heading">挑戦前の条件</h4>
       <dl><dt>料金</dt><dd>{shown(content.price)}</dd><dt>撮影時の注意</dt><dd>{shown(content.photoNote)}</dd></dl>
     </section>
@@ -46,7 +47,7 @@ function ChallengePreview({ content }: { content: ChallengePreviewContent }) {
   </article>
 }
 
-export default function TravelerPreview({ challengeContent, afterClearContent, mode, onModeChange, headingRef, onEdit }: Props) {
+export default function TravelerPreview({ challengeContent, afterClearContent, mode, onModeChange, headingRef, onEdit, areaLabel }: Props) {
   return <section className="form-section traveler-preview" aria-labelledby="preview-heading">
     <h2 id="preview-heading" ref={headingRef} tabIndex={-1}>旅行者向け表示の確認（未公開）</h2>
     <p className="demo-notice" role="note">管理用プレビュー・表示確認のみ。実際の旅行者画面、写真判定、公開には未接続です。</p>
@@ -54,7 +55,7 @@ export default function TravelerPreview({ challengeContent, afterClearContent, m
       <button type="button" aria-pressed={mode === 'challenge'} onClick={() => onModeChange('challenge')}>挑戦前の問題</button>
       <button type="button" aria-pressed={mode === 'after-clear'} onClick={() => onModeChange('after-clear')}>クリア後の解説（デモ）</button>
     </div>
-    {mode === 'challenge' ? <ChallengePreview content={challengeContent} /> : <ClearExplanationPreview content={afterClearContent} />}
+    {mode === 'challenge' ? <ChallengePreview content={challengeContent} areaLabel={areaLabel} /> : <ClearExplanationPreview content={afterClearContent} />}
     <button type="button" onClick={onEdit}>A04編集へ戻る</button>
   </section>
 }
