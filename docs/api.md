@@ -1,6 +1,6 @@
 # API・共通データ契約案 v0.3
 
-全て未実装の提案。実装担当はこの契約を共通型・実行時schemaに落とし込み、変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
+サーバーは未実装の提案。旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)を用意した。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
 
 ## 1. 共通ルール
 
@@ -95,3 +95,24 @@
 ## 7. 担当間で固定する前に確認するもの
 
 通信方式・エンドポイント名・stateの保存先・画像上限等はこの提案を基準に共同で固定する。初期実装の共通型PRで決め、画面担当とサーバー担当が個別に名前や意味を変えない。URL・認証情報・本番値は本資料に埋め込まない。
+
+## 8. 最初の共通API実装
+
+入口は[src/shared/api/index.ts](../src/shared/api/index.ts)。B/Cは独自にDTO・結果コード・fetch処理をコピーせず、ここから利用する。Dの自治体向け下書き構造と編集APIは後続で具体化する。
+
+- 共通型：PublicArea / PublicQuest / Challenge / CaptureMetadata / AttemptResult / Discovery / Page。
+- parse関数は値と許可する項目を検査し、契約違反をContractErrorにする。公開データに正解等の項目が混じった場合も検出する。サーバーが公開前に情報を除外する責務は引き続き必要。
+- 公開エリアはPolygon / MultiPolygonの経度・緯度ペア。閉じた外周と穴を表す。座標は有限値・経度±180・緯度±90。形状の自己交差等の地理的検証は未実装。
+- visitConditionsは表示用文字列、versionは1以上の整数、件数とヒント数は0以上の整数。画像はルート相対URLまたはHTTPS URL。
+- 撮影時刻は実在するUTC日時、測位精度は0以上。経過時間・精度上限・画像上限はO-03で決定し、サーバーで検証する。
+- AttemptResultは内部処理段階と同じ5状態を使用する。完了前はoutcome=null。CORRECT / ALREADY_CLEAREDはoptionalDiscoveryIdを必須にする。nextActionの操作名は画面接続時に共通で決め、未知の文字列を任意URLや命令として扱わない。
+
+createApiClientは生成しただけでは通信しない。公開閲覧はlistAreas / listQuests / getQuest、認証後はcreateChallenge / submitAnswer / getAttempt / listDiscoveries / getDiscoveryを使う。各メソッドの最後の引数にsignalを渡すと取消できる。
+
+認証実装後に、最新のFirebase ID tokenを返すgetIdToken関数を生成時に渡す。公開APIではこの関数を呼ばず、保護APIでは毎回呼ぶ。キャッシュとリダイレクトは無効。接続先は同一オリジンのパスだけを受け付ける。
+
+submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempotencyKeyを渡す。multipartのphotoとmetadata、Idempotency-Keyへ変換する。位置や写真を変えた場合は別のキーにする。通信失敗時は自動再送せず、既知のattemptIdがあれば先にgetAttemptで照会する。
+
+409のQUEST_CHANGED / QUEST_UNAVAILABLE、503のSYSTEM_ERRORも、正しいAttemptResultなら回答IDを保って返す。エラー封筒はApiError（code / status / requestId / retryable / retryAfterSeconds）へ変換し、サーバーのmessageは表示用エラーへ転記しない。実APIからのsource: mockは拒否する。
+
+この実装にはサーバー、Googleログイン、AI判定、データ保存、自治体編集API、ヒント取得APIは含まれない。既存の架空プレビューへの自動接続も行わない。
