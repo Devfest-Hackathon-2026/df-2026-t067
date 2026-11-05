@@ -49,7 +49,7 @@ MATCH後は、公開版のfingerprintと記録snapshot・正規化JPEGをメモ�
 
 ## 残る接続と検証
 
-開発用のメモリー処理は同一インスタンス内で実行を共有する。永続受付、リース取得と確定はFirestoreの内部処理で行える。実HTTPからの起動、画像保存と孤立画像の清掃、実Firestore/Storage、実写真/Vertexの利用条件は残件。[Firestoreの永続受付](answer-intake.md#firestoreの永続受付)
+開発用のメモリー処理は同一インスタンス内で実行を共有する。永続受付、リース取得と確定はFirestoreの内部処理で行える。実HTTPからの起動、孤立画像の清掃、実Firestore/Storage、実写真/Vertexの利用条件は残件。[Firestoreの永続受付](answer-intake.md#firestoreの永続受付)
 
 2026-11-06：`npm --prefix server run check`は173テスト・型/lint/build成功。合成画像でGPS→代替照合→メモリー保存→実ローカルHTTPの本人記録/写真取得を確認した。別人拒否・同時再送/初回不変・既存記録時のAI省略・取消後の遅い送信/保存の拒否・認証失効・休止/改版/同一版の私的情報変更・保存失敗を検証した。Web/共有型/依存は変更せず、PR #34の261テスト・型/lint/build成功を再利用。自己レビューを実施し、第三者レビュー・実Vertexの追加送信・実Googleでの回答処理・実スマホ・実写真精度・永続保存は未検証。
 
@@ -77,4 +77,16 @@ MATCH後は、公開版のfingerprintと記録snapshot・正規化JPEGをメモ�
 QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 npm --prefix server run check
 ```
 
-HTTPと通常起動からの呼び出し、照合不合格の結果保存、Storageの書き込み・参照・孤立画像の清掃、実Firestoreの検証は残件。現在の開発用HTTPはこの処理を呼ばない。
+HTTPと通常起動からの呼び出し、照合不合格の結果保存、孤立画像の清掃、実Firestore/Storageの検証は残件。現在の開発用HTTPはこの処理を呼ばない。
+
+## 非公開JPEGの保存
+
+`AnswerPhotoStorage` にサーバー用の非公開バケットを渡し、認可済みの処理から使う。受付には入力digestに紐づくパスを使い、記録には同じ回答の `record.jpg` を使う。どちらも `ifGenerationMatch: 0` で初回だけ書き、既存のオブジェクトはサイズとSHA-256が同じ場合に同じgenerationを返す。記録画像には受付時の正規化JPEGを使う。[Cloud Storageの前提条件](https://docs.cloud.google.com/storage/docs/request-preconditions)
+
+読み取りは記録したgenerationを指定し、JPEG形式・2 MiB上限・ハッシュを検証する。利用中のNode SDKで正確に表せないgenerationは拒否する。画像参照や認可済みの画像本体を返す経路は、本人確認後のHTTPに接続する。
+
+ローカル検証ではFirestoreエミュレーターと、メモリー上の `fake-gcs-server` 1.56.1をループバックに起動する。合成JPEGで同時再送、別内容の上書き拒否、旧generationの拒否、受付から初回記録の参照までを検証する。[fake-gcs-server](https://github.com/fsouza/fake-gcs-server)
+
+```sh
+QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 QUEST_STORAGE_TEST_HOST=127.0.0.1:9688 npm --prefix server run check
+```

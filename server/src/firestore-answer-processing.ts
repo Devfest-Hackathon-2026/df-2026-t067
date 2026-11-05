@@ -4,7 +4,7 @@ import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'fir
 import type { AttemptResult } from '../../src/shared/api/types'
 import { parseDiscovery } from '../../src/shared/api/validation'
 import { invalidInput } from './errors'
-import { answerTransaction, conflict, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion,
+import { answerTransaction, conflict, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion, recordAnswerPhotoPath,
   storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
 import { parseId } from './query'
 
@@ -117,7 +117,7 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
       })
       tx.create(discovery, {
         ...record, uid, areaId, firstClearedAt: FieldValue.serverTimestamp(),
-        photoObject: { path: `answer-photos/${attemptId}/record.jpg`, generation },
+        photoObject: { path: recordAnswerPhotoPath(attemptId), generation },
       })
     }
     const result: AttemptResult = { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
