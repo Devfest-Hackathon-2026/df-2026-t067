@@ -34,6 +34,9 @@ export interface ManagedQuest {
   draft: ManagedQuestDraft; source: 'real' | 'mock'
 }
 export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
+export interface DraftSuggestion {
+  orgId: string; questId: string; draftRevision: number; content: ManagedQuestDraft['content']; source: 'mock' | 'real'
+}
 export const REVIEW_FIELDS = [
   'materials.name', 'materials.evidence', 'materials.photoRights', 'referenceAssetId', 'hintAssetId',
   'shootingAreas', 'content.title', 'content.question', 'content.hints', 'content.verifiedFeatures',
@@ -139,19 +142,34 @@ export function parseUploadedOrgAsset(input: unknown): UploadedOrgAsset {
   return { ...asset, ...metadata, contentType: 'image/jpeg', width, height, byteLength, source: d.source }
 }
 
+function draftContent(input: unknown): ManagedQuestDraft['content'] {
+  const c = fields(input, ['title', 'question', 'hints', 'verifiedFeatures', 'draftingNotes'], 'content')
+  if (!Array.isArray(c.hints) || c.hints.length !== 3) throw new ContractError('hints')
+  return { title: text(c.title, 'title', 200), question: text(c.question, 'question'),
+    hints: Array.from(c.hints, (item) => text(item, 'hint', 2000)) as [string, string, string],
+    verifiedFeatures: text(c.verifiedFeatures, 'verifiedFeatures'), draftingNotes: text(c.draftingNotes, 'draftingNotes') }
+}
+
+export function parseDraftSuggestion(input: unknown): DraftSuggestion {
+  const d = fields(input, ['orgId', 'questId', 'draftRevision', 'content', 'source'], 'draftSuggestion')
+  if (d.source !== 'mock' && d.source !== 'real') throw new ContractError('draftSuggestion.source')
+  const content = draftContent(d.content)
+  if ([content.title, content.question, ...content.hints, content.verifiedFeatures].some((value) => !value.trim())) {
+    throw new ContractError('draftSuggestion.content')
+  }
+  return { orgId: identifier(d.orgId, 'orgId'), questId: identifier(d.questId, 'questId'),
+    draftRevision: revision(d.draftRevision), content, source: d.source }
+}
+
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
   const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId'], 'draft')
   const m = fields(d.materials, ['name', 'evidence', 'requiresBoat', 'requiresPaidFacility', 'price', 'photoNote', 'photoRights'], 'materials')
-  const c = fields(d.content, ['title', 'question', 'hints', 'verifiedFeatures', 'draftingNotes'], 'content')
   const a = fields(d.afterClear, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
-  if (!Array.isArray(c.hints) || c.hints.length !== 3) throw new ContractError('hints')
   return {
     materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
       requiresBoat: flag(m.requiresBoat, 'requiresBoat'), requiresPaidFacility: flag(m.requiresPaidFacility, 'requiresPaidFacility'), price: text(m.price, 'price', 2000),
       photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
-    content: { title: text(c.title, 'title', 200), question: text(c.question, 'question'),
-      hints: Array.from(c.hints, (item) => text(item, 'hint', 2000)) as [string, string, string],
-      verifiedFeatures: text(c.verifiedFeatures, 'verifiedFeatures'), draftingNotes: text(c.draftingNotes, 'draftingNotes') },
+    content: draftContent(d.content),
     afterClear: { access: text(a.access, 'afterClear.access', 2000), hours: text(a.hours, 'afterClear.hours', 2000),
       promoComment: text(a.promoComment, 'afterClear.promoComment', 2000), explanation: text(a.explanation, 'afterClear.explanation') },
     referenceAssetId: d.referenceAssetId === null ? null : identifier(d.referenceAssetId, 'referenceAssetId'),
@@ -167,10 +185,11 @@ export function parseUpdateManagedQuest(input: unknown): UpdateManagedQuest {
   const d = fields(input, ['expectedDraftRevision', 'draft'], 'updateManagedQuest')
   return { expectedDraftRevision: revision(d.expectedDraftRevision), draft: parseManagedQuestDraft(d.draft) }
 }
-export function parseSubmitReview(input: unknown): { expectedDraftRevision: number } {
-  const d = fields(input, ['expectedDraftRevision'], 'submitReview')
+export function parseDraftRevisionRequest(input: unknown): { expectedDraftRevision: number } {
+  const d = fields(input, ['expectedDraftRevision'], 'draftRevisionRequest')
   return { expectedDraftRevision: revision(d.expectedDraftRevision) }
 }
+export const parseSubmitReview = parseDraftRevisionRequest
 export function parseReviewSubmission(input: unknown): ReviewSubmission {
   const d = fields(input, ['quest', 'missing'], 'reviewSubmission')
   const quest = parseManagedQuest(d.quest)

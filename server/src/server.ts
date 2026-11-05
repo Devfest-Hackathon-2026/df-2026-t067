@@ -3,6 +3,7 @@ import type { MembershipLookup } from './admin-http'
 import { DemoAdminStore } from './admin'
 import type { DemoAssetStore } from './admin-assets'
 import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
+import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { createDiscoveryHandler } from './discoveries-http'
 import type { DiscoveryRepository } from './discoveries'
 import { randomUUID } from 'node:crypto'
@@ -27,6 +28,7 @@ export interface ServerOptions {
   admin?: DemoAdminStore
   adminAssets?: DemoAssetStore
   adminPhotoTest?: AdminPhotoTestOptions
+  suggestDraft?: FixtureDraftSuggester
   memberships?: MembershipLookup
   discoveries?: DiscoveryRepository
   nodeEnv?: string
@@ -74,7 +76,7 @@ export function createServer(options: ServerOptions) {
     return publication?.quest.version === version ? publication.zones : undefined
   }) : options.locationValidation
   const adminHandler = createAdminHandler({ store: admin, assets: options.adminAssets, memberships: options.memberships,
-    photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid),
+    photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid), suggestDraft: options.suggestDraft,
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
   const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
   const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
