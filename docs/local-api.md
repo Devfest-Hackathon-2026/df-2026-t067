@@ -8,7 +8,7 @@
 |---|---|
 | `npm run dev` の `/` | ローカルAPIを使う。`VITE_QUEST_DATA_SOURCE`の指定は不要 |
 | `npm run dev` の `/admin-local` | 開発用の管理画面。Googleログインと開発用の所属設定が必要 |
-| `npm run build` → `npm run preview` | 既存の画面内サンプルを表示。ローカルAPI転送なし |
+| `npm run build` → `npm run preview` | 既存の画面内サンプルを表示。公開問題の取得は行わない |
 
 旅行者画面はAPIのデモモードを検証する。固定のサンプルマーカーは開発用API画面では表示しない。
 
@@ -38,7 +38,7 @@ npm run dev
 
 [localhost:5173](http://localhost:5173/)を開く。5173が別の作業で使用中なら、その作業を止めず、明示的に`npm run dev -- --port 5174`で起動して[localhost:5174](http://localhost:5174/)を開く。Firebaseの許可ドメインに合わせ、ブラウザでは`127.0.0.1`ではなく`localhost`を使う。
 
-Viteが`/api`だけを固定のローカルサーバーへproxyする。共通clientの同一originパスを維持し、サーバーへ広いCORS許可は追加しない。Viteのpreviewや本番の配信設定にはproxyを追加していない。設定を変更したらViteを再起動する。終了は両ターミナルで **Ctrl+C**。
+Viteの開発サーバーとローカルのpreviewは、`/api`へのリクエストを `127.0.0.1:8787` に転送する。ビルド済みのプレビュー画面は公開問題を取得せず、Hostingの配信設定はこの転送を使わない。設定を変更したらViteを再起動する。終了は両ターミナルで **Ctrl+C**。
 
 ## 期待する動作
 
