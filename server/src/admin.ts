@@ -8,12 +8,21 @@ import type { PublicQuest } from '../../src/shared/api/types'
 import { parsePublicQuest } from '../../src/shared/api/validation'
 import type { PhotoTestEvidence } from './admin-photo-tests'
 
-interface Publication {
+interface AnswerMaterial {
+  referenceAssetId: string
+  features: string[]
+  zones: CaptureZone[]
+}
+
+interface PublicPublication {
   quest: PublicQuest
   orgId: string
   hints: string[]
-  zones: CaptureZone[]
   hintAssetId: string | null
+}
+
+interface Publication extends PublicPublication {
+  answerMaterial: AnswerMaterial
   pauseReason: string | null
 }
 
@@ -84,7 +93,10 @@ export class DemoAdminStore {
   }
   publish(orgId: string, questId: string, input: PublishManagedQuest, match?: PhotoTestEvidence, mismatch?: PhotoTestEvidence): ManagedQuest {
     const quest = this.getAtRevision(orgId, questId, input.expectedDraftRevision)
-    if ((quest.status !== 'review_pending' && quest.status !== 'published') || this.reviewMissing(quest).length) {
+    const { materials, content, referenceAssetId, hintAssetId } = quest.draft
+    const features = draftPhotoFeatures(content.verifiedFeatures)
+    if ((quest.status !== 'review_pending' && quest.status !== 'published') ||
+      !referenceAssetId || !features || this.reviewMissing(quest).length) {
       throw new HttpError(409, 'REVIEW_REQUIRED', '必要な入力を揃えて、この下書き版の確認を依頼してください。')
     }
     if (!evidenceFor(match, quest, 'MATCH') || !evidenceFor(mismatch, quest, 'WRONG_TARGET') || match.photoDigest === mismatch.photoDigest) {
@@ -93,7 +105,6 @@ export class DemoAdminStore {
     if (quest.status === 'published') return quest
     const version = (this.publications.get(questId)?.quest.version ?? 0) + 1
     if (!Number.isSafeInteger(version)) throw new HttpError(409, 'DRAFT_CONFLICT', '公開版を更新できません。')
-    const { materials, content, hintAssetId } = quest.draft
     const conditions = ['開発用の架空データです。実際の訪問・撮影には使えません。']
     if (materials.requiresBoat) conditions.push('船上・海上からの撮影が必要。')
     if (materials.requiresPaidFacility) conditions.push('有料施設内での撮影が必要。')
@@ -104,8 +115,10 @@ export class DemoAdminStore {
       shootingConditions: { requiresBoat: materials.requiresBoat, requiresPaidFacility: materials.requiresPaidFacility },
       ...(hintAssetId ? { optionalHintImage: '/api/v1/quests/' + questId + '/hint-image?expectedVersion=' + version } : {}) })
     const updated: ManagedQuest = { ...quest, status: 'published', publishedVersion: version }
-    this.publications.set(questId, { quest: visible, orgId, hints: content.hints.map((hint) => hint.trim()),
-      zones: structuredClone(this.shootingAreas.get(questId) ?? []), hintAssetId, pauseReason: null })
+    this.publications.set(questId, {
+      quest: visible, orgId, hints: content.hints.map((hint) => hint.trim()), hintAssetId, pauseReason: null,
+      answerMaterial: { referenceAssetId, features, zones: structuredClone(this.shootingAreas.get(questId) ?? []) },
+    })
     this.quests.set(questId, updated)
     return structuredClone(updated)
   }
@@ -127,9 +140,17 @@ export class DemoAdminStore {
   listPublished(): PublicQuest[] {
     return [...this.publications.values()].filter((publication) => publication.pauseReason === null).map(({ quest }) => structuredClone(quest))
   }
-  getPublished(questId: string): Publication | undefined {
+  getPublished(questId: string): PublicPublication | undefined {
     const publication = this.publications.get(questId)
-    return publication?.pauseReason === null ? structuredClone(publication) : undefined
+    if (publication?.pauseReason !== null) return undefined
+    const { quest, orgId, hints, hintAssetId } = publication
+    return structuredClone({ quest, orgId, hints, hintAssetId })
+  }
+  // This snapshot is for server-side answer checks only.
+  getPublishedAnswerMaterial(questId: string, version: number): (AnswerMaterial & { orgId: string }) | undefined {
+    const publication = this.publications.get(questId)
+    if (publication?.pauseReason !== null || publication.quest.version !== version) return undefined
+    return structuredClone({ orgId: publication.orgId, ...publication.answerMaterial })
   }
   isPaused(questId: string): boolean {
     const publication = this.publications.get(questId)

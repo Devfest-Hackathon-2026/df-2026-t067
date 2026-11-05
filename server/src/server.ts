@@ -80,10 +80,9 @@ export function createServer(options: ServerOptions) {
     if (!quest) throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
     if (quest.version !== version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
   }
-  const location = options.locationValidation === 'demo' ? createDemoLocationValidation((questId, version) => {
-    const publication = admin.getPublished(questId)
-    return publication?.quest.version === version ? publication.zones : undefined
-  }) : options.locationValidation
+  const location = options.locationValidation === 'demo'
+    ? createDemoLocationValidation((questId, version) => admin.getPublishedAnswerMaterial(questId, version)?.zones)
+    : options.locationValidation
   const adminHandler = createAdminHandler({ store: admin, assets: options.adminAssets, memberships: options.memberships,
     photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid), suggestDraft: options.suggestDraft, reports,
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
