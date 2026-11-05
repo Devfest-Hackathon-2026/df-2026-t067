@@ -174,7 +174,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       <header className="site-header">
         <div className="brand">
           <span className="brand-mark"><Icon name="compass" /></span>
-          <span className="brand-copy">全国観光謎アプリ<small>謎から、旅へ。</small></span>
+          <span className="brand-copy">全国観光謎アプリ</span>
         </div>
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
           <a className="nav-active" href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" />謎を探す</a>
@@ -197,9 +197,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
         <section className="explore" aria-labelledby="explore-title">
           <div className="explore-heading">
             <div>
-              <p className="eyebrow">知らない街との、出会いを探そう</p>
               <h1 id="explore-title">全国から謎を探す</h1>
-              <p className="explore-description">気になる謎を選んで、次の旅のきっかけに。</p>
             </div>
             <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
           </div>
@@ -212,8 +210,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
             }} />
 
             <aside className="quest-rail" aria-label="選べる謎">
-              <div className="rail-heading"><h2>旅のきっかけになる謎</h2><span>{apiMode ? '公開API' : 'デモ 1件'}</span></div>
-              <p className="rail-description">ヒントを頼りに、街の新しい一面を見つけよう。</p>
+              <div className="rail-heading"><h2>選べる謎</h2>{!apiMode && <span>1件</span>}</div>
               {questPicker}
               <div ref={questCard}>
                 {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
@@ -234,14 +231,14 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                   </QuestDetails>
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>
-              <div className="browse-note"><span className="browse-note-icon"><Icon name="compass" /></span><div><strong>まずは、気になる謎をひとつ。</strong><p>問題の閲覧にログインは必要ありません。</p></div></div>
+              <p className="browse-note">問題の閲覧にログインは必要ありません。</p>
               <div className="demo-note"><span className="demo-note-dot" /><p>{apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
             </aside>
           </div>
         </section>
         {!isQuestOpen && feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
       </main>
-      <footer className="site-footer"><span>謎を見つけて、街と出会う。</span><span>場所・問題は架空の開発用デモです。</span></footer>
+      <footer className="site-footer"><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
         <a href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" /><span>謎を探す</span></a>
         <button type="button" disabled><Icon name="book" /><span>自分の記録<small>準備中</small></span></button>

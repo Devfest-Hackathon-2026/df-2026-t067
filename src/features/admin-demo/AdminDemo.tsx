@@ -100,7 +100,7 @@ export default function AdminDemo() {
     <nav className="steps" aria-label="登録手順">
       <button type="button" aria-current={step === 'A03' ? 'step' : undefined} onClick={() => setStep('A03')}><b>A03</b><span>素材・場所登録</span></button><button type="button" aria-current={step === 'A04' ? 'step' : undefined} onClick={enterDraft}><b>A04</b><span>下書き・編集（AI未接続）</span></button><button type="button" aria-current={step === 'A05' ? 'step' : undefined} onClick={() => setStep('A05')}><b>A05</b><span>表示プレビュー（未公開）</span></button>
     </nav>
-    <p className="demo-notice" role="note">これは未認証の操作デモです。入力と写真はReactの一時状態のみで管理し、再読み込みで初期化されます。永続保存はしません。アップロード、AI、保存、認証・認可、正解判定、公開には接続していません。</p>
+    <p className="demo-notice" role="note">未認証の操作デモです。入力と写真の送信・保存は行いません。再読み込みで入力は消えます。AI・認証・認可・正解判定・公開は未接続です。</p>
 
     {step === 'A03' ? <form onSubmit={event => { event.preventDefault(); setShowSummary(true) }}>
       <section className="form-section" aria-labelledby="target-heading"><h2 id="target-heading" ref={a03HeadingRef} tabIndex={-1}>A03 素材・場所登録：対象と根拠</h2>
@@ -128,7 +128,6 @@ export default function AdminDemo() {
       {draftEntryError && <p ref={draftErrorRef} tabIndex={-1} role="alert" className="field-error">{draftEntryError}</p>}
       <button className="submit-button" type="button" onClick={enterDraft}>下書き・編集へ</button>
       <button className="submit-button" type="submit">入力内容を確認（デモ）</button>
-      <p className="helper">入力内容の確認だけを行う操作デモです。送信・保存は行いません。</p>
       {showSummary && <section aria-labelledby="summary-heading" className="form-section summary"><h2 id="summary-heading">入力内容の確認</h2><p>これは画面内の確認表示です。送信・保存はしていません。</p><dl><dt>架空自治体・探索エリア</dt><dd>青葉みらい市（架空）・青葉みらい市の行政区域（架空）</dd><dt>対象名</dt><dd>{name || '未入力'}</dd><dt>根拠</dt><dd>{evidence || '未入力'}</dd><dt>利用可能な交通手段</dt><dd>{availableModes.join('、') || '未選択'}</dd><dt>必須の交通手段</dt><dd>{requiredModes.join('、') || '未選択'}</dd><dt>アクセス補足</dt><dd>{access || '未入力'}</dd><dt>利用できる時間</dt><dd>{hours || '未入力'}</dd><dt>料金</dt><dd>{price || '未入力'}</dd><dt>撮影時の注意</dt><dd>{photoNote || '未入力'}</dd><dt>写真の出典と利用権</dt><dd>{photoRights || '未入力'}</dd><dt>参考写真</dt><dd>{photo?.file.name || '未選択'}</dd><dt>非公開の撮影地点・半径</dt><dd>未設定・接続待ち</dd></dl></section>}
     </form> : step === 'A04' ? <DraftEditor draft={draft} setDraft={setDraft} materialChanged={materialChanged} sampleConfirm={sampleConfirm} setSampleConfirm={setSampleConfirm} onBack={() => setStep('A03')} onPreview={() => setStep('A05')} headingRef={a04HeadingRef} /> : <TravelerPreview content={{ title: draft.title, question: draft.question, hints: draft.hints, availableModes, requiredModes, access, hours, price, photoNote }} headingRef={a05HeadingRef} onEdit={enterDraft} />}
   </main>
