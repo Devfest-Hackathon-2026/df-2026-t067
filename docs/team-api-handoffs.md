@@ -89,6 +89,7 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 ### 画像・試験・公開の境界
 
 - `referenceAssetId`は用途`reference`、`hintAssetId`は用途`public_hint`の登録素材だけ。同じ組織・用途をサーバーで検証する。他自治体、未知のID、参考写真の公開流用は400で拒否する。
+- ローカル管理画面の「公開ヒント画像を設定」は、利用権付きの別素材を `public_hint` として登録し、保存済みの版に参照を設定または解除する。公開後はT02の「ヒント画像を見る」で開ける。[管理画面の手順](admin-demo.md#開発用の所属問題報告を閲覧する)
 - assetの基底型は`{assetId, orgId, purpose}`。写真の受付・認可付き取得は[素材API](admin-assets.md)で追加した。明示memory設定で写真を登録し、返されたassetIdを保存できる。未設定なら両方nullのままにする。`File`、blob URL、data URLをassetIdとして送らない。実Storage保存ではない。
 - 非公開の撮影地点/半径は[専用の管理API](admin-shooting-areas.md)で取得/全置換する。通常の管理応答は設定状態だけを持つ。configuredでも現地確認・試験・公開の完了と扱わない。
 - 素材APIは未設定503・明示memoryのみ。生成候補の取得、保存、試験、確認依頼、開発用の公開は別操作として扱う。

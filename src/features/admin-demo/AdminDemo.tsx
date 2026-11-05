@@ -184,7 +184,7 @@ export default function AdminDemo({ connection }: { connection?: LocalDraftConne
             materials: { name, evidence, requiresBoat, requiresPaidFacility, price, photoNote, photoRights },
             content: draft, afterClear: { access, hours, promoComment, explanation }, referenceAssetId,
             hintAssetId: record?.draft.hintAssetId ?? null,
-          }, photo?.file, (saved) => {
+          }, photo ? { file: photo.file, purpose: 'reference', photoRights } : undefined, (saved) => {
             setReferenceAssetId(saved.draft.referenceAssetId)
             clearPhoto()
           })
