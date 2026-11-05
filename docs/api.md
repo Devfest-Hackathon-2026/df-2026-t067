@@ -1,6 +1,6 @@
 # API・共通データ契約案 v0.3
 
-旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)、公開GETと認証確認は[ローカルAPIの土台](#9-ローカルapiの土台)、挑戦開始・回答受付は同節の開発用実装を用意した。それ以外のサーバー機能は未実装の提案。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
+旅行者向けの共通型・実行時検証・HTTPクライアントは[初期実装](#8-最初の共通api実装)、公開GETと認証確認は[ローカルAPIの土台](#9-ローカルapiの土台)、挑戦開始・回答受付は同節の開発用実装を用意した。段階ヒント・自治体の所属確認/下書き保存は[接続手順](team-api-handoffs.md)の開発用実装を追加した。それ以外のサーバー機能は未実装の提案。変更時は画面とテストも同じPRで更新する。基底は`/api/v1`。HTTPの形はFunctions上のAPIを想定する。
 
 ## 1. 共通ルール
 
@@ -32,7 +32,7 @@
 | GET /areas | 不要 | bbox, zoom, cursor, limit → items: PublicArea[], nextCursor |
 | GET /quests | 不要 | areaId, cursor, limit → items: PublicQuest[], nextCursor |
 | GET /quests/:questId | 不要 | 公開中のPublicQuest。非公開は404または公開可能な休止通知のみ |
-| GET /quests/:questId/hints/:index | 不要 | 通常の段階ヒント。利用条件はヒントに隠さない |
+| GET /quests/:questId/hints/:index | 不要 | expectedVersion必須、indexは1始まり → QuestHint。版違いは409 QUEST_CHANGED。利用条件はヒントに隠さない |
 | POST /quests/:questId/reveal | 不要 | 明示的な最終案内を要求 → 対象名と撮影案内のみ（提案仕様） |
 | POST /challenges | 必要 | questId, expectedVersion → 初回201 Challenge。同じ利用者・問題・版の再要求は200で再利用。開発用の実装範囲は[挑戦開始API](challenge-start.md)を参照。実データでは未公開・版違い・既存発見を確認する |
 | POST /challenges/:challengeId/answers | 必要 | multipartでphotoとCaptureMetadata。Idempotency-Key必須 → AttemptResult |
@@ -98,7 +98,7 @@
 
 ## 8. 最初の共通API実装
 
-入口は[src/shared/api/index.ts](../src/shared/api/index.ts)。B/Cは独自にDTO・結果コード・fetch処理をコピーせず、ここから利用する。Dの自治体向け下書き構造と編集APIは後続で具体化する。
+入口は[src/shared/api/index.ts](../src/shared/api/index.ts)。B/Cは独自にDTO・結果コード・fetch処理をコピーせず、ここから利用する。Dの自治体向け下書き構造と開発用編集APIは[接続手順](team-api-handoffs.md)・`src/shared/api/admin.ts`を参照する。
 
 - 共通型：PublicArea / PublicQuest / Challenge / CaptureMetadata / AttemptResult / Discovery / Page。
 - parse関数は値と許可する項目を検査し、契約違反をContractErrorにする。公開データに正解等の項目が混じった場合も検出する。サーバーが公開前に情報を除外する責務は引き続き必要。
@@ -115,7 +115,7 @@ submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempot
 
 409のQUEST_CHANGED / QUEST_UNAVAILABLE、503のSYSTEM_ERRORも、正しいAttemptResultなら回答IDを保って返す。エラー封筒はApiError（code / status / requestId / retryable / retryAfterSeconds）へ変換し、サーバーのmessageは表示用エラーへ転記しない。実APIからのsource: mockは拒否する。
 
-共通API自体にはサーバー、AI判定、データ保存、自治体編集API、ヒント取得APIは含まれない。Googleログインは[認証ガイド](firebase-auth.md)の別実装で、getIdTokenを介して接続できる。架空の問題を実サーバーへ送信して成功扱いにする処理は追加しない。
+最初の共通APIにはAI判定・データ保存は含まれない。後続の段階ヒント・開発用自治体下書きAPIは[接続手順](team-api-handoffs.md)に追加範囲を記録する。Googleログインは[認証ガイド](firebase-auth.md)の別実装で、getIdTokenを介して接続できる。架空の問題を実サーバーへ送信して成功扱いにする処理は追加しない。
 
 ## 9. ローカルAPIの土台
 
@@ -148,3 +148,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 共通clientに`getSession()`と`SessionIdentity { uid: string }`を追加。保護APIと同じ経路で毎回最新のID tokenを取得し、余分なclaimや空・128文字超のuidを拒否する。画面は現在のFirebase利用者とuidを照合し、不一致を成功にしない。
 
 `createApiClient({ expectedDataMode: 'demo' })`を指定した開発用接続では、成功応答の`X-Quest-Data-Mode: demo`を必須にする。未指定の既存clientの動作は維持する。画面の通信は10秒で中止し、明示的な再試行を用意する。ログアウトや利用者変更後の古い応答は破棄する。実tokenの正常系と認証復元・ログアウトはChromeで確認済み。失効確認と組織認可は未実装のまま区別する。
+
+## 10. B/Dへの追加接続
+
+[team-api-handoffs.md](team-api-handoffs.md)が呼び出し例・設定・制約の正本。`QuestHint`とDの`OrgMembership / ManagedQuestDraft / ManagedQuest / ManagedAsset`を共通exportし、`DRAFT_CONFLICT`をエラーコードへ追加した。認証済み`GET /me/memberships`、自組織だけの一覧/作成/詳細/全下書き置換を追加する。未実装の公開・生成等は404のまま。下書き保存は明示した開発用一時領域に限り、実DB/Storage保存ではない。

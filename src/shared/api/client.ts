@@ -1,12 +1,14 @@
+import { parseManagedQuest, parseManagedQuestDraft, parseOrgMembership, parseUpdateManagedQuest } from './admin'
+import type { ManagedQuestDraft, UpdateManagedQuest } from './admin'
 import type { AttemptResult, CaptureMetadata, Decoder } from './types'
 import {
   ContractError, parseAttemptResult, parseCaptureMetadata, parseChallenge,
-  parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseSessionIdentity,
+  parseDiscovery, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseSessionIdentity,
 } from './validation'
 
 const ERROR_CODES = [
   'INVALID_INPUT', 'MEDIA_TOO_LARGE', 'UNAUTHENTICATED', 'FORBIDDEN', 'RATE_LIMITED',
-  'IDEMPOTENCY_CONFLICT', 'QUEST_UNAVAILABLE', 'QUEST_CHANGED', 'SYSTEM_ERROR',
+  'DRAFT_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUEST_UNAVAILABLE', 'QUEST_CHANGED', 'SYSTEM_ERROR',
   'NOT_FOUND', 'HTTP_ERROR', 'NETWORK_ERROR', 'INVALID_RESPONSE', 'AUTH_UNAVAILABLE',
 ] as const
 export type ApiErrorCode = typeof ERROR_CODES[number]
@@ -53,7 +55,7 @@ export interface AreaQuery {
 }
 interface RequestOptions extends CallOptions {
   authenticated?: boolean
-  method?: 'GET' | 'POST'
+  method?: 'GET' | 'POST' | 'PATCH'
   body?: BodyInit
   headers?: HeadersInit
   attempt?: boolean
@@ -194,7 +196,41 @@ export function createApiClient(options: ApiClientOptions = {}) {
     }
   }
 
+  function managed(orgId: string, questId?: string) {
+    return (data: unknown) => {
+      const quest = parseManagedQuest(data)
+      if (quest.orgId !== orgId || (questId !== undefined && quest.questId !== questId) ||
+        (quest.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('ManagedQuest.identity')
+      return quest
+    }
+  }
+  function adminInput<T>(parse: Decoder<T>, input: unknown): T {
+    try { return parse(input) }
+    catch (error) { if (error instanceof ContractError) throw new ApiError('INVALID_INPUT'); throw error }
+  }
+
   return {
+    async listMemberships(query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
+      return request('/me/memberships' + queryString(query), (data) => parsePage(data, parseOrgMembership), { ...call, authenticated: true })
+    },
+    async listManagedQuests(orgId: string, query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/quests' + queryString(query), (data) => parsePage(data, managed(orgId)), { ...call, authenticated: true })
+    },
+    async getManagedQuest(orgId: string, questId: string, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), { ...call, authenticated: true })
+    },
+    async createManagedQuest(orgId: string, input: ManagedQuestDraft, call: CallOptions = {}) {
+      const draft = adminInput(parseManagedQuestDraft, input)
+      return request('/orgs/' + id(orgId) + '/quests', managed(orgId), {
+        ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft }),
+      })
+    },
+    async updateManagedQuest(orgId: string, questId: string, input: UpdateManagedQuest, call: CallOptions = {}) {
+      const body = adminInput(parseUpdateManagedQuest, input)
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), {
+        ...call, authenticated: true, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+    },
     async getSession(call: CallOptions = {}) {
       return request('/session', parseSessionIdentity, { ...call, authenticated: true })
     },
@@ -206,6 +242,16 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getQuest(questId: string, call: CallOptions = {}) {
       return request('/quests/' + id(questId), parsePublicQuest, call)
+    },
+    async getHint(input: { questId: string; expectedVersion: number; index: number }, call: CallOptions = {}) {
+      const questId = id(input.questId)
+      const version = positiveInteger(input.expectedVersion)
+      const index = positiveInteger(input.index)
+      return request('/quests/' + questId + '/hints/' + index + '?expectedVersion=' + version, (data) => {
+        const hint = parseQuestHint(data)
+        if (hint.questId !== input.questId || hint.version !== version || hint.index !== index) throw new ContractError('QuestHint.identity')
+        return hint
+      }, call)
     },
     async createChallenge(input: { questId: string; expectedVersion: number }, call: CallOptions = {}) {
       id(input.questId)

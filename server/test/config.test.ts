@@ -40,3 +40,10 @@ test('invalid port and project ID configuration fail with names/constraints, nev
     assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', FIREBASE_PROJECT_ID: project }), /FIREBASE_PROJECT_ID must/)
   }
 })
+
+test('admin membership configuration is explicit and rejects relative or invalid file paths', () => {
+  assert.equal(readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_MEMBERSHIPS_FILE: '/private/tmp/local.json' }).demoMembershipsFile, '/private/tmp/local.json')
+  for (const file of ['', './local.json', 'https://example.invalid/local.json', '/tmp/' + String.fromCharCode(0), '/' + 'a'.repeat(4096)]) {
+    assert.throws(() => readConfig({ QUEST_DATA_MODE: 'demo', QUEST_DEMO_MEMBERSHIPS_FILE: file }), /QUEST_DEMO_MEMBERSHIPS_FILE must/)
+  }
+})
