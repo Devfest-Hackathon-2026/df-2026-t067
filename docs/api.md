@@ -85,6 +85,8 @@
 | POST /orgs/:orgId/quests | 編集・公開 | 対象・公開エリア・撮影地点群・素材・根拠で下書き作成 |
 | PATCH /orgs/:orgId/quests/:questId | 編集・公開 | expectedDraftRevisionと編集項目。競合なら409 |
 | POST /orgs/:orgId/assets | 編集・公開 | 参考写真等。用途・権利確認、容量検査を経てassetId発行 |
+| GET /orgs/:orgId/assets/:assetId | 編集・公開 | 自組織の素材メタデータのみ |
+| GET /orgs/:orgId/assets/:assetId/photo | 編集・公開 | 自組織の認証付きJPEG。public_hint用途でも自動公開しない |
 | POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 登録済みの素材と根拠から下書き生成。自動公開しない |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | 確認待ちへ。素材・利用条件の不足を示す |
@@ -161,3 +163,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 [owner-discoveries.md](owner-discoveries.md)が起動・client・保存境界の正本。既存Discoveryを使う本人一覧/詳細に、認証付きJPEG Blob取得と削除受付/追跡を追加した。`DeletionReceipt`は`{deletionId}`、`DeletionStatus`は`{deletionId, state: pending|completed|failed, retryable}`。HTTPから記録作成・編集は提供しない。
 
 既定は保存先未接続の503。`QUEST_DISCOVERIES_MODE=memory`を明示したときだけ空の開発用ストアを起動し、記録応答に`X-Quest-Records-Mode: memory`を付ける。共通clientは明示demo接続の場合だけmemoryを受け付ける。写真照合、回答処理からの記録作成、実DB/Storage、CORRECTは未接続のまま区別する。
+
+## 12. Dへの用途別写真素材API
+
+[admin-assets.md](admin-assets.md)に設定・入力・再送・下書きへの接続を記録する。`OrgAssetMetadata`と`UploadedOrgAsset`を追加し、`uploadOrgAsset / getOrgAsset / getOrgAssetPhoto`を共通clientから利用できる。serverは所属を確認して既存の画像検証で正規化し、用途・組織付きIDを発行する。`QUEST_ADMIN_ASSETS_MODE=memory`の明示設定だけが開発用写真を一時保存し、既定は503。実Storage/AI/公開やPR #30の新しい画面項目は含まない。

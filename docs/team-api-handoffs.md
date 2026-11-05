@@ -84,9 +84,9 @@ const saved = await api.updateManagedQuest(orgId, created.questId, {
 ### 画像・試験・公開の境界
 
 - `referenceAssetId`は用途`reference`、`hintAssetId`は用途`public_hint`の登録素材だけ。同じ組織・用途をサーバーで検証する。他自治体、未知のID、参考写真の公開流用は400で拒否する。
-- asset型は`{assetId, orgId, purpose}`。バイナリの受付と認可付き取得は未実装。通常起動のasset台帳は空なので、現段階の保存では両方nullにする。`File`、blob URL、data URLをassetIdとして送らない。ブラウザの参考写真は引き続き端末内だけに保持する。
+- assetの基底型は`{assetId, orgId, purpose}`。写真の受付・認可付き取得は[素材API](admin-assets.md)で追加した。明示memory設定で写真を登録し、返されたassetIdを保存できる。未設定なら両方nullのままにする。`File`、blob URL、data URLをassetIdとして送らない。実Storage保存ではない。
 - 非公開の撮影地点や半径は未設定。設定できたように見せず、`shootingAreaStatus: 'unconfigured'`を示す。
-- `generate/test/submit-review/publish/pause/assets`の操作は未実装で404。下書き保存で旅行者の発見記録や公開問題を作らない。AI生成・試験・公開ができるとの表示は追加しない。
+- `generate/test/submit-review/publish/pause`の操作は未実装で404。素材APIは未設定503・明示memoryのみ。下書き保存で旅行者の発見記録や公開問題を作らない。AI生成・試験・公開ができるとの表示は追加しない。
 
 ## 検証範囲
 

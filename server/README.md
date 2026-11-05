@@ -137,3 +137,7 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 ## 本人記録APIの開発用設定
 
 `QUEST_DISCOVERIES_MODE`は既定off。認証後も記録の保存先未接続として503を返す。`memory`を明示すると空の開発用メモリーストアを起動し、一覧/詳細/認証付き写真取得/削除追跡を利用できる。再起動で消え、架空のクリアを自動追加しない。実判定・実DB/Storage・回答workerからの保存は未接続。詳しくは[本人記録API](../docs/owner-discoveries.md)。
+
+## 自治体写真素材APIの開発用設定
+
+`QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、所属確認・画像検証付き写真登録と認可付き取得を使える。既定offは所属確認後503。通常の下書きストアは登録assetIdの台帳を共有し、組織・用途を検証する。画像/台帳は再起動で消え、実Storage・AI・公開へは接続しない。[設定・再送・制約](../docs/admin-assets.md)。

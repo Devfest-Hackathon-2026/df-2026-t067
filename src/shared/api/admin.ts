@@ -5,6 +5,10 @@ export type TravelMode = typeof TRAVEL_MODES[number]
 export type AssetPurpose = 'reference' | 'public_hint'
 export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
+export interface OrgAssetMetadata { purpose: AssetPurpose; photoRights: string }
+export interface UploadedOrgAsset extends ManagedAsset, OrgAssetMetadata {
+  contentType: 'image/jpeg'; width: number; height: number; byteLength: number; source: 'real' | 'mock'
+}
 export interface ManagedQuestDraft {
   materials: {
     name: string; evidence: string; availableModes: TravelMode[]; requiredModes: TravelMode[]
@@ -59,6 +63,24 @@ export function parseManagedAsset(input: unknown): ManagedAsset {
   const d = fields(input, ['assetId', 'orgId', 'purpose'], 'asset')
   if (d.purpose !== 'reference' && d.purpose !== 'public_hint') throw new ContractError('asset.purpose')
   return { assetId: identifier(d.assetId, 'assetId'), orgId: identifier(d.orgId, 'orgId'), purpose: d.purpose }
+}
+
+export function parseOrgAssetMetadata(input: unknown): OrgAssetMetadata {
+  const d = fields(input, ['purpose', 'photoRights'], 'assetMetadata')
+  if (d.purpose !== 'reference' && d.purpose !== 'public_hint') throw new ContractError('asset.purpose')
+  const photoRights = text(d.photoRights, 'photoRights', 2000)
+  if (!photoRights.trim()) throw new ContractError('photoRights')
+  return { purpose: d.purpose, photoRights }
+}
+
+export function parseUploadedOrgAsset(input: unknown): UploadedOrgAsset {
+  const d = fields(input, ['assetId', 'orgId', 'purpose', 'photoRights', 'contentType', 'width', 'height', 'byteLength', 'source'], 'UploadedOrgAsset')
+  const asset = parseManagedAsset({ assetId: d.assetId, orgId: d.orgId, purpose: d.purpose })
+  const metadata = parseOrgAssetMetadata({ purpose: d.purpose, photoRights: d.photoRights })
+  const width = revision(d.width), height = revision(d.height), byteLength = revision(d.byteLength)
+  if (width > 1600 || height > 1600 || byteLength > 2 * 1024 * 1024 || d.contentType !== 'image/jpeg' ||
+    (d.source !== 'real' && d.source !== 'mock')) throw new ContractError('UploadedOrgAsset.media')
+  return { ...asset, ...metadata, contentType: 'image/jpeg', width, height, byteLength, source: d.source }
 }
 
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
