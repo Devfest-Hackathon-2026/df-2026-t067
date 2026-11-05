@@ -8,15 +8,15 @@ import { answerTransaction, conflict, notFound, processingError, questChanged, r
   storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
 import { parseId } from './query'
 
-interface AnswerIdentity {
+export interface AnswerIdentity {
   uid: string
   attemptId: string
   digest: string
 }
 
-interface LeasedAnswer extends AnswerIdentity { leaseId: string }
+export interface LeasedAnswer extends AnswerIdentity { leaseId: string }
 interface MatchProof { placeId: string; version: number; location: 'WITHIN_AREA'; photo: 'MATCH' }
-interface ClaimOptions { leaseDurationMs: number; retryVerification?: boolean }
+export interface ClaimOptions { leaseDurationMs: number; retryVerification?: boolean }
 type WorkStep = 'verify' | 'prepare-photo' | 'commit'
 type ClaimedAnswer = { kind: 'claimed'; leaseId: string; questId: string; version: number; placeId: string } & (
   | { step: 'verify' | 'prepare-photo'; source: ReturnType<typeof readAnswerSource> }
@@ -27,6 +27,9 @@ type AnswerClaim =
   | { kind: 'busy' }
   | { kind: 'verification-expired' }
   | { kind: 'completed'; result: AttemptResult }
+
+const rejectedOutcomes = ['OUTSIDE_AREA', 'LOCATION_UNCERTAIN', 'WRONG_TARGET', 'IMAGE_UNCERTAIN'] as const
+type RejectedOutcome = typeof rejectedOutcomes[number]
 
 // Firestore can retry transaction callbacks. The worker performs photo IO and
 // model calls only after the transaction returns its assigned work step.
@@ -87,6 +90,37 @@ export async function recordAnswerPhoto(db: Firestore, input: LeasedAnswer, gene
   })
 }
 
+export async function assertAnswerWorkLive(db: Firestore, input: LeasedAnswer, step: WorkStep): Promise<void> {
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    requireLiveLease(receipt, data, input.leaseId)
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    if (workStep(data, current, true) !== step) throw processingError(true)
+  })
+}
+
+export async function recordRejectedAnswer(db: Firestore, input: LeasedAnswer, outcome: RejectedOutcome): Promise<AttemptResult> {
+  if (!rejectedOutcomes.includes(outcome)) invalidInput()
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    requireLiveLease(receipt, data, input.leaseId)
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    if (workStep(data, current, true) !== 'verify') throw processingError(true)
+    return finishAttempt(tx, receipt, { attemptId: input.attemptId, state: 'COMPLETED', source: 'real', outcome,
+      nextAction: outcome === 'OUTSIDE_AREA' ? 'MOVE_TO_AREA' : 'RETAKE' })
+  })
+}
+
+export async function completeKnownDiscovery(db: Firestore, input: LeasedAnswer): Promise<AttemptResult | null> {
+  return withOwnedAnswer(db, input, async (tx, receipt, data) => {
+    requireLiveLease(receipt, data, input.leaseId)
+    const current = await readCurrentVersion(db, tx, data, input.uid)
+    if (workStep(data, current, true) !== 'verify') throw processingError(true)
+    const { discovery, existing } = await readDiscovery(db, tx, input.uid, current.placeId)
+    if (!existing) return null
+    return finishAttempt(tx, receipt, { attemptId: input.attemptId, state: 'COMPLETED', source: 'real',
+      outcome: 'ALREADY_CLEARED', optionalDiscoveryId: discovery.id, nextAction: 'VIEW_DISCOVERY' })
+  })
+}
+
 export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): Promise<AttemptResult> {
   const { uid, attemptId, leaseId } = input
   validateLeaseId(leaseId)
@@ -98,15 +132,9 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
     const { questId, version, placeId, snapshot } = current
     assertMatchCheckpoint(data, current)
     const generation = preparedGeneration(data)
-    const discoveryId = createHash('sha256').update(JSON.stringify([uid, placeId])).digest('hex')
-    const discovery = db.collection('discoveries').doc(discoveryId)
-    const existing = (await tx.get(discovery)).data()
-    if (existing) {
-      if (existing.uid !== uid || existing.placeId !== placeId || existing.discoveryId !== discoveryId ||
-        !(existing.firstClearedAt instanceof Timestamp) || !validGeneration(existing.photoObject?.generation) ||
-        typeof existing.photoObject.path !== 'string' ||
-        !/^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(existing.photoObject.path)) throw processingError()
-    } else {
+    const { discovery, existing } = await readDiscovery(db, tx, uid, placeId)
+    const discoveryId = discovery.id
+    if (!existing) {
       const areaId = storedId(snapshot.areaId)
       if (typeof snapshot.placeName !== 'string' || !snapshot.placeName.trim() || snapshot.placeName.length > 200 ||
         typeof snapshot.descriptionSnapshot !== 'string' || snapshot.descriptionSnapshot.length > 4000) throw processingError()
@@ -120,13 +148,27 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
         photoObject: { path: recordAnswerPhotoPath(attemptId), generation },
       })
     }
-    const result: AttemptResult = { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
-      optionalDiscoveryId: discoveryId, source: 'real', nextAction: 'VIEW_DISCOVERY' }
-    tx.update(receipt.ref, {
-      state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete(), capture: FieldValue.delete(),
-    })
-    return result
+    return finishAttempt(tx, receipt, { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
+      optionalDiscoveryId: discoveryId, source: 'real', nextAction: 'VIEW_DISCOVERY' })
   })
+}
+
+async function readDiscovery(db: Firestore, tx: Transaction, uid: string, placeId: string) {
+  const discoveryId = createHash('sha256').update(JSON.stringify([uid, placeId])).digest('hex')
+  const discovery = db.collection('discoveries').doc(discoveryId)
+  const existing = (await tx.get(discovery)).data()
+  if (existing && (existing.uid !== uid || existing.placeId !== placeId || existing.discoveryId !== discoveryId ||
+    !(existing.firstClearedAt instanceof Timestamp) || !validGeneration(existing.photoObject?.generation) ||
+    typeof existing.photoObject.path !== 'string' ||
+    !/^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(existing.photoObject.path))) throw processingError()
+  return { discovery, existing }
+}
+
+function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult): AttemptResult {
+  tx.update(receipt.ref, {
+    state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete(), capture: FieldValue.delete(),
+  })
+  return result
 }
 
 async function withOwnedAnswer<T>(db: Firestore, input: AnswerIdentity,

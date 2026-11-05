@@ -66,7 +66,7 @@ export function readAnswerSource(data: DocumentData, attemptId: string) {
   const path = incomingAnswerPhotoPath(attemptId, data.digest)
   const generation: unknown = data.sourcePhoto?.generation
   if (data.sourcePhoto?.path !== path || !validGeneration(generation) || !(data.receivedAt instanceof Timestamp)) throw processingError()
-  return { photoObject: { path, generation }, metadata: parseCaptureMetadata(data.capture), receivedAt: data.receivedAt.toMillis() }
+  return { photoObject: { path, generation }, metadata: parseCaptureMetadata(data.capture), receivedAt: data.receivedAt.toDate().getTime() }
 }
 
 export function validAnswerUid(value: unknown): value is string {
