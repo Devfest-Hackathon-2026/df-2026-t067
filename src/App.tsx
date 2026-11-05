@@ -11,6 +11,7 @@ import { createApiClient } from './shared/api'
 import type { ApiClient } from './shared/api'
 import { CameraPreview } from './features/capture/CameraPreview'
 import { ChallengeCapture } from './features/capture/ChallengeCapture'
+import { OwnerDiscoveries } from './features/discoveries/OwnerDiscoveries'
 import { readDataSource, useQuestConnection, useServerIdentity } from './features/explore/useQuestConnection'
 import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
 import './App.css'
@@ -75,10 +76,13 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
 
 export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, apiMode = false }: AppProps = {}) {
   const [isQuestOpen, setIsQuestOpen] = useState(false)
+  const [recordsOpen, setRecordsOpen] = useState(false)
   const questCard = useRef<HTMLDivElement>(null)
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
+  const recordsEnabled = apiMode || source === 'local-api'
+  const showRecords = recordsEnabled && recordsOpen
   const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(), expectedDataMode: apiMode || source === 'local-api' ? 'demo' : undefined }), [providedApi, authClient, source, apiMode])
   const connection = useQuestConnection(externalQuest ? 'preview' : source, api)
   const content = connection.result.status === 'ready' ? connection.result.value : null
@@ -121,15 +125,13 @@ export default function App({ authClient: providedClient, apiClient: providedApi
     }
   }, [authClient])
 
-  async function login(selection: ChallengeSelection) {
-    if (questStale || visiblePending || pendingRef.current) return
-    const selectedId = selection.questId
-    const selectedVersion = selection.expectedVersion
+  async function login(selection?: ChallengeSelection) {
+    if ((selection && questStale) || visiblePending || pendingRef.current) return
     const operation = lifecycle.current
     const generation = selectionGeneration.current
     setFeedback(null)
     if (auth.status === 'signed-in') {
-      if (!onStartChallenge) return
+      if (!onStartChallenge || !selection) return
       pendingRef.current = true
       setPending({ client: authClient, kind: 'sign-in' })
       try { await onStartChallenge(selection) }
@@ -150,8 +152,9 @@ export default function App({ authClient: providedClient, apiClient: providedApi
         if (lifecycle.current === operation) setFeedback({ error: true, text: 'ログイン状態を確認できませんでした。問題の閲覧を続けられます。' })
         return
       }
-      if (lifecycle.current !== operation || selectionGeneration.current !== generation || !openRef.current || selectedQuest.current?.questId !== selectedId || selectedQuest.current?.version !== selectedVersion) return
-      if (onStartChallenge) await onStartChallenge(selection)
+      if (lifecycle.current !== operation || selectionGeneration.current !== generation) return
+      if (selection && openRef.current && selectedQuest.current?.questId === selection.questId &&
+        selectedQuest.current?.version === selection.expectedVersion && onStartChallenge) await onStartChallenge(selection)
     }
     catch (error) {
       const safe = error instanceof AuthError ? error : new AuthError('unknown')
@@ -174,6 +177,13 @@ export default function App({ authClient: providedClient, apiClient: providedApi
     } finally { setPending(null) }
   }
 
+  function navigateToRecords(open: boolean) {
+    closeCamera()
+    selectionGeneration.current++
+    setFeedback(null)
+    setRecordsOpen(open)
+  }
+
   return (
     <>
       <a className="skip-link" href="#main">本文へ移動</a>
@@ -183,8 +193,12 @@ export default function App({ authClient: providedClient, apiClient: providedApi
           <span className="brand-copy">全国観光謎アプリ</span>
         </div>
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
-          <a className="nav-active" href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" />謎を探す</a>
-          <button type="button" disabled><Icon name="book" />自分の記録<span>準備中</span></button>
+          <a className={showRecords ? undefined : 'nav-active'} href="#explore-title" aria-current={showRecords ? undefined : 'page'}
+            onClick={() => navigateToRecords(false)}><Icon name="map" />謎を探す</a>
+          <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
+            disabled={!recordsEnabled || visiblePending !== null} onClick={() => navigateToRecords(true)}>
+            <Icon name="book" />自分の記録{!recordsEnabled && <span>準備中</span>}
+          </button>
         </nav>
         <div className="account-area">
           <div className="account-status" role="status" aria-label="ログイン状態">
@@ -200,6 +214,21 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       </header>
 
       <main id="main" className="page" tabIndex={-1}>
+        {showRecords ? <section className="owner-records" aria-labelledby="records-title">
+          <h1 id="records-title">自分の記録</h1>
+          <p className="sample-note">開発用の本人記録です。</p>
+          <button type="button" className="secondary-button" onClick={() => navigateToRecords(false)}>地図へ戻る</button>
+          {auth.status === 'signed-out' && <button type="button" className="primary-button" disabled={visiblePending !== null}
+            onClick={() => void login()}>Googleログインして記録を見る</button>}
+          {auth.status === 'checking' && <p role="status">ログイン状態を確認しています…</p>}
+          {(auth.status === 'unconfigured' || auth.status === 'unavailable') && <p role="status">{notice.description}</p>}
+          {uid !== null && visiblePending === null && (serverIdentity.result?.status === 'ready'
+            ? <OwnerDiscoveries key={uid} api={api} />
+            : serverIdentity.result?.status === 'error'
+              ? <><p role="alert">ログインを確認できませんでした。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></>
+              : <p role="status">ログインを確認しています…</p>)}
+          {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
+        </section> : <>
         <section className="explore" aria-labelledby="explore-title">
           <div className="explore-heading">
             <div>
@@ -243,11 +272,13 @@ export default function App({ authClient: providedClient, apiClient: providedApi
           </div>
         </section>
         {!isQuestOpen && feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
+        </>}
       </main>
       <footer className="site-footer"><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
-        <a href="#explore-title" aria-current="page" onClick={closeCamera}><Icon name="map" /><span>謎を探す</span></a>
-        <button type="button" disabled><Icon name="book" /><span>自分の記録<small>準備中</small></span></button>
+        <a href="#explore-title" aria-current={showRecords ? undefined : 'page'} onClick={() => navigateToRecords(false)}><Icon name="map" /><span>謎を探す</span></a>
+        <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!recordsEnabled || visiblePending !== null}
+          onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!recordsEnabled && <small>準備中</small>}</span></button>
       </nav>
     </>
   )
