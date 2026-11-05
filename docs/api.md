@@ -34,7 +34,7 @@
 | GET /quests/:questId | 不要 | 公開中のPublicQuest。非公開は404または公開可能な休止通知のみ |
 | GET /quests/:questId/hints/:index | 不要 | 通常の段階ヒント。利用条件はヒントに隠さない |
 | POST /quests/:questId/reveal | 不要 | 明示的な最終案内を要求 → 対象名と撮影案内のみ（提案仕様） |
-| POST /challenges | 必要 | questId, expectedVersion → 201 Challenge。未公開・版違い・既存発見を確認 |
+| POST /challenges | 必要 | questId, expectedVersion → 初回201 Challenge。同じ利用者・問題・版の再要求は200で再利用。開発用の実装範囲は[挑戦開始API](challenge-start.md)を参照。実データでは未公開・版違い・既存発見を確認する |
 | POST /challenges/:challengeId/answers | 必要 | multipartでphotoとCaptureMetadata。Idempotency-Key必須 → AttemptResult |
 | GET /attempts/:attemptId | 必要 | 本人の結果・処理状態のみ。通信中断後も同じ結果を照会 |
 | GET /me/discoveries | 必要 | 地域・ページ指定 → 本人の発見一覧 |
@@ -131,15 +131,15 @@ submitAnswerにはchallengeId・photo（空でないBlob）・metadata・idempot
 
 sessionはCookieやサーバーセッションを作らず、クエリ・bodyのuid / orgId / roleを認証の根拠にしない。Firebase Admin SDKで署名・issuer・audience・有効期限を検証する。設定なしやSDK障害は503 AUTH_UNAVAILABLE、認証情報の欠落・不正は401 UNAUTHENTICATEDを返す。設定なしの場合はトークンの有無を問わず503。Auth Emulatorは起動時と検証時に拒否する。
 
-**失効・無効化された利用者の照会は未実装**（`verifyIdToken(token, false)`）。この認証確認は自治体の所属・権限確認ではない。DB・画像・管理操作を追加するときは、失効確認の方針と操作ごとの認可を別途実装・検証する。現時点では保護データの読み書きやクリア確定は行わない。実Google ID tokenを使ったAPIの正常系は、2026-11-05にChromeから確認済み。確認範囲は[接続手順](local-api.md#確認)に記録する。
+**失効・無効化された利用者の照会は未実装**（`verifyIdToken(token, false)`）。この認証確認は自治体の所属・権限確認ではない。DB・画像・管理操作を追加するときは、失効確認の方針と操作ごとの認可を別途実装・検証する。現時点では永続化やクリア確定は行わず、挑戦の管理は開発用の一時領域に限る。実Google ID tokenを使ったGET /sessionの正常系は、2026-11-05にChromeから確認済み。確認範囲は[接続手順](local-api.md#確認)に記録する。
 
 一覧のlimitは既定20、1〜100。IDは英数字で始まる英数字・`_`・`-`の1〜128文字。cursorは同じリソース・フィルター内だけ有効。bboxは公開ポリゴンの外接範囲で絞り、日付変更線をまたぐ範囲も扱う。zoomは0〜24の入力検証だけで、件数集約は行わない。公開GETの未知・重複クエリは400。sessionのクエリは無視する。
 
-すべての応答に`X-Quest-Data-Mode: demo`、サーバー生成の`X-Request-Id`、`Cache-Control: private, no-store`を付ける。エラーは既存の封筒形式。既知ルートのGET以外は405、未実装ルートは404。CORSの一括許可は追加せず、localhostだけで待ち受ける。
+すべての応答に`X-Quest-Data-Mode: demo`、サーバー生成の`X-Request-Id`、`Cache-Control: private, no-store`を付ける。エラーは既存の封筒形式。上表はGET、挑戦開始はPOSTだけを受け付け、異なるメソッドは405、未実装ルートは404。CORSの一括許可は追加せず、localhostだけで待ち受ける。
 
 検証は[`server.test.ts`](../server/test/server.test.ts)で公開情報のallowlist・ページング・境界入力・認証時のuid優先を、[`firebase-auth.test.ts`](../server/test/firebase-auth.test.ts)でSDKとの境界・失敗時の拒否を確認する。HTTP入力やSDKエラーの詳細をログへ出さない。SDK境界の代替テストと、実SDKによる不正トークンの拒否テストを区別している。
 
-Firestore / Storage、挑戦・回答・冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
+Firestore / Storage、回答・回答IDの冪等処理・判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)はプロセス内の一時領域だけで実装した。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
 
 ### 9-1. 開発用のWeb接続
 

@@ -44,6 +44,8 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm --prefix server run dev
 
 `http://127.0.0.1:8787/health`で起動を確認できます。データは常に架空のデモで、本番起動は拒否します。終了は **Ctrl+C**。クラウドへのデプロイやDB作成は行いません。
 
+認証後に利用者・問題・版を結び付ける[挑戦開始API](docs/challenge-start.md)も追加しました。開発用の一時管理で、再起動すると消えます。撮影画面からの呼び出しと写真送信・保存は次の接続作業です。
+
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
 ```sh

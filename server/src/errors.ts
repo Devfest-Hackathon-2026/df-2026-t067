@@ -6,6 +6,7 @@ export class HttpError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retryable = false,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message)
   }
