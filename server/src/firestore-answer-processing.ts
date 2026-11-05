@@ -2,8 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { AttemptResult } from '../../src/shared/api/types'
-import { ContractError, parseAttemptResult, parseDiscovery } from '../../src/shared/api/validation'
-import { HttpError, invalidInput } from './errors'
+import { parseDiscovery } from '../../src/shared/api/validation'
+import { invalidInput } from './errors'
+import { answerTransaction, conflict, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion,
+  storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
 import { parseId } from './query'
 
 interface AnswerIdentity {
@@ -16,8 +18,12 @@ interface LeasedAnswer extends AnswerIdentity { leaseId: string }
 interface MatchProof { placeId: string; version: number; location: 'WITHIN_AREA'; photo: 'MATCH' }
 interface ClaimOptions { leaseDurationMs: number; retryVerification?: boolean }
 type WorkStep = 'verify' | 'prepare-photo' | 'commit'
+type ClaimedAnswer = { kind: 'claimed'; leaseId: string; questId: string; version: number; placeId: string } & (
+  | { step: 'verify' | 'prepare-photo'; source: ReturnType<typeof readAnswerSource> }
+  | { step: 'commit' }
+)
 type AnswerClaim =
-  | { kind: 'claimed'; leaseId: string; step: WorkStep; questId: string; version: number; placeId: string }
+  | ClaimedAnswer
   | { kind: 'busy' }
   | { kind: 'verification-expired' }
   | { kind: 'completed'; result: AttemptResult }
@@ -29,7 +35,7 @@ export async function claimAnswerWork(db: Firestore, input: AnswerIdentity, opti
   if (!Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1) invalidInput()
   const leaseId = randomUUID()
   return withOwnedAnswer<AnswerClaim>(db, input, async (tx, receipt, data) => {
-    if (data.state === 'COMPLETED') return { kind: 'completed', result: completedResult(data, input.attemptId) }
+    if (data.state === 'COMPLETED') return { kind: 'completed', result: storedAnswerResult(data, input.attemptId) }
     const current = await readCurrentVersion(db, tx, data, input.uid)
     const lease = readLease(data)
     const step = workStep(data, current, lease !== undefined)
@@ -37,8 +43,12 @@ export async function claimAnswerWork(db: Firestore, input: AnswerIdentity, opti
     if (lease && lease.expiresAt.toMillis() > now) return { kind: 'busy' }
     if (data.state === 'PROCESSING' && retryVerification !== true) return { kind: 'verification-expired' }
     const expiresAt = Timestamp.fromMillis(now + leaseDurationMs)
+    const { questId, version, placeId } = current
+    const claimed = { kind: 'claimed' as const, leaseId, questId, version, placeId }
+    const result = step === 'commit' ? { ...claimed, step }
+      : { ...claimed, step, source: readAnswerSource(data, input.attemptId) }
     tx.update(receipt.ref, { state: step === 'verify' ? 'PROCESSING' : data.state, lease: { id: leaseId, expiresAt } })
-    return { kind: 'claimed', leaseId, step, questId: current.questId, version: current.version, placeId: current.placeId }
+    return result
   })
 }
 
@@ -81,7 +91,7 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
   const { uid, attemptId, leaseId } = input
   validateLeaseId(leaseId)
   return withOwnedAnswer(db, input, async (tx, receipt, data) => {
-    if (data.state === 'COMPLETED') return completedResult(data, attemptId)
+    if (data.state === 'COMPLETED') return storedAnswerResult(data, attemptId)
     if (data.state !== 'COMMITTING') throw processingError(true)
     requireLiveLease(receipt, data, leaseId)
     const current = await readCurrentVersion(db, tx, data, uid)
@@ -112,7 +122,9 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
     }
     const result: AttemptResult = { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
       optionalDiscoveryId: discoveryId, source: 'real', nextAction: 'VIEW_DISCOVERY' }
-    tx.update(receipt.ref, { state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete() })
+    tx.update(receipt.ref, {
+      state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete(), capture: FieldValue.delete(),
+    })
     return result
   })
 }
@@ -120,46 +132,15 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
 async function withOwnedAnswer<T>(db: Firestore, input: AnswerIdentity,
   work: (tx: Transaction, receipt: DocumentSnapshot, data: DocumentData) => Promise<T>): Promise<T> {
   const { uid, attemptId, digest } = input
-  if (typeof uid !== 'string' || !uid.trim() || uid.length > 128 || typeof attemptId !== 'string' ||
-    typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) invalidInput()
+  if (!validAnswerUid(uid) || typeof attemptId !== 'string' || !validDigest(digest)) invalidInput()
   const attempt = db.collection('attempts').doc(parseId(attemptId))
-  try {
-    return await db.runTransaction(async (tx) => {
-      const receipt = await tx.get(attempt)
-      const data = receipt.data()
-      if (!data || data.uid !== uid) throw notFound()
-      if (data.digest !== digest) throw conflict()
-      return work(tx, receipt, data)
-    })
-  } catch (error) {
-    if (error instanceof HttpError) throw error
-    throw processingError(!(error instanceof ContractError))
-  }
-}
-
-async function readCurrentVersion(db: Firestore, tx: Transaction, data: DocumentData, uid: string) {
-  const questId = storedId(data.questId)
-  const challengeId = storedId(data.challengeId)
-  const version: unknown = data.version
-  if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) throw processingError()
-  const [challenge, quest, publishedVersion] = await tx.getAll(
-    db.collection('challenges').doc(challengeId),
-    db.collection('quests').doc(questId),
-    db.collection('questVersions').doc(`${questId}:${version}`),
-  )
-  const accepted = challenge.data()
-  if (!accepted || accepted.uid !== uid || accepted.questId !== questId || accepted.version !== version) throw notFound()
-  const publication = quest.data()
-  if (!publication || publication.publishedVersion === null || publication.status === 'paused') {
-    throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
-  }
-  const activeVersion: unknown = publication.publishedVersion
-  if (typeof activeVersion !== 'number' || !Number.isSafeInteger(activeVersion) || activeVersion < 1 ||
-    !['draft', 'review_pending', 'published'].includes(publication.status)) throw processingError()
-  if (activeVersion !== version) throw questChanged()
-  const snapshot = publishedVersion.data()
-  if (!snapshot) throw processingError()
-  return { questId, version, snapshot, placeId: storedId(snapshot.placeId) }
+  return answerTransaction(db, async (tx) => {
+    const receipt = await tx.get(attempt)
+    const data = receipt.data()
+    if (!data || data.uid !== uid) throw notFound()
+    if (data.digest !== digest) throw conflict()
+    return work(tx, receipt, data)
+  })
 }
 
 function workStep(data: DocumentData, current: Pick<MatchProof, 'placeId' | 'version'>, hasLease: boolean): WorkStep {
@@ -193,12 +174,6 @@ function preparedGeneration(data: DocumentData): string {
   return generation
 }
 
-function completedResult(data: DocumentData, attemptId: string): AttemptResult {
-  const result = parseAttemptResult(data.result)
-  if (result.attemptId !== attemptId || result.source !== 'real' || result.state !== 'COMPLETED') throw processingError()
-  return result
-}
-
 function readLease(data: DocumentData): { id: string; expiresAt: Timestamp } | undefined {
   if (data.lease === undefined) return undefined
   if (!(data.lease?.expiresAt instanceof Timestamp)) throw processingError()
@@ -214,29 +189,4 @@ function requireLiveLease(receipt: DocumentSnapshot, data: DocumentData, leaseId
 function validateLeaseId(leaseId: string): void {
   if (typeof leaseId !== 'string') invalidInput()
   parseId(leaseId)
-}
-
-function storedId(value: unknown): string {
-  if (typeof value !== 'string') throw processingError()
-  try { return parseId(value) } catch { throw processingError() }
-}
-
-function validGeneration(value: unknown): value is string {
-  return typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
-}
-
-function notFound(): HttpError {
-  return new HttpError(404, 'NOT_FOUND', '見つかりません。')
-}
-
-function conflict(): HttpError {
-  return new HttpError(409, 'IDEMPOTENCY_CONFLICT', '回答の内容が一致しません。')
-}
-
-function questChanged(): HttpError {
-  return new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
-}
-
-function processingError(retryable = false): HttpError {
-  return new HttpError(503, 'SYSTEM_ERROR', '回答の処理を完了できませんでした。', retryable)
 }
