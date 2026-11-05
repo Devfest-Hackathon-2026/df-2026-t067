@@ -71,7 +71,8 @@ npm --prefix server run check
 | [API設計案](docs/api.md) | 画面とサーバーの受け渡し、結果コード |
 | [受け入れ・テスト条件](docs/acceptance.md) | 実装を完了と判断する確認項目 |
 | [決定事項と未決事項](docs/decisions.md) | 確定・提案・要確認の区別、変更履歴 |
-| [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割案)、クラウド設定の境界 |
+| [共同開発・設定手順](docs/development.md) | 最初の作業、[4人の担当範囲・成果物・受け渡し](docs/development.md#2-4人の役割と進捗)、クラウド設定の境界 |
+| [A〜Dの進捗管理（Issue #19）](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/19) | 担当者、main反映済みの範囲、次の作業、依存・実接続と実機の未確認事項。最新の進捗はこのIssueへ集約 |
 | [B担当：旅行者の地図・問題閲覧](docs/b-development.md) | T01/T02の現状、次の小さい実装単位、A/Cへの確認事項 |
 | [Firebase接続・Googleログイン](docs/firebase-auth.md) | 設定値をGitへ入れずに認証を使う手順と確認範囲 |
 | [画面とローカルAPIの接続](docs/local-api.md) | 開発用モード、2つの起動コマンド、API取得とサーバーでのログイン確認 |
