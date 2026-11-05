@@ -45,3 +45,5 @@ Files: server/src/answer-input.ts、server/test/answers.test.ts、location-http.
 - [x] server check（111件）/Web check（223件）・型/lint/build、別フォルダのnpm ci --ignore-scriptsとnative JPEG処理、既存依存の版維持、重要な差分を単独レビューした。
 
 相対リンク・秘密情報除外も確認し、別PRとIssue #19で共有する。新PRはマージしない。実Vertex通信・実写真・保存は未検証/未接続とする。クラウド設定は指定された既存チャットへ問い合わせ、未決の回答を受けたため独断で確定していない。
+
+PR作成前に並行更新のmain 7f3ceb2（UIのPR #21と公開記録の#22）を取り込み、Web checkの223テスト・型/lint/buildが成功。server・共通API・依存はその統合で変わらず、server 111件の検証結果を再利用する。
