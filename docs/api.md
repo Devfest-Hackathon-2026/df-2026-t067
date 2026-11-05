@@ -139,7 +139,7 @@ sessionはCookieやサーバーセッションを作らず、クエリ・bodyの
 
 検証は[`server.test.ts`](../server/test/server.test.ts)で公開情報のallowlist・ページング・境界入力・認証時のuid優先を、[`firebase-auth.test.ts`](../server/test/firebase-auth.test.ts)でSDKとの境界・失敗時の拒否を確認する。HTTP入力やSDKエラーの詳細をログへ出さない。SDK境界の代替テストと、実SDKによる不正トークンの拒否テストを区別している。
 
-Firestore / Storage、判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)と[回答受付・再送・本人照会](answer-intake.md)はプロセス内の一時領域だけで実装した。回答はRECEIVED/source:mockの受付確認に限り、画像保持・判定workerはなく自動進行しない。共通clientは明示的なdemo接続かつdemoヘッダーの受付だけを例外にし、mock完了は引き続き拒否する。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
+Firestore / Storage、写真判定・本人記録・自治体API・クラウド公開はこの段階に含まない。[開発用の挑戦開始](challenge-start.md)と[回答受付・再送・本人照会](answer-intake.md)はプロセス内の一時領域で実装した。明示的な[GPS demoモード](gps-validation.md)では、サーバー設定の範囲・精度・撮影/測位時刻を検査し、範囲外/位置不確実は200の不合格結果となる。通過は202 RECEIVED/source:mockのままで画像保持・写真判定workerはない。共通clientはdemo接続・demoヘッダーの受付とGPS不合格だけを例外にし、mock正解・その他完了を拒否する。ルートの`npm run check`と`npm --prefix server run check`を両方実行する。
 
 ### 9-1. 開発用のWeb接続
 

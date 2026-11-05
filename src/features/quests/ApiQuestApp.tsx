@@ -37,9 +37,13 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
   useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
+    let choices: PublicQuest[] = []
+    const fail = (error?: unknown) => setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'error', choices,
+      areas: catalog.current?.api === api ? catalog.current.areas ?? [] : [],
+      missing: error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'QUEST_UNAVAILABLE') })
+    const deadline = setTimeout(() => { fail(); controller.abort() }, 10_000)
     // Discard obsolete responses even when a transport ignores cancellation.
     void (async () => {
-      let choices: PublicQuest[] = []
       try {
         let cache = catalog.current?.api === api ? catalog.current : undefined
         if (!cache) {
@@ -72,11 +76,10 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
         setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'ready', choices, areas, quest,
           area: areas.find((item) => item.areaId === quest.areaId) })
       } catch (error) {
-        if (!signal.aborted) setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'error', choices, areas: catalog.current?.api === api ? catalog.current.areas ?? [] : [],
-          missing: error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'QUEST_UNAVAILABLE') })
-      }
+        if (!signal.aborted) fail(error)
+      } finally { clearTimeout(deadline) }
     })()
-    return () => controller.abort()
+    return () => { clearTimeout(deadline); controller.abort() }
   }, [api, selectedId, selectedAreaId, retry])
 
   const current = result?.api === api && result.selection === selectedId && result.areaSelection === selectedAreaId && result.retry === retry ? result : null

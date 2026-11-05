@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -17,12 +17,71 @@ const page = <T,>(items: T[]) => ({ items, nextCursor: null })
 function apiFixture() {
   return {
     listQuests: vi.fn().mockResolvedValue(page([{ ...first, title: '一覧表示用タイトル' }, second])),
-    getQuest: vi.fn(async (id: string) => id === first.questId ? first : second),
+    getQuest: vi.fn(async (id: string, _options?: { signal?: AbortSignal }) => id === first.questId ? first : second),
     listAreas: vi.fn().mockResolvedValue(page(areas)),
   }
 }
 
 describe('APIから問題を表示', () => {
+  it.each(['areas', 'quests', 'detail'] as const)('%s取得が止まったら10秒で再試行へ戻り、遅い応答を捨てる', async (stage) => {
+    vi.useFakeTimers()
+    let unmount: (() => void) | undefined
+    try {
+      const api = apiFixture()
+      let oldSignal: AbortSignal | undefined
+      let resolveOld!: () => void
+      if (stage === 'areas') {
+        api.listAreas.mockImplementationOnce((_query, options) => new Promise(resolve => {
+          oldSignal = options.signal
+          resolveOld = () => resolve(page(areas))
+        }))
+      } else if (stage === 'quests') {
+        api.listQuests.mockImplementationOnce((_query, options) => new Promise(resolve => {
+          oldSignal = options.signal
+          resolveOld = () => resolve(page([first, second]))
+        }))
+      } else {
+        api.getQuest.mockImplementationOnce((_id, options) => new Promise<PublicQuest>(resolve => {
+          oldSignal = options?.signal
+          resolveOld = () => resolve({ ...first, title: '古い詳細' })
+        }))
+      }
+      unmount = render(<ApiQuestApp api={api} />).unmount
+      await act(async () => {})
+      expect(oldSignal?.aborted).toBe(false)
+      await act(async () => vi.advanceTimersByTimeAsync(10_000))
+      expect(screen.getByRole('alert')).toHaveTextContent('サーバーとの通信を確認')
+      expect(oldSignal?.aborted).toBe(true)
+      expect(screen.queryByText('港に時を知らせるもの')).not.toBeInTheDocument()
+      api.getQuest.mockResolvedValue({ ...first, title: '再試行後の問題' })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '再試行' })) })
+      expect(screen.getByRole('heading', { name: '再試行後の問題' })).toBeVisible()
+      await act(async () => resolveOld())
+      expect(screen.getByRole('heading', { name: '再試行後の問題' })).toBeVisible()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByText('古い詳細')).not.toBeInTheDocument()
+    } finally {
+      unmount?.()
+      vi.useRealTimers()
+    }
+  })
+
+  it('取得成功後は待ち切りタイマーで表示をエラーに変えない', async () => {
+    vi.useFakeTimers()
+    let unmount: (() => void) | undefined
+    try {
+      unmount = render(<ApiQuestApp api={apiFixture()} />).unmount
+      await act(async () => {})
+      expect(screen.getByRole('heading', { name: first.title })).toBeVisible()
+      await act(async () => vi.advanceTimersByTimeAsync(10_000))
+      expect(screen.getByRole('heading', { name: first.title })).toBeVisible()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    } finally {
+      unmount?.()
+      vi.useRealTimers()
+    }
+  })
+
   it('匿名で一覧・詳細・地域名を取得し、選択変更で詳細を切り替える', async () => {
     const user = userEvent.setup()
     const api = apiFixture()
