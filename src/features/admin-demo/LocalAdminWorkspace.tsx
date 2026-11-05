@@ -8,12 +8,14 @@ import { AuthError, createFirebaseAuthClient } from '../auth/firebaseAuth'
 import { useServerIdentity } from '../explore/useQuestConnection'
 import { PausePublication } from './PausePublication'
 import AdminDemo from './AdminDemo'
+import { ShootingAreasEditor } from './ShootingAreasEditor'
 import './adminDemo.css'
 
 const statusLabels: Record<ManagedQuest['status'], string> = {
   draft: '下書き', review_pending: '確認待ち', published: '公開中', paused: '休止中',
 }
 const roleLabels: Record<OrgMembership['role'], string> = { editor: '編集担当', publisher: '公開担当' }
+type Editor = { kind: 'draft'; initial: ManagedQuest | null } | { kind: 'areas'; questId: string }
 
 function Pager({ cursor, next, onMove }: { cursor?: string; next?: string | null; onMove: (cursor?: string) => void }) {
   return <div className="admin-list-actions">
@@ -26,16 +28,17 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
   const [section, setSection] = useState<'quests' | 'reports'>('quests')
   const [cursor, setCursor] = useState<string>()
   const [notice, setNotice] = useState('')
-  const [editing, setEditing] = useState<ManagedQuest | null>()
+  const [editor, setEditor] = useState<Editor | null>(null)
   const read = useCallback((signal: AbortSignal) => section === 'quests'
     ? api.listManagedQuests(member.orgId, { cursor, limit: 20 }, { signal })
     : api.listManagedReports(member.orgId, { cursor, limit: 20 }, { signal }), [api, member.orgId, cursor, section])
-  const { result, retry } = useRemote<Page<ManagedQuest | ManagedReport>>(editing === undefined, read)
+  const { result, retry } = useRemote<Page<ManagedQuest | ManagedReport>>(editor === null, read)
   const heading = section === 'quests' ? '自組織の問題' : '自組織の報告'
   function select(next: typeof section) { setNotice(''); setCursor(undefined); setSection(next) }
 
-  if (editing !== undefined) return <AdminDemo connection={{ api, member, initial: editing,
-    onBack: () => { setEditing(undefined); retry() } }} />
+  function closeEditor() { setEditor(null); retry() }
+  if (editor?.kind === 'draft') return <AdminDemo connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
+  if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
 
   return <section className="form-section" aria-labelledby="org-workspace-title">
     <h2 id="org-workspace-title">{heading}</h2>
@@ -46,7 +49,7 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
       <button type="button" aria-pressed={section === 'reports'} onClick={() => select('reports')}>問題報告</button>
     </div>}
     {section === 'quests' && result.status === 'ready' &&
-      <button type="button" onClick={() => setEditing(null)}>下書きを新規作成</button>}
+      <button type="button" onClick={() => setEditor({ kind: 'draft', initial: null })}>下書きを新規作成</button>}
     {result.status === 'loading' && <p role="status">読み込んでいます…</p>}
     {result.status === 'error' && <><p role="alert">{result.code === 'FORBIDDEN' ? 'この組織の操作権限を確認できません。'
       : section === 'reports' && result.code === 'SYSTEM_ERROR' ? '報告の保存先に接続できません。'
@@ -55,7 +58,8 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
       : <ul className="admin-read-list">{result.value.items.map((item) => 'draft' in item
         ? <li key={item.questId}><strong>{item.draft.content.title || '無題の下書き'}</strong>
           <p>問題 {item.questId}・{statusLabels[item.status]}・下書き版 {item.draftRevision}{item.publishedVersion !== null && '・公開版 ' + item.publishedVersion}</p>
-          <button type="button" onClick={() => setEditing(item)}>下書きを編集</button>
+          <button type="button" onClick={() => setEditor({ kind: 'draft', initial: item })}>下書きを編集</button>
+          <button type="button" onClick={() => setEditor({ kind: 'areas', questId: item.questId })}>撮影範囲を設定</button>
           {member.role === 'publisher' && item.publishedVersion !== null &&
             <PausePublication key={item.publishedVersion} api={api} orgId={member.orgId} questId={item.questId} version={item.publishedVersion}
               onReload={retry} onPaused={() => { setNotice('開発用の公開を休止しました。'); retry() }} />}
