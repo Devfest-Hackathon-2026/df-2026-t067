@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
-import { commitVerifiedAnswer } from '../src/firestore-answer-commit'
+import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
 
 const emulator = process.env.QUEST_FIRESTORE_TEST_HOST
 
-test('Firestore commits the verified answer and its first discovery atomically', {
+test('Firestore leases, resumes and atomically commits answers', {
   skip: !emulator && 'Set QUEST_FIRESTORE_TEST_HOST for the isolated Firestore emulator', timeout: 120_000,
 }, async (t) => {
   assert(emulator && /^127\.0\.0\.1:[1-9]\d{0,4}$/.test(emulator) && Number(emulator.split(':')[1]) <= 65535)
@@ -27,16 +27,18 @@ test('Firestore commits the verified answer and its first discovery atomically',
       }),
     ])
 
-    async function seedAnswer(uid = 'owner') {
+    async function seedAnswer(uid = 'owner', state: 'RECEIVED' | 'COMMITTING' = 'COMMITTING') {
       const attemptId = randomUUID()
       const challenge = db.collection('challenges').doc(randomUUID())
       const receipt = db.collection('attempts').doc(attemptId)
       const input = { uid, attemptId, digest: 'a'.repeat(64), leaseId: randomUUID() }
       await Promise.all([
         challenge.create({ uid, questId, version: 1 }),
-        receipt.create({ uid, digest: input.digest, challengeId: challenge.id, questId, version: 1, state: 'COMMITTING',
-          lease: { id: input.leaseId, expiresAt: Timestamp.fromMillis(Date.now() + 180_000) },
-          checkpoint: { placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH', generation: '1234' },
+        receipt.create({ uid, digest: input.digest, challengeId: challenge.id, questId, version: 1, state,
+          ...(state === 'COMMITTING' ? {
+            lease: { id: input.leaseId, expiresAt: Timestamp.fromMillis(Date.now() + 180_000) },
+            checkpoint: { placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH', generation: '1234' },
+          } : {}),
         }),
       ])
       return { input, receipt, challenge, commit: () => commitVerifiedAnswer(db, input) }
@@ -115,5 +117,71 @@ test('Firestore commits the verified answer and its first discovery atomically',
     assert.equal((await pending.receipt.get()).get('state'), 'COMMITTING')
     await pending.receipt.update({ 'checkpoint.generation': '1234' })
     assert.equal((await finishWithLease()).outcome, 'CORRECT')
+  })
+
+  await t.test('one worker claims the answer and later workers resume from the durable match and photo', async () => {
+    const fixture = await seedQuest()
+    const pending = await fixture.seedAnswer('owner', 'RECEIVED')
+    const claim = () => claimAnswerWork(db, pending.input, { leaseDurationMs: 180_000 })
+    const claims = await Promise.all([claim(), claim()])
+    assert.deepEqual(claims.map(({ kind }) => kind).sort(), ['busy', 'claimed'])
+    const first = claims.find((candidate) => candidate.kind === 'claimed')
+    assert(first?.kind === 'claimed' && first.step === 'verify')
+    const firstLease = { ...pending.input, leaseId: first.leaseId }
+    const proof = { placeId: fixture.placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH' } as const
+    await assert.rejects(recordAnswerPhoto(db, firstLease, '1234'), { code: 'SYSTEM_ERROR', retryable: true })
+    await assert.rejects(recordAnswerMatch(db, firstLease, { ...proof, version: 2 }), { code: 'QUEST_CHANGED' })
+    await recordAnswerMatch(db, firstLease, proof)
+    await recordAnswerMatch(db, firstLease, proof)
+    assert.equal((await pending.receipt.get()).get('state'), 'IMAGE_EVALUATED')
+    assert.equal((await fixture.records()).size, 0)
+    assert.deepEqual(await claim(), { kind: 'busy' })
+
+    await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
+    const second = await claim()
+    assert(second.kind === 'claimed' && second.step === 'prepare-photo')
+    const secondLease = { ...pending.input, leaseId: second.leaseId }
+    assert.notEqual(secondLease.leaseId, firstLease.leaseId)
+    await assert.rejects(recordAnswerPhoto(db, firstLease, '1234'), { code: 'SYSTEM_ERROR', retryable: true })
+    await recordAnswerPhoto(db, secondLease, '1234')
+    await recordAnswerPhoto(db, secondLease, '1234')
+    await assert.rejects(recordAnswerPhoto(db, secondLease, '9999'), { code: 'IDEMPOTENCY_CONFLICT' })
+    await recordAnswerMatch(db, secondLease, proof)
+    assert.equal((await pending.receipt.get()).get('state'), 'COMMITTING')
+
+    await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
+    const third = await claim()
+    assert(third.kind === 'claimed' && third.step === 'commit')
+    await assert.rejects(commitVerifiedAnswer(db, secondLease), { code: 'SYSTEM_ERROR', retryable: true })
+    const result = await commitVerifiedAnswer(db, { ...pending.input, leaseId: third.leaseId })
+    assert.equal(result.outcome, 'CORRECT')
+    assert.deepEqual(await claim(), { kind: 'completed', result })
+    assert.equal((await fixture.records()).size, 1)
+  })
+
+  await t.test('expired verification needs an explicit retry and paused versions stop work at every stage', async () => {
+    const fixture = await seedQuest()
+    const pending = await fixture.seedAnswer('owner', 'RECEIVED')
+    const options = { leaseDurationMs: 180_000 }
+    await assert.rejects(claimAnswerWork(db, { ...pending.input, uid: 'other' }, options), { code: 'NOT_FOUND' })
+    const first = await claimAnswerWork(db, pending.input, options)
+    assert(first.kind === 'claimed')
+    await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
+    assert.deepEqual(await claimAnswerWork(db, pending.input, options), { kind: 'verification-expired' })
+    assert.equal((await pending.receipt.get()).get('lease.id'), first.leaseId)
+    const replacement = await claimAnswerWork(db, pending.input, { ...options, retryVerification: true })
+    assert(replacement.kind === 'claimed' && replacement.step === 'verify')
+    const lease = { ...pending.input, leaseId: replacement.leaseId }
+    const proof = { placeId: fixture.placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH' } as const
+    await fixture.quest.update({ publishedVersion: null, status: 'paused' })
+    await assert.rejects(recordAnswerMatch(db, lease, proof), { code: 'QUEST_UNAVAILABLE' })
+    await assert.rejects(claimAnswerWork(db, pending.input, options), { code: 'QUEST_UNAVAILABLE' })
+    assert.equal((await pending.receipt.get()).get('checkpoint'), undefined)
+    await fixture.quest.update({ publishedVersion: 1, status: 'published' })
+    await recordAnswerMatch(db, lease, proof)
+    await fixture.quest.update({ publishedVersion: 2, status: 'published' })
+    await assert.rejects(recordAnswerPhoto(db, lease, '1234'), { code: 'QUEST_CHANGED' })
+    assert.equal((await pending.receipt.get()).get('state'), 'IMAGE_EVALUATED')
+    assert.equal((await fixture.records()).size, 0)
   })
 })
