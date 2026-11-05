@@ -79,4 +79,8 @@ PR #30の撮影条件2項目・自治体コメント・解説は、この管理�
 
 ## 写真素材のAPI受け渡し
 
-[用途別素材API](admin-assets.md)を追加した。Dは所属確認後に写真を登録し、返されたIDを既存のreferenceAssetId/hintAssetIdへ渡せる。画像はBearer付きBlobで取得する。端末内プレビューの5 MBとserver送信の4 MiB上限を混同せず、送信時の上限と再試行キーを扱う。この画面の自動接続、実Storage、AI・公開、PR #30の新しい項目の共通契約は別作業。
+[用途別素材API](admin-assets.md)を追加した。Dは所属確認後に写真を登録し、返されたIDを既存のreferenceAssetId/hintAssetIdへ渡せる。画像はBearer付きBlobで取得する。端末内プレビューの5 MBとserver送信の4 MiB上限を混同せず、送信時の上限と再試行キーを扱う。この画面の自動接続、実Storage、AI・公開は別作業。PR #30の新しい項目の共通契約は次節を参照。
+
+## PR #30の入力を保存する共有契約
+
+共有下書き型を2条件のbooleanとafterClear（access/hours/promoComment/explanation）へ揃えた。管理プレビューも同じ型を参照し、クリア後用の値を挑戦前へ渡さない。[payload例](team-api-handoffs.md)を使ってDが画面を接続できる。旧6交通手段や旧materialsのアクセス/時間を送ると400で拒否し、値を黙って削除・変換しない。今回の型参照変更はUIの自動保存・実公開・実クリアを有効にしない。

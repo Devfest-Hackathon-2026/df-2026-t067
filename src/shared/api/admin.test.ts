@@ -4,8 +4,9 @@ import { parseManagedQuest, parseManagedQuestDraft, parseOrgMembership } from '.
 import { ContractError } from './validation'
 
 const draft = {
-  materials: { name: '', evidence: '', availableModes: [], requiredModes: [], access: '', hours: '', price: '', photoNote: '', photoRights: '' },
+  materials: { name: '', evidence: '', requiresBoat: false, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '' },
   content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+  afterClear: { access: '', hours: '', promoComment: '', explanation: '' },
   referenceAssetId: null, hintAssetId: null,
 }
 const quest = { questId: 'draft-a', orgId: 'demo-org', areaId: 'demo-area', draftRevision: 1,
@@ -47,9 +48,11 @@ it('rejects unsupported status, private identity claims and unbounded or malform
 it('returns detached draft data so editing parsed arrays cannot mutate a saved response', () => {
   const result = parseManagedQuestDraft(draft)
   result.content.hints[0] = 'edited'
-  result.materials.availableModes.push('徒歩')
+  result.materials.requiresBoat = true
+  result.afterClear.explanation = 'edited'
   expect(draft.content.hints[0]).toBe('')
-  expect(draft.materials.availableModes).toEqual([])
+  expect(draft.materials.requiresBoat).toBe(false)
+  expect(draft.afterClear.explanation).toBe('')
 })
 
 it('requires authentication and validates revisions before attempting admin writes', async () => {

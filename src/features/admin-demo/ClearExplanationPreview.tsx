@@ -1,9 +1,6 @@
-export type ClearExplanationContent = {
-  access: string
-  hours: string
-  promoComment: string
-  explanation: string
-}
+import type { AfterClearContent } from '../../shared/api/admin'
+
+export type ClearExplanationContent = AfterClearContent
 
 type Props = {
   content: ClearExplanationContent

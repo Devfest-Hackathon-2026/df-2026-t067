@@ -1,17 +1,11 @@
 import { useState, type RefObject } from 'react'
 import ClearExplanationPreview, { type ClearExplanationContent } from './ClearExplanationPreview'
+import type { ManagedQuestDraft, ShootingConditions } from '../../shared/api/admin'
 
 export type PreviewMode = 'challenge' | 'after-clear'
 
-export type ChallengePreviewContent = {
-  title: string
-  question: string
-  hints: [string, string, string]
-  requiresBoat: boolean
-  requiresPaidFacility: boolean
-  price: string
-  photoNote: string
-}
+export type ChallengePreviewContent = Pick<ManagedQuestDraft['content'], 'title' | 'question' | 'hints'> &
+  ShootingConditions & Pick<ManagedQuestDraft['materials'], 'price' | 'photoNote'>
 
 type Props = {
   challengeContent: ChallengePreviewContent

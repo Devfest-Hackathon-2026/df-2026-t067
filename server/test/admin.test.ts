@@ -7,9 +7,10 @@ import { expectError, startServer } from './helpers'
 
 const membership: OrgMembership = { orgId: 'demo-org', label: '架空の自治体', role: 'editor', areaId: 'demo-area' }
 const draft: ManagedQuestDraft = {
-  materials: { name: '架空の対象', evidence: '架空の根拠', availableModes: ['徒歩'], requiredModes: [],
-    access: '', hours: '', price: '', photoNote: '', photoRights: '' },
+  materials: { name: '架空の対象', evidence: '架空の根拠', requiresBoat: false, requiresPaidFacility: false,
+    price: '', photoNote: '', photoRights: '' },
   content: { title: '下書き', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+  afterClear: { access: '', hours: '', promoComment: '', explanation: '' },
   referenceAssetId: null, hintAssetId: null,
 }
 const headers = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }

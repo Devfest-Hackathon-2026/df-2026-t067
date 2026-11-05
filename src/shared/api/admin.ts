@@ -1,7 +1,7 @@
 import { ContractError } from './validation'
 
-export const TRAVEL_MODES = ['徒歩', '車', '電車・バス', '船', '自転車', 'その他'] as const
-export type TravelMode = typeof TRAVEL_MODES[number]
+export interface ShootingConditions { requiresBoat: boolean; requiresPaidFacility: boolean }
+export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
 export type AssetPurpose = 'reference' | 'public_hint'
 export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
@@ -10,11 +10,11 @@ export interface UploadedOrgAsset extends ManagedAsset, OrgAssetMetadata {
   contentType: 'image/jpeg'; width: number; height: number; byteLength: number; source: 'real' | 'mock'
 }
 export interface ManagedQuestDraft {
-  materials: {
-    name: string; evidence: string; availableModes: TravelMode[]; requiredModes: TravelMode[]
-    access: string; hours: string; price: string; photoNote: string; photoRights: string
+  materials: ShootingConditions & {
+    name: string; evidence: string; price: string; photoNote: string; photoRights: string
   }
   content: { title: string; question: string; hints: [string, string, string]; verifiedFeatures: string; draftingNotes: string }
+  afterClear: AfterClearContent
   referenceAssetId: string | null
   hintAssetId: string | null
 }
@@ -45,10 +45,9 @@ function revision(input: unknown): number {
   if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 1) throw new ContractError('draftRevision')
   return input
 }
-function modes(input: unknown): TravelMode[] {
-  if (!Array.isArray(input) || input.length > TRAVEL_MODES.length || new Set(input).size !== input.length ||
-    input.some((item) => !TRAVEL_MODES.includes(item as TravelMode))) throw new ContractError('travelModes')
-  return [...input] as TravelMode[]
+function flag(input: unknown, path: string): boolean {
+  if (typeof input !== 'boolean') throw new ContractError(path)
+  return input
 }
 
 export function parseOrgMembership(input: unknown): OrgMembership {
@@ -84,19 +83,20 @@ export function parseUploadedOrgAsset(input: unknown): UploadedOrgAsset {
 }
 
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
-  const d = fields(input, ['materials', 'content', 'referenceAssetId', 'hintAssetId'], 'draft')
-  const m = fields(d.materials, ['name', 'evidence', 'availableModes', 'requiredModes', 'access', 'hours', 'price', 'photoNote', 'photoRights'], 'materials')
+  const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId'], 'draft')
+  const m = fields(d.materials, ['name', 'evidence', 'requiresBoat', 'requiresPaidFacility', 'price', 'photoNote', 'photoRights'], 'materials')
   const c = fields(d.content, ['title', 'question', 'hints', 'verifiedFeatures', 'draftingNotes'], 'content')
-  const availableModes = modes(m.availableModes), requiredModes = modes(m.requiredModes)
-  if (requiredModes.some((mode) => !availableModes.includes(mode))) throw new ContractError('requiredModes')
+  const a = fields(d.afterClear, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
   if (!Array.isArray(c.hints) || c.hints.length !== 3) throw new ContractError('hints')
   return {
-    materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'), availableModes, requiredModes,
-      access: text(m.access, 'access', 2000), hours: text(m.hours, 'hours', 2000), price: text(m.price, 'price', 2000),
+    materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
+      requiresBoat: flag(m.requiresBoat, 'requiresBoat'), requiresPaidFacility: flag(m.requiresPaidFacility, 'requiresPaidFacility'), price: text(m.price, 'price', 2000),
       photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
     content: { title: text(c.title, 'title', 200), question: text(c.question, 'question'),
       hints: c.hints.map((item) => text(item, 'hint', 2000)) as [string, string, string],
       verifiedFeatures: text(c.verifiedFeatures, 'verifiedFeatures'), draftingNotes: text(c.draftingNotes, 'draftingNotes') },
+    afterClear: { access: text(a.access, 'afterClear.access', 2000), hours: text(a.hours, 'afterClear.hours', 2000),
+      promoComment: text(a.promoComment, 'afterClear.promoComment', 2000), explanation: text(a.explanation, 'afterClear.explanation') },
     referenceAssetId: d.referenceAssetId === null ? null : identifier(d.referenceAssetId, 'referenceAssetId'),
     hintAssetId: d.hintAssetId === null ? null : identifier(d.hintAssetId, 'hintAssetId'),
   }

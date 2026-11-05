@@ -13,8 +13,9 @@ const headers = { Authorization: 'Bearer owner', 'Idempotency-Key': 'asset-a' }
 const assetPath = '/api/v1/orgs/demo-org/assets'
 const metadata = { purpose: 'reference' as const, photoRights: '自作の合成テスト画像' }
 const draft = {
-  materials: { name: '', evidence: '', availableModes: [], requiredModes: [], access: '', hours: '', price: '', photoNote: '', photoRights: '' },
+  materials: { name: '', evidence: '', requiresBoat: false, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '' },
   content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+  afterClear: { access: '', hours: '', promoComment: '', explanation: '' },
   referenceAssetId: null, hintAssetId: null,
 }
 function form(data: unknown = metadata, bytes: Uint8Array = syntheticPng, type = 'image/png') {
