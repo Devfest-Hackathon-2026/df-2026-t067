@@ -117,6 +117,8 @@ PR #32までを含むmain b27d1e2と統合後、`npm run check`は22ファイル
 
 保存済みの版を`generateManagedQuestDraft`へ渡す。候補表示には`source:mock`を明示し、編集中の値の置換は利用者が確認してから行う。候補取得後に下書きや画面内の編集状態が変わった場合は古い候補を破棄する。既定は503で、開発用fixtures設定と指定の参考素材で接続を試せる。[起動設定と応答型](api.md#19-a04の下書き候補)
 
+`/admin-local` のA04でこの候補を取得・確認できる。候補は表示した時点の保存済み版に結び付き、保存して版が進むと前の候補は表示されない。[管理画面の手順](admin-demo.md#開発用の所属問題報告を閲覧する)
+
 ### A06への確認依頼
 
 `submitManagedQuestReview(orgId, questId, expectedDraftRevision)`を保存済みの版で呼ぶ。`missing`が空なら`review_pending`へ進み、値があれば対応する入力欄へ戻る。[確認項目と状態遷移](api.md#17-dの下書き確認依頼)を参照。提出後の保存は同じ下書きを新しい版の`draft`へ戻す。試験合格と公開担当者の承認は別工程。

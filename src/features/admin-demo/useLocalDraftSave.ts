@@ -4,7 +4,7 @@ import type { ApiClient, ManagedQuest, ManagedQuestDraft, OrgMembership } from '
 import { useRequestAction } from '../../shared/useRequestAction'
 
 export interface LocalDraftConnection {
-  api: Pick<ApiClient, 'uploadOrgAsset' | 'createManagedQuest' | 'updateManagedQuest'>
+  api: Pick<ApiClient, 'uploadOrgAsset' | 'createManagedQuest' | 'updateManagedQuest' | 'generateManagedQuestDraft'>
   initial: ManagedQuest | null
   member: OrgMembership
   onBack: () => void
