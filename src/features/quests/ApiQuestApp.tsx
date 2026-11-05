@@ -10,6 +10,20 @@ type Result = {
   choices: PublicQuest[]; areas: PublicArea[]; quest?: PublicQuest; area?: PublicArea; missing?: boolean
 }
 
+function readSelectionFromUrl() {
+  const params = new URLSearchParams(window.location.search)
+  return { areaId: params.get('area') ?? '', questId: params.get('quest') ?? '' }
+}
+
+function writeSelectionToUrl(areaId: string, questId: string, mode: 'push' | 'replace') {
+  const url = new URL(window.location.href)
+  if (areaId) url.searchParams.set('area', areaId)
+  else url.searchParams.delete('area')
+  if (questId) url.searchParams.set('quest', questId)
+  else url.searchParams.delete('quest')
+  window.history[mode === 'push' ? 'pushState' : 'replaceState'](window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
 async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal: AbortSignal) {
   const items: T[] = []
   const seen = new Set<string>()
@@ -26,13 +40,25 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
   return items
 }
 
-export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
+export function ApiQuestApp({ api: providedApi, syncUrl = true }: { api?: Api; syncUrl?: boolean }) {
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo' }), [providedApi])
-  const [selectedId, setSelectedId] = useState('')
-  const [selectedAreaId, setSelectedAreaId] = useState('')
+  const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
+  const [selectedId, setSelectedId] = useState(initialSelection.questId)
+  const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
   const [retry, setRetry] = useState(0)
   const [result, setResult] = useState<Result | null>(null)
   const catalog = useRef<{ api: Api; choices: Map<string, PublicQuest[]>; areas?: PublicArea[] } | null>(null)
+
+  useEffect(() => {
+    if (!syncUrl) return
+    const onPopState = () => {
+      const selection = readSelectionFromUrl()
+      setSelectedAreaId(selection.areaId)
+      setSelectedId(selection.questId)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [syncUrl])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -64,11 +90,21 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
         }
         if (signal.aborted) return
         if (!choices.length) {
+          if (selectedId) {
+            if (syncUrl) writeSelectionToUrl(selectedAreaId, '', 'replace')
+            setSelectedId('')
+            return
+          }
           setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'empty', choices, areas })
           return
         }
         setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'loading', choices, areas })
         const id = choices.some((item) => item.questId === selectedId) ? selectedId : choices[0].questId
+        if (id !== selectedId) {
+          if (syncUrl) writeSelectionToUrl(selectedAreaId, id, 'replace')
+          setSelectedId(id)
+          return
+        }
         const quest = await api.getQuest(id, { signal })
         signal.throwIfAborted()
         if (quest.questId !== id) throw new ApiError('INVALID_RESPONSE')
@@ -80,7 +116,7 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
       } finally { clearTimeout(deadline) }
     })()
     return () => { clearTimeout(deadline); controller.abort() }
-  }, [api, selectedId, selectedAreaId, retry])
+  }, [api, selectedId, selectedAreaId, retry, syncUrl])
 
   const current = result?.api === api && result.selection === selectedId && result.areaSelection === selectedAreaId && result.retry === retry ? result : null
   const state = current?.state ?? 'loading'
@@ -92,7 +128,11 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
   const picker = <div className="api-quest-picker">
     <label htmlFor="api-area-select">地域を選択</label>
     <select id="api-area-select" value={selectedAreaId}
-      onChange={(event) => { setSelectedAreaId(event.target.value); setSelectedId('') }}>
+      onChange={(event) => {
+        const areaId = event.target.value
+        if (syncUrl) writeSelectionToUrl(areaId, '', 'push')
+        setSelectedAreaId(areaId); setSelectedId('')
+      }}>
       <option value="">全国</option>
       {selectedAreaId && !availableAreas.some((item) => item.areaId === selectedAreaId)
         && <option value={selectedAreaId}>選択中の地域（一覧にありません）</option>}
@@ -101,7 +141,11 @@ export function ApiQuestApp({ api: providedApi }: { api?: Api }) {
     <label htmlFor="api-quest-select">公開APIの問題を選択</label>
     <select id="api-quest-select" aria-label="公開APIの問題を選択" value={selectedQuestId}
       disabled={!choices.length}
-      onChange={(event) => setSelectedId(event.target.value)}>
+      onChange={(event) => {
+        const questId = event.target.value
+        if (syncUrl) writeSelectionToUrl(selectedAreaId, questId, 'push')
+        setSelectedId(questId)
+      }}>
       {!choices.length && <option value="">{state === 'loading' ? '問題を読み込み中' : '選べる問題がありません'}</option>}
       {choices.map((item) => <option key={item.questId} value={item.questId}>{item.title}</option>)}
     </select>

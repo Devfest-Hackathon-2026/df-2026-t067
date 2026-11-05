@@ -129,6 +129,10 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.5; 
 .quest-details h4 { font-size: 15px; font-weight: 650; margin-bottom: 14px; }
 .clue-text { border-left: 2px solid #ccd9c4; padding-left: 12px; color: #60735e; font-size: 13px; line-height: 1.95; margin-bottom: 16px; }
 .sample-note { background: #f5f7f1; padding: 10px 12px; border-radius: 6px; color: #69775f; font-size: 10px; line-height: 1.7; margin-bottom: 18px; }
+.optional-hint { margin: 0 0 18px; }
+.optional-hint-toggle, .optional-hint-content button { min-height: 44px; border: 1px solid #9baa91; border-radius: 6px; background: #fff; color: #40533c; padding: 9px 14px; font: inherit; cursor: pointer; }
+.optional-hint-content { margin-top: 12px; color: #60735e; font-size: 13px; line-height: 1.7; }
+.optional-hint-image { display: block; width: 100%; max-width: 100%; height: auto; max-height: 70vh; object-fit: contain; border-radius: 8px; }
 .primary-button { width: 100%; min-height: 48px; padding: 12px 10px; border: 1px solid #245745; border-radius: 8px; background: #245745; color: #fff; font-size: 12px; line-height: 1.65; font-weight: 600; }
 .primary-button:hover:not(:disabled) { background: #1e493a; }
 .primary-button:disabled { border-color: #e5e9e0; background: #e9ede5; color: #87917f; }

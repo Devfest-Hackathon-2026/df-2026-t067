@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicArea, PublicQuest } from '../../shared/api/types'
 import { ApiQuestApp } from './ApiQuestApp'
 import { ApiError } from '../../shared/api/client'
@@ -14,6 +14,14 @@ const areas: PublicArea[] = [
 ]
 const page = <T,>(items: T[]) => ({ items, nextCursor: null })
 
+beforeEach(() => {
+  window.history.replaceState(null, '', '/')
+})
+
+afterEach(() => {
+  window.history.replaceState(null, '', '/')
+})
+
 function apiFixture() {
   return {
     listQuests: vi.fn().mockResolvedValue(page([{ ...first, title: '一覧表示用タイトル' }, second])),
@@ -23,6 +31,81 @@ function apiFixture() {
 }
 
 describe('APIから問題を表示', () => {
+  it('URLの地域・問題を復元し、初期読み込みでは履歴を追加しない', async () => {
+    window.history.replaceState(null, '', '/?campaign=spring&area=area-b&quest=quest-b#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    expect(api.listQuests).toHaveBeenCalledWith({ areaId: 'area-b', limit: 100, cursor: undefined }, expect.anything())
+    expect(window.location.search).toBe('?campaign=spring&area=area-b&quest=quest-b')
+    expect(window.location.hash).toBe('#map')
+    expect(window.history.length).toBe(before)
+  })
+
+  it('地域・問題操作を履歴に積み、戻る・進むを選択へ反映する', async () => {
+    window.history.replaceState(null, '', '/?keep=yes&view=list#top')
+    const user = userEvent.setup()
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-a' ? page([first])
+      : query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    render(<ApiQuestApp api={api} syncUrl />)
+    await screen.findByRole('heading', { name: first.title })
+    await user.selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), 'area-b')
+    await screen.findByRole('heading', { name: second.title })
+    expect(window.location.search).toBe('?keep=yes&view=list&area=area-b&quest=quest-b')
+    await user.selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), '')
+    await screen.findByRole('heading', { name: first.title })
+    expect(window.location.search).toBe('?keep=yes&view=list&quest=quest-a')
+
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.addEventListener('popstate', () => resolve(), { once: true })
+        window.history.back()
+      })
+    })
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-b')
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.addEventListener('popstate', () => resolve(), { once: true })
+        window.history.forward()
+      })
+    })
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('')
+    expect(window.location.hash).toBe('#top')
+  })
+
+  it('0件の地域ではURLから問題IDを除く', async () => {
+    window.history.replaceState(null, '', '/?source=link&area=area-b&quest=gone#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([]) : page([first]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: '公開問題はありません' })).toBeVisible()
+    expect(window.location.search).toBe('?source=link&area=area-b')
+    expect(window.history.length).toBe(before)
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), '')
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(window.location.search).toBe('?source=link&quest=quest-a')
+  })
+
+  it('一覧に存在しないURL問題を実在する先頭問題へ置換する', async () => {
+    window.history.replaceState(null, '', '/?campaign=spring&area=area-b&quest=gone#map')
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b' ? page([second]) : page([first, second]))
+    const before = window.history.length
+    render(<ApiQuestApp api={api} syncUrl />)
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    await waitFor(() => expect(window.location.search).toBe('?campaign=spring&area=area-b&quest=quest-b'))
+    expect(screen.getByRole('combobox', { name: '公開APIの問題を選択' })).toHaveValue(second.questId)
+    expect(api.getQuest).toHaveBeenCalledWith(second.questId, expect.anything())
+    expect(window.location.hash).toBe('#map')
+    expect(window.history.length).toBe(before)
+  })
+
   it.each(['areas', 'quests', 'detail'] as const)('%s取得が止まったら10秒で再試行へ戻り、遅い応答を捨てる', async (stage) => {
     vi.useFakeTimers()
     let unmount: (() => void) | undefined
