@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
-import type { ApiClient, ManagedQuest, ManagedQuestDraft, OrgMembership } from '../../shared/api'
+import type { ApiClient, AssetPurpose, ManagedQuest, ManagedQuestDraft, OrgMembership } from '../../shared/api'
 import { useRequestAction } from '../../shared/useRequestAction'
 
 export interface LocalDraftConnection {
@@ -11,13 +11,14 @@ export interface LocalDraftConnection {
 }
 
 type SaveState = { status: 'idle' | 'saving' | 'saved' } | { status: 'error'; message: string; reload?: true }
+type DraftAsset = { file: File; purpose: AssetPurpose; photoRights: string }
 
 function saveFailure(cause: unknown, attemptedCreate: boolean): SaveState {
   const code = cause instanceof ApiError ? cause.code : undefined
   if (code === 'DRAFT_CONFLICT') return { status: 'error', reload: true,
     message: '下書きの版が変わりました。入力を控えてから一覧で最新版を確認してください。' }
   if (code === 'INVALID_INPUT' || code === 'MEDIA_TOO_LARGE') return { status: 'error',
-    message: '入力内容と参考写真の形式・容量を確認してください。' }
+    message: '入力内容と写真の形式・容量を確認してください。' }
   if (attemptedCreate) return { status: 'error', reload: true,
     message: '新しい下書きの保存結果を確認できませんでした。再作成する前に一覧を確認してください。' }
   return { status: 'error', message: '下書きを保存できませんでした。設定や通信状況を確認して再試行してください。' }
@@ -26,13 +27,13 @@ function saveFailure(cause: unknown, attemptedCreate: boolean): SaveState {
 export function useLocalDraftSave(connection?: LocalDraftConnection) {
   const [record, setRecord] = useState(connection?.initial ?? null)
   const [state, setState] = useState<SaveState>({ status: 'idle' })
-  const upload = useRef<{ file: File; rights: string; key: string } | null>(null)
+  const upload = useRef<(DraftAsset & { key: string }) | null>(null)
   const begin = useRequestAction()
 
-  async function save(draft: ManagedQuestDraft, photo: File | undefined, onSaved: (record: ManagedQuest) => void) {
+  async function save(draft: ManagedQuestDraft, asset: DraftAsset | undefined, onSaved: (record: ManagedQuest) => void) {
     if (!connection || (state.status === 'error' && state.reload)) return
-    if (photo && !draft.materials.photoRights.trim()) {
-      setState({ status: 'error', message: '参考写真の出典と利用権を入力してください。' })
+    if (asset && !asset.photoRights.trim()) {
+      setState({ status: 'error', message: '写真の出典と利用権を入力してください。' })
       return
     }
     let attemptedCreate = false
@@ -43,15 +44,17 @@ export function useLocalDraftSave(connection?: LocalDraftConnection) {
     const call = { signal: operation.signal }
     try {
       let payload = draft
-      if (photo) {
-        const rights = draft.materials.photoRights.trim()
-        if (upload.current?.file !== photo || upload.current.rights !== rights) {
-          upload.current = { file: photo, rights, key: crypto.randomUUID() }
+      if (asset) {
+        const { file, purpose } = asset
+        const photoRights = asset.photoRights.trim()
+        if (upload.current?.file !== file || upload.current.purpose !== purpose || upload.current.photoRights !== photoRights) {
+          upload.current = { file, purpose, photoRights, key: crypto.randomUUID() }
         }
-        const reference = await api.uploadOrgAsset(orgId, { purpose: 'reference', photo, photoRights: rights,
+        const savedAsset = await api.uploadOrgAsset(orgId, { purpose, photo: file, photoRights,
           idempotencyKey: upload.current.key }, call)
         if (!operation.isCurrent()) return
-        payload = { ...draft, referenceAssetId: reference.assetId }
+        const field = purpose === 'reference' ? 'referenceAssetId' : 'hintAssetId'
+        payload = { ...draft, [field]: savedAsset.assetId }
       }
       attemptedCreate = record === null
       const saved = record === null ? await api.createManagedQuest(orgId, payload, call)
