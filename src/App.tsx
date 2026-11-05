@@ -38,6 +38,7 @@ type AppProps = {
   quest?: PublicQuest
   areaLabel?: string
   questPicker?: ReactNode
+  catalogFallback?: ReactNode
   apiMode?: boolean
   apiClient?: ApiClient
   onReloadQuest?: () => void
@@ -75,8 +76,9 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
   })
 }
 
-export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, apiMode = false }: AppProps = {}) {
-  const [isQuestOpen, setIsQuestOpen] = useState(false)
+export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false }: AppProps = {}) {
+  const [openState, setOpenState] = useState<{ quest?: PublicQuest; open: boolean }>({ open: false })
+  const isQuestOpen = openState.quest === externalQuest && openState.open
   const [recordsOpen, setRecordsOpen] = useState(false)
   const questCard = useRef<HTMLDivElement>(null)
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
@@ -85,9 +87,9 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const localApiMode = apiMode || source === 'local-api'
   const showRecords = localApiMode && recordsOpen
   const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(), expectedDataMode: apiMode || source === 'local-api' ? 'demo' : undefined }), [providedApi, authClient, source, apiMode])
-  const connection = useQuestConnection(externalQuest ? 'preview' : source, api)
+  const connection = useQuestConnection(externalQuest || catalogFallback ? 'preview' : source, api)
   const content = connection.result.status === 'ready' ? connection.result.value : null
-  const quest = externalQuest ?? (content ? (({ areaLabel: _area, ...dto }) => dto)(content) : null)
+  const quest = externalQuest ?? (!catalogFallback && content ? (({ areaLabel: _area, ...dto }) => dto)(content) : null)
   const areaLabel = externalAreaLabel ?? content?.areaLabel ?? demoAreaLabel
   const questKey = quest ? `${quest.questId}:${quest.version}` : ''
   const [localStaleQuestKey, setLocalStaleQuestKey] = useState('')
@@ -229,7 +231,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
               ? <><p role="alert">ログインを確認できませんでした。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></>
               : <p role="status">ログインを確認しています…</p>)}
           {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
-        </section> : <>
+        </section> : catalogFallback ?? <>
         <section className="explore" aria-labelledby="explore-title">
           <div className="explore-heading">
             <div>
@@ -258,7 +260,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       : auth.status === 'signed-out' ? 'Googleのログイン画面を開きます。キャンセルしてもこの問題に戻れます。'
                         : auth.status === 'checking' ? 'ログイン状態の確認後に操作できます。'
                           : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
-                  feedback={feedback} onToggle={() => { const next = !openRef.current; selectionGeneration.current += 1; openRef.current = next; if (!next) closeCamera(); setIsQuestOpen(next) }} onStart={(selection) => { if (onStartChallenge) return login(selection); if (auth.status === 'signed-in' && canUseCamera && quest) setCameraOwner({ auth, confirmation: serverIdentity.result, questId: selection.questId, version: selection.expectedVersion }); else return login(selection) }}>
+                  feedback={feedback} onToggle={() => { const next = !openRef.current; selectionGeneration.current += 1; openRef.current = next; if (!next) closeCamera(); setOpenState({ quest: externalQuest, open: next }) }} onStart={(selection) => { if (onStartChallenge) return login(selection); if (auth.status === 'signed-in' && canUseCamera && quest) setCameraOwner({ auth, confirmation: serverIdentity.result, questId: selection.questId, version: selection.expectedVersion }); else return login(selection) }}>
                     {!questStale && !onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && uid !== null && visiblePending === null && <ChallengeCapture
                       key={JSON.stringify([uid, quest.questId, quest.version, captureRevision])} api={api} quest={quest}
                       onReloadQuest={() => { closeCamera(); if (externalQuest) onReloadQuest?.(); else connection.retry() }} />}

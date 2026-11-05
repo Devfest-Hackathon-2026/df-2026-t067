@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,6 +42,48 @@ function signedOutAuth(): AuthClient {
 }
 
 describe('APIから問題を表示', () => {
+  it.each(['empty', 'error'] as const)('keeps owner records available when the public catalog is %s', async (state) => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    if (state === 'empty') api.listQuests.mockResolvedValue(page([]))
+    else api.listQuests.mockRejectedValue(new ApiError('NETWORK_ERROR'))
+    const snapshot = { status: 'signed-in' as const, user: { uid: 'demo-owner', displayName: null } }
+    const authClient = { ...signedOutAuth(), getSnapshot: () => snapshot, getIdToken: async () => 'demo-token' }
+    const fetcher = vi.fn<typeof fetch>(async (path) => {
+      const data = path === '/api/v1/session' ? { uid: snapshot.user.uid } : page([])
+      return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'demo' } })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(<ApiQuestApp api={api} authClient={authClient} />)
+    await screen.findByRole('heading', { name: state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした' })
+    await user.click(within(screen.getByRole('navigation', { name: '主要ナビゲーション' })).getByRole('button', { name: '自分の記録' }))
+    expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+    const read = fetcher.mock.calls.find(([path]) => String(path).startsWith('/api/v1/me/discoveries?'))
+    expect(new Headers(read?.[1]?.headers).get('Authorization')).toBe('Bearer demo-token')
+    expect(api.getQuest).not.toHaveBeenCalled()
+  })
+  it('stays on owner records while the public catalog finishes loading', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    let finishCatalog!: (value: ReturnType<typeof page<PublicQuest>>) => void
+    api.listQuests.mockImplementationOnce(() => new Promise((resolve) => { finishCatalog = resolve }))
+    const snapshot = { status: 'signed-in' as const, user: { uid: 'demo-owner', displayName: null } }
+    const authClient = { ...signedOutAuth(), getSnapshot: () => snapshot, getIdToken: async () => 'demo-token' }
+    const fetcher = vi.fn<typeof fetch>(async (path) => new Response(JSON.stringify(
+      path === '/api/v1/session' ? { uid: snapshot.user.uid } : page([]),
+    ), { headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'demo' } }))
+    vi.stubGlobal('fetch', fetcher)
+    render(<ApiQuestApp api={api} authClient={authClient} />)
+    await waitFor(() => expect(finishCatalog).toBeTypeOf('function'))
+    await user.click(within(screen.getByRole('navigation', { name: '主要ナビゲーション' })).getByRole('button', { name: '自分の記録' }))
+    expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+    await act(async () => finishCatalog(page([first])))
+    await waitFor(() => expect(api.getQuest).toHaveBeenCalled())
+    expect(screen.getByRole('heading', { name: '自分の記録' })).toBeVisible()
+    expect(fetcher.mock.calls.filter(([path]) => String(path).startsWith('/api/v1/me/discoveries?'))).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: '地図へ戻る' }))
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+  })
   it('URLの地域・問題を復元し、初期読み込みでは履歴を追加しない', async () => {
     window.history.replaceState(null, '', '/?campaign=spring&area=area-b&quest=quest-b#map')
     const api = apiFixture()

@@ -154,20 +154,22 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { 
     <p>問題と地域名は公開APIから取得しています。架空の問題の位置は地図に表示しません。</p>
   </div>
 
-  return state === 'ready' && current?.quest
-    ? <App authClient={authClient} quest={current.quest} areaLabel={current.area?.label ?? '探索地域名は未掲載です'} questPicker={picker} apiMode getHint={api.getHint}
-        questStale={staleQuest?.questId === current.quest.questId && staleQuest.version === current.quest.version}
-        onHintVersionStale={() => setStaleQuest({ questId: current.quest!.questId, version: current.quest!.version })}
-        onReloadQuest={() => { catalog.current = null; setRetry((value) => value + 1) }} />
-    : <main className="api-load-state" aria-live="polite">
+  const quest = state === 'ready' ? current?.quest : undefined
+  const reload = () => { catalog.current = null; setRetry((value) => value + 1) }
+  const fallback = !quest ? <section className="api-load-state" aria-live="polite">
       <p className="eyebrow">公開APIデモ</p>
-      <h1>{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>
+      <h1 id="explore-title">{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>
       {state === 'loading' && <p role="status">サーバーから問題を取得しています。</p>}
       {state === 'empty' && <p>{selectedAreaId ? 'この地域に公開問題はありません。地域を変えるか全国からお選びください。' : '現在選べる公開問題はありません。'}</p>}
       {state === 'error' && <p role="alert">{current?.missing
         ? 'この問題は公開されていないか、見つかりません。別の問題を選べます。'
         : 'サーバーとの通信を確認して、もう一度お試しください。'}</p>}
-      {state !== 'loading' && <button type="button" onClick={() => { catalog.current = null; setRetry((value) => value + 1) }}>再試行</button>}
+      {state !== 'loading' && <button type="button" onClick={reload}>再試行</button>}
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
-    </main>
+    </section> : undefined
+  return <App authClient={authClient} quest={quest} areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
+    questPicker={picker} catalogFallback={fallback} apiMode getHint={api.getHint}
+    questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
+    onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}
+    onReloadQuest={reload} />
 }
