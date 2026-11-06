@@ -7,6 +7,7 @@ import type { PhotoInput, PreparedPhoto } from './photo-input'
 import { parseId } from './query'
 
 export interface PhotoReference { path: string; generation: string }
+export interface IncomingPhotoObject extends PhotoReference { attemptId: string; digest: string; createdAt: number }
 type Bucket = ReturnType<Storage['bucket']>
 interface ObjectMetadata {
   generation?: unknown
@@ -44,6 +45,27 @@ export class AnswerPhotoStorage {
   async readIncoming(attemptId: string, digest: string, reference: PhotoReference): Promise<PhotoInput> {
     if (reference?.path !== incomingPath(attemptId, digest)) invalidInput()
     return this.read(reference)
+  }
+
+  async listIncomingPhotos(maximum: number, cursor?: string) {
+    return storageOperation(async () => {
+      const [files, next] = await this.bucket.getFiles({ prefix: 'answer-photos/', matchGlob: 'answer-photos/*/incoming-*.jpg',
+        autoPaginate: false, maxResults: maximum, pageToken: cursor })
+      if (files.length > maximum) throw storageError(false)
+      const photos = files.flatMap((file): IncomingPhotoObject[] => {
+        const match = /^answer-photos\/([a-f0-9]{64})\/incoming-([a-f0-9]{64})\.jpg$/.exec(file.name)
+        const createdAt = Date.parse(file.metadata.timeCreated ?? '')
+        if (!match || !Number.isFinite(createdAt)) return []
+        try {
+          const { generation } = checkedMetadata(file.metadata)
+          return [{ attemptId: match[1], digest: match[2], path: file.name, generation, createdAt }]
+        } catch (error) {
+          if (error instanceof HttpError) return []
+          throw error
+        }
+      })
+      return { photos, cursor: next?.pageToken }
+    })
   }
 
   async writeRecord(attemptId: string, digest: string, source: PhotoReference): Promise<PhotoReference> {

@@ -3,11 +3,11 @@ import { FieldValue } from 'firebase-admin/firestore'
 import type { Firestore, Transaction } from 'firebase-admin/firestore'
 import type { AttemptResult, CaptureMetadata } from '../../src/shared/api/types'
 import { ContractError, parseCaptureMetadata } from '../../src/shared/api/validation'
-import { invalidInput } from './errors'
+import { HttpError, invalidInput } from './errors'
 import { readAdmission, validateAdmissionPolicy } from './firestore-admission'
 import type { AdmissionPolicy } from './firestore-admission'
 import { answerTransaction, conflict, incomingAnswerPhotoPath, notFound, readActiveChallenge,
-  readCurrentVersion, storedAnswerResult, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
+  readCurrentVersion, sealedIntakePhoto, storedAnswerResult, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
 import { parseIdempotencyKey } from './idempotency-key'
 import { parseId } from './query'
 
@@ -76,6 +76,9 @@ async function inspectIntake(db: Firestore, tx: Transaction, input: AnswerSubmis
     const result = storedAnswerResult(data, attemptId)
     if (result.state !== 'COMPLETED') await readCurrentVersion(db, tx, data, input.uid)
     return { kind: 'replay' as const, result }
+  }
+  if ((await tx.get(sealedIntakePhoto(db, attemptId))).exists) {
+    throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', 'この写真の受付期限が切れました。新しい回答として送信してください。')
   }
   const current = await readActiveChallenge(db, tx, input.uid, input.challengeId)
   const admission = await readAdmission(db, tx, 'answerAdmission', input.uid, policy)
