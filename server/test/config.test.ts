@@ -42,6 +42,14 @@ test('durable Vertex trial requires explicit development mode and an absolute ex
   assert.throws(() => readConfig({ ...env, QUEST_VERTEX_TRIAL_LEDGER: 'trial.json' }), /QUEST_VERTEX_TRIAL_LEDGER/)
   assert.throws(() => readConfig({ ...env, QUEST_DURABLE_PHOTO_MATCHER: 'vertex' }), /QUEST_DURABLE_PHOTO_MATCHER/)
   assert.throws(() => readConfig({ ...env, QUEST_DATA_MODE: 'demo' }), /durable-local/)
+  const draftEnv = { ...env, QUEST_DURABLE_PHOTO_MATCHER: undefined, QUEST_DURABLE_DRAFT_GENERATOR: 'vertex-trial' }
+  const draft = readConfig(draftEnv)
+  assert(draft.mode === 'durable-local')
+  assert.equal(draft.vertexDraftTrialLedger, '/tmp/trial.json')
+  assert.equal(draft.vertexTrialLedger, undefined)
+  assert.throws(() => readConfig({ ...draftEnv, NODE_ENV: 'test' }), /NODE_ENV=development/)
+  assert.throws(() => readConfig({ ...draftEnv, QUEST_VERTEX_TRIAL_LEDGER: undefined }), /QUEST_VERTEX_TRIAL_LEDGER/)
+  assert.throws(() => readConfig({ ...draftEnv, QUEST_DURABLE_DRAFT_GENERATOR: 'vertex' }), /QUEST_DURABLE_DRAFT_GENERATOR/)
 })
 
 test('GPS demo must be explicitly enabled and unknown modes never fall back', () => {

@@ -218,9 +218,11 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 200の`DraftSuggestion`は`{orgId, questId, draftRevision, content, source}`。`content`は既存の下書きと同じ5項目で、タイトル・問題文・3本のヒント・確認済み特徴・作成根拠メモを持つ。候補を受け取った画面で対象の版と編集中の内容を確認し、採用した内容を既存の下書き保存APIへ渡す。候補を取得するだけでは保存、改版、確認依頼、公開は起きない。
 
-`durable-local` の通常起動と、`QUEST_ADMIN_DRAFT_MODE=fixtures`・`QUEST_ADMIN_ASSETS_MODE=memory` を明示した `demo` で、合成素材用の固定候補を `source:mock` で返す。対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成 `match.png` が必要。永続側は保存された写真の世代を指定して読み、読み取り後に所属と版を再確認する。候補の取得と素材登録で、ローカルの利用者別回数枠と同時処理枠を共有する。
+`durable-local` の通常起動と、`QUEST_ADMIN_DRAFT_MODE=fixtures`・`QUEST_ADMIN_ASSETS_MODE=memory` を明示した `demo` で、合成素材用の固定候補を `source:mock` で返す。対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成 `match.png` が必要。永続側は保存された写真の世代を指定して読み、読み取り後と生成後に所属と版を再確認する。候補の取得と素材登録で、ローカルの利用者別回数枠と同時処理枠を共有する。
 
-候補の未設定は503 `SYSTEM_ERROR`、版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。共通クライアントは明示したローカルモードの候補だけ `source:mock` を許可する。実AIによる生成は利用条件・費用条件の確認後に接続する。[合成素材の用意](admin-photo-tests.md#合成素材で公開休止を試す)
+承認後に `QUEST_DURABLE_DRAFT_GENERATOR=vertex-trial` を明示すると、指定の合成画像・対象名・根拠を確認し、Vertexの候補を `source:real` で返す。ヒント3本と確認材料の参照番号を検証し、特徴欄はサーバーの確認済み事実から作る。切断時は生成を中止し、応答不備やサービス障害は503 `SYSTEM_ERROR` を返す。[A04の合成生成を試す](vertex-trial.md#a04の合成生成を試す)
+
+候補の未設定は503 `SYSTEM_ERROR`、版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。共通クライアントは明示したローカルモードの候補だけ `source:mock` を許可する。[固定候補用の合成素材](admin-photo-tests.md#合成素材で公開休止を試す)
 
 ## 20. 開発用の問題報告
 
