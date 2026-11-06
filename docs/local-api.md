@@ -4,6 +4,8 @@
 
 ## 永続側の準備
 
+合成データでの実Firestoreと非公開バケットの検証手順は[クラウド保存試験](cloud-storage-trial.md)に分けて記載する。
+
 1. `npm ci` と `npm --prefix server ci --ignore-scripts` で依存を導入する。
 2. [Firebase認証](firebase-auth.md)を設定する。ブラウザとサーバーの `FIREBASE_PROJECT_ID` は同じプロジェクトを使う。実設定は `.env.local` に置き、コミットしない。サーバーには既存の開発用ADCによるアカウント照会権限も必要。新規の課金・IAM・API有効化はこの手順では行わない。
 3. クライアントアクセスを拒否するFirestoreエミュレーターと `fake-gcs-server` 1.56.1をループバックで起動する。以下はそれぞれ8688番・9688番で起動済みの場合。このリポジトリに保存環境の一括起動スクリプトはない。[保存境界と検証](answer-processing.md#非公開jpegの保存)を参照し、再起動後も残す場合は保存環境のデータ保持を設定する。
