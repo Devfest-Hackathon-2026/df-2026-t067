@@ -3,6 +3,7 @@ import { parseCaptureMetadata } from '../../shared/api'
 import type { CaptureMetadata } from '../../shared/api/types'
 import { DemoAnswerSubmission } from './DemoAnswerSubmission'
 import type { DemoAnswerContext } from './DemoAnswerSubmission'
+import { CaptureLocationMap } from './CaptureLocationMap'
 
 export function CameraPreview({ onClose, answer }: { onClose: () => void; answer?: DemoAnswerContext }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -18,6 +19,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<CaptureMetadata | null>(null)
   const [locating, setLocating] = useState(false)
+  const [showLocationMap, setShowLocationMap] = useState(false)
   const photoUrl = photo?.url
 
   function stopCamera() {
@@ -165,6 +167,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
     setPhoto(null)
     setError(null)
     setMetadata(null)
+    setShowLocationMap(false)
     capturedAtRef.current = null
     setPhase('opening')
     setAttempt((value) => value + 1)
@@ -186,13 +189,10 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       {locating && <p role="status" className="camera-status">撮影地を取得しています…</p>}
       {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
       {photoUrl && metadata && <div className="camera-map-reference">
-        <a
-          className="secondary-button"
-          href={`https://www.google.com/maps/search/?api=1&query=${metadata.position.latitude}%2C${metadata.position.longitude}`}
-          target="_blank"
-          rel="noreferrer"
-        >撮影地を地図で見る（Googleマップ）</a>
-        <p className="sample-note">リンクを開くと撮影地の座標がGoogleマップに送られます。</p>
+        <button type="button" className="secondary-button" aria-expanded={showLocationMap}
+          onClick={() => setShowLocationMap((visible) => !visible)}>{showLocationMap ? '地図を閉じる' : '撮影地を見る'}</button>
+        <p className="sample-note">地図を表示すると撮影地の座標がGoogle Mapsに送信されます。</p>
+        {showLocationMap && <CaptureLocationMap latitude={metadata.position.latitude} longitude={metadata.position.longitude} />}
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
       {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} />}

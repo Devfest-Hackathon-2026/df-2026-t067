@@ -23,20 +23,24 @@ function setup() {
   }))
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
   const drawImage = vi.fn()
-  const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
+  const canvasSize = vi.fn()
+  const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+    canvasSize(this.width, this.height)
+    return { drawImage } as unknown as CanvasRenderingContext2D
+  })
   const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['synthetic-photo'], { type: 'image/jpeg' })))
   const createObjectURL = vi.fn((_blob: Blob | MediaSource) => 'blob:synthetic-photo')
   const revokeObjectURL = vi.fn((_url: string) => {})
   vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
   const onClose = vi.fn()
-  return { stop, stream, getUserMedia, getCurrentPosition, play, drawImage, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
+  return { stop, stream, getUserMedia, getCurrentPosition, play, drawImage, canvasSize, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
 }
 
-async function loadFrame(stream: MediaStream) {
+async function loadFrame(stream: MediaStream, width = 640, height = 480) {
   const video = screen.getByLabelText('カメラ映像') as HTMLVideoElement
   await waitFor(() => expect(video.srcObject).toBe(stream))
   Object.defineProperties(video, {
-    videoWidth: { value: 640, configurable: true }, videoHeight: { value: 480, configurable: true }, readyState: { value: 2, configurable: true },
+    videoWidth: { value: width, configurable: true }, videoHeight: { value: height, configurable: true }, readyState: { value: 2, configurable: true },
   })
   fireEvent.loadedData(video)
   return video
@@ -51,6 +55,14 @@ describe('local camera preview', () => {
     expect(screen.getByRole('button', { name: '撮影する' })).toBeEnabled()
     expect(media.getUserMedia).toHaveBeenCalledExactlyOnceWith({ video: { facingMode: 'environment' }, audio: false })
     expect(media.getCurrentPosition).not.toHaveBeenCalled()
+  })
+
+  it.each([[640, 480], [480, 640]])('keeps the browser video orientation in the captured image (%i x %i)', async (width, height) => {
+    const media = setup()
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream, width, height)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(media.canvasSize).toHaveBeenCalledWith(width, height)
   })
 
   it('explains permission denial and supports retry and closing', async () => {
@@ -93,11 +105,8 @@ describe('local camera preview', () => {
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
     expect(media.stop).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
-    const mapLink = screen.getByRole('link', { name: '撮影地を地図で見る（Googleマップ）' })
-    expect(mapLink).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=35%2C135')
-    expect(mapLink).toHaveAttribute('target', '_blank')
-    expect(mapLink).toHaveAttribute('rel', 'noreferrer')
-    expect(screen.getByText(/座標がGoogleマップに送られます/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撮影地を見る' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(/座標がGoogle Mapsに送信されます/)).toBeInTheDocument()
     expect(media.getCurrentPosition).toHaveBeenCalledExactlyOnceWith(expect.any(Function), expect.any(Function),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     expect(media.toBlob.mock.calls[0].slice(1)).toEqual(['image/jpeg', .9])
@@ -115,10 +124,10 @@ describe('local camera preview', () => {
     expect(media.toBlob).toHaveBeenCalledTimes(1)
     expect(media.drawImage.mock.invocationCallOrder[0]).toBeLessThan(media.getCurrentPosition.mock.invocationCallOrder[0])
     expect(screen.getByText('撮影地を取得しています…')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: '撮影地を地図で見る（Googleマップ）' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()
     act(() => media.getCurrentPosition.mock.calls[0][0](position()))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
-    expect(screen.getByRole('link', { name: '撮影地を地図で見る（Googleマップ）' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=35%2C135')
+    expect(screen.getByRole('button', { name: '撮影地を見る' })).toBeInTheDocument()
   })
 
   it('releases the photo before retaking and stops the second camera on exit', async () => {
