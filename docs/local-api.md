@@ -44,11 +44,26 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 ```
 
-[旅行者画面](http://localhost:5173/)で問題選択 → Googleログイン → 写真と位置の送信 → 判定照会 → 本人記録の順に確認する。地図は[Maps設定](google-maps.md)が必要。既定の照合は合成素材用で、実写真の判定ではない。
+[旅行者画面](http://localhost:5173/)では、問題選択 → 詳細・ヒント → Googleログイン → 写真と位置の送信までを画面で確認する。判定結果の表示と「自分の記録」を開けることも画面で確認できる。地図は[Maps設定](google-maps.md)が必要。実カメラと端末の現在地ではクリアや本人記録の保存までは進まない。合成データでクリアから保存までを再現する手順は[合成データでクリアと本人記録を確認する](#合成データでクリアと本人記録を確認する)。
 
-[自治体画面](http://localhost:5173/admin-local)では所属確認 → 下書き・素材保存 → 撮影範囲保存 → 同じ版の合成試験 → 確認依頼 → 公開の順に操作する。[画面の詳細](admin-demo.md#開発用の所属問題報告を閲覧する)。報告のメモリ機能や固定下書き候補の設定は永続側の必須手順ではない。
+[自治体画面](http://localhost:5173/admin-local)では所属確認 → 下書き・素材保存 → 撮影範囲保存 → 同じ版の合成試験 → 確認依頼 → 公開の順に操作する。`/admin-local` は旅行者画面と同じ `VITE_QUEST_DATA_SOURCE=durable-local` を使い、永続APIのモード応答を受け付ける。[画面の詳細](admin-demo.md#開発用の所属問題報告を閲覧する)。報告のメモリ機能や固定下書き候補の設定は永続側の必須手順ではない。
 
 Viteは `/api` を `127.0.0.1:8787` に転送する。APIが失敗しても成功モックへ切り替えない。終了は各ターミナルでCtrl+C。PowerShellでは `NAME=value` の代わりに `$env:NAME = 'value'` で各変数を設定してからコマンドを実行する。
+
+## 合成データでクリアと本人記録を確認する
+
+旅行者画面の撮影は端末のカメラと現在地を使う。画面では問題選択、詳細・ヒント、ログイン、挑戦開始、撮影、写真と位置の送信、判定結果の表示、「自分の記録」を開けることまでを確認できる。実カメラの写真と端末の現在地では、既定の照合と撮影範囲を満たさないため、クリア確定や初回記録の保存までは進まない。
+
+既定の永続起動（`QUEST_DATA_MODE=durable-local`。`QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` を付けない場合）では、写真照合は `server/src/demo-photo-test.ts` の一致用合成PNG（`syntheticPng`、2×2画素）と同じ内容のときだけ成功する。別の合成PNG（`otherSyntheticPng`）は別対象、それ以外はシステムエラーになる。撮影範囲は `server/src/demo-location.ts` の架空円で、中心は緯度 `0`・経度 `0`、半径 `100` m。精度の上限は `50` m。撮影・測位の新しさなどの制限は[開発用GPS範囲判定](gps-validation.md#開発用の設定)と同じ。
+
+クリアと保存を再現する入力の例は次のとおり。
+
+- 画像: `syntheticPng`（`server/src/demo-photo-test.ts` で生成した2×2のPNG）
+- 座標: 緯度 `0`、経度 `0`、精度 `5` m 程度（中心から `100` m 以内、精度 `50` m 以下）
+
+撮影画面にファイル選択や座標の手入力はない。審査員が実カメラと実測位だけで同じクリアを再現することは想定していない。受付・判定・記録保存までの通し確認は、同じ組み合わせを使う自動テストが担う。例は `server/test/answer-photo-storage.test.ts`。
+
+[合成記録で一覧・写真・削除を試す](owner-discoveries.md#合成記録で一覧写真削除を試す)は `QUEST_DISCOVERIES_MODE=memory` の起動時合成記録であり、回答判定のクリア手順とは別である。Vertex試験（`QUEST_DURABLE_PHOTO_MATCHER=vertex-trial`）は別のフィクスチャを使う。[永続回答からのVertex試験](vertex-trial.md#永続回答から試す)
 
 ## モードを選ぶ
 
