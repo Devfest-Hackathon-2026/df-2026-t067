@@ -8,6 +8,7 @@ import { DemoDiscoveryStore } from './discoveries'
 import { DemoAssetStore } from './admin-assets'
 import { createFixturePhotoMatcher } from './demo-photo-test'
 import { createFixtureDraftSuggester } from './demo-draft-suggestions'
+import { createTeamPreviewRuntime } from './team-preview'
 
 type DemoConfig = Extract<ReturnType<typeof readConfig>, { mode: 'demo' }>
 interface Runtime {
@@ -41,7 +42,8 @@ async function createDemoRuntime(config: DemoConfig) {
 
 async function main(): Promise<void> {
   const config = readConfig(process.env)
-  const runtime: Runtime = config.mode === 'durable-local' ? await createDurableLocalRuntime(config) : await createDemoRuntime(config)
+  const runtime: Runtime = config.mode === 'team-preview' ? await createTeamPreviewRuntime(config)
+    : config.mode === 'durable-local' ? await createDurableLocalRuntime(config) : await createDemoRuntime(config)
   const { server } = runtime
   let stopping = false
   const stop = () => {
@@ -59,12 +61,13 @@ async function main(): Promise<void> {
   process.once('SIGTERM', stop)
   server.once('error', () => {
     // Do not log SDK error objects, configuration values, headers, or tokens.
-    console.error('Local API failed to listen; check the port.')
+    console.error('API failed to listen; check the port.')
     process.exitCode = 1
     stop()
   })
-  server.listen(config.port, '127.0.0.1', () => {
-    console.info('Local API: http://127.0.0.1:' + config.port + ' (' + runtime.label + ')')
+  const host = config.mode === 'team-preview' ? '0.0.0.0' : '127.0.0.1'
+  server.listen(config.port, host, () => {
+    console.info('API: http://' + host + ':' + config.port + ' (' + runtime.label + ')')
   })
 }
 

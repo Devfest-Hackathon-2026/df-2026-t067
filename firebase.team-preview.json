@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "quest-team-preview",
+      "rules": "firestore.cloud-trial.rules"
+    }
+  ]
+}

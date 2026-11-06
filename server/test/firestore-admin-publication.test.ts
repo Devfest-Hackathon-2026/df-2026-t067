@@ -63,18 +63,22 @@ test('durable publishing freezes the tested version and pausing stops all public
       return picture
     },
   }
-  async function start() {
+  async function start(teamPreview?: { allowedUids: ReadonlySet<string>; webDirectory: string }) {
     const policy = { maximum: 10, windowMs: 60_000 }
-    const server = createDurableAnswerServer({ db, photos, publication, dataMode: 'durable-local',
+    const server = createDurableAnswerServer({ db, photos, publication, dataMode: 'durable-local', teamPreview,
       verifier: { verify: async (token) => ({ uid: token }) }, challengePolicy: policy, answerPolicy: policy, acquireUpload: () => () => {},
       assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
       photoTest: { matcher: (input, call) => duplicate ? Promise.resolve('WRONG_TARGET') : matcher(input, call), source: 'mock' } })
     const { base } = await listenServer(t, server)
-    return { base, api: (uid: string) => createApiClient({ expectedDataMode: 'durable-local',
+    return { base, api: (uid: string) => createApiClient({ expectedDataMode: teamPreview ? 'team-preview' : 'durable-local',
       getIdToken: async () => uid, fetch: (path, init) => fetch(base + String(path), init) }) }
   }
-  const first = await start(), second = await start()
-  const editor = first.api('editor'), publisher = first.api('publisher'), traveler = second.api('traveler')
+  const second = await start()
+  const team = await start({ allowedUids: new Set(['editor', 'publisher', 'traveler', 'other']), webDirectory: '' })
+  const editor = team.api('editor'), publisher = team.api('publisher'), traveler = second.api('traveler')
+  const teamTraveler = team.api('traveler')
+  await assert.rejects(team.api('outsider').listQuests(), { code: 'FORBIDDEN' })
+  await assert.rejects(teamTraveler.listManagedQuests(orgId), { code: 'FORBIDDEN' })
   const reference = await editor.uploadOrgAsset(orgId, { purpose: 'reference', photoRights: '合成画像', photo: image(syntheticPng), idempotencyKey: 'reference' })
   const hint = await editor.uploadOrgAsset(orgId, { purpose: 'public_hint', photoRights: '合成画像', photo: image(otherSyntheticPng), idempotencyKey: 'hint' })
   const draft: ManagedQuestDraft = {
@@ -111,10 +115,12 @@ test('durable publishing freezes the tested version and pausing stops all public
   revokeDuringHintRead = false
   await publisherMembership.update({ role: 'publisher' })
   await assert.rejects(traveler.getQuest(questId), { code: 'NOT_FOUND' })
+  await assert.rejects(teamTraveler.getQuest(questId), { code: 'NOT_FOUND' })
   const published = await publisher.publishManagedQuest(orgId, questId, input)
   assert.equal(published.publishedVersion, 1)
   assert.deepEqual(await second.api('publisher').publishManagedQuest(orgId, questId, input), published)
   const visible = await traveler.getQuest(questId)
+  assert.deepEqual(await teamTraveler.getQuest(questId), visible)
   assert.equal(visible.title, draft.content.title)
   assert.equal((await traveler.listAreas()).items[0].publishedCount, 1)
   assert.doesNotMatch(JSON.stringify(visible), /非公開|クリア後|latitude|referenceAssetId/)
@@ -124,6 +130,11 @@ test('durable publishing freezes the tested version and pausing stops all public
   const displayedHint = await fetch(second.base + visible.optionalHintImage)
   assert.equal(displayedHint.headers.get('Content-Type'), 'image/jpeg')
   assert.deepEqual(await displayedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
+  const protectedHint = await teamTraveler.getPublishedHintPhoto(questId, 1)
+  assert.deepEqual(await protectedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
+  const anonymousHint = await fetch(team.base + visible.optionalHintImage)
+  assert.equal(anonymousHint.status, 401)
+  await anonymousHint.body?.cancel()
   const v1 = db.collection('questVersions').doc(questId + ':1')
   assert.deepEqual((await v1.get()).get('answerMaterial.zones'), zones)
   assert.equal((await v1.get()).get('descriptionSnapshot'), draft.afterClear.explanation)
@@ -139,6 +150,7 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.deepEqual(await second.api('publisher').pauseManagedQuest(orgId, questId, pause), paused)
   await assert.rejects(publisher.pauseManagedQuest(orgId, questId, { ...pause, reason: '別の理由' }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.getQuest(questId), { code: 'NOT_FOUND' })
+  await assert.rejects(teamTraveler.getPublishedHintPhoto(questId, 1), { code: 'NOT_FOUND' })
   assert.equal((await traveler.listAreas()).items[0].publishedCount, 0)
   await assert.rejects(traveler.createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
   const hiddenHint = await fetch(second.base + visible.optionalHintImage)

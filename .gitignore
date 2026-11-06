@@ -17,6 +17,7 @@ GoogleService-Info.plist
 # 依存関係とビルドの成果物
 node_modules/
 dist/
+dist-team-preview/
 build/
 out/
 .next/

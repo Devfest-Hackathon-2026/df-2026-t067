@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 
-export function createQuestHttpServer(mode: 'demo' | 'real' | 'durable-local', handle: (request: IncomingMessage, response: ServerResponse) => Promise<void>) {
+export function createQuestHttpServer(mode: 'demo' | 'real' | 'durable-local' | 'team-preview', handle: (request: IncomingMessage, response: ServerResponse) => Promise<void>) {
   const server = createServer({ maxHeaderSize: 16_384 }, (request, response) => {
     // Keep POST bodies paused until authentication and a bounded reader.
     request.on('error', () => {})

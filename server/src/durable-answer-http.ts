@@ -28,6 +28,7 @@ import { authenticateRequest, createQuestHttpServer, requestTarget, send } from 
 import { readChallengeInput } from './json-body'
 import { handlePublicCatalog } from './public-catalog-http'
 import { parseId, validateQuery } from './query'
+import { serveTeamPreviewWeb } from './team-preview-web'
 
 interface DurableAnswerHttpOptions {
   db: Firestore
@@ -36,6 +37,7 @@ interface DurableAnswerHttpOptions {
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
   dataMode?: 'durable-local'
+  teamPreview?: { allowedUids: ReadonlySet<string>; webDirectory: string }
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
   suggestDraft?: DraftSuggester
@@ -48,22 +50,42 @@ interface DurableAnswerHttpOptions {
 // Durable routes have no dependency on the development server's in-memory state.
 export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
-  const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
+  const team = options.teamPreview
+  const verifiedTeamUsers = new WeakMap<IncomingMessage, string>()
+  const authenticate = async (request: IncomingMessage) => {
+    const verified = team && verifiedTeamUsers.get(request)
+    if (verified) return verified
+    const uid = await authenticateRequest(request, options.verifier)
+    if (team) {
+      if (!team.allowedUids.has(uid)) throw new HttpError(403, 'FORBIDDEN', '共有検証に招待されたアカウントでログインしてください。')
+      verifiedTeamUsers.set(request, uid)
+    }
+    return uid
+  }
   const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
-  const dataMode = options.dataMode ?? 'real'
+  const dataMode = team ? 'team-preview' : options.dataMode ?? 'real'
   const assets = options.assets
   const drafts = options.drafts
-  const photoTest = dataMode === 'durable-local' && drafts && assets && options.photoTest ? {
+  const photoTest = dataMode !== 'real' && drafts && assets && options.photoTest ? {
     store: new FirestorePhotoTestStore(options.db, drafts), assets, options: options.photoTest, acquire: options.acquireUpload,
   } : undefined
-  const publicationPhotos = dataMode === 'durable-local' ? options.publication : undefined
+  const publicationPhotos = dataMode !== 'real' ? options.publication : undefined
   const publication = drafts && publicationPhotos && new FirestoreManagedPublication(options.db, drafts, publicationPhotos)
-  const suggestion = dataMode === 'durable-local' && assets && options.suggestDraft
+  const suggestion = dataMode !== 'real' && assets && options.suggestDraft
     ? { assets, generator: options.suggestDraft } : undefined
   const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication, suggestion)
   const reportHandler = dataMode === 'durable-local' ? createDurableReportHandler(new FirestoreReportStore(options.db), authenticate) : undefined
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
+    if (team && path !== '/health') {
+      if (await serveTeamPreviewWeb(team.webDirectory, request, response, path)) return
+      if (!path.startsWith('/api/v1/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      await authenticate(request)
+      if (path !== '/api/v1/session' && path !== '/api/v1/me/memberships' && path !== '/api/v1/areas' &&
+        path !== '/api/v1/quests' && !path.startsWith('/api/v1/quests/') && !path.startsWith('/api/v1/orgs/')) {
+        throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+      }
+    }
     if (await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (await discoveryHandler(request, response, path, params)) return
     if (await draftHandler?.(request, response, path, params)) return
