@@ -14,7 +14,7 @@ React・TypeScript・Viteの開発画面で、架空の問題一覧・詳細・�
 | C | 写真・位置の送信と受付照会、合成記録の本人一覧・写真・削除。[回答送信](docs/camera-preview.md#ローカルapiで回答を送る)・[合成記録](docs/owner-discoveries.md#合成記録で一覧写真削除を試す) |
 | D | 開発サーバーの `/admin-local` で、所属確認後に下書き・素材・撮影範囲・合成試験・公開・休止・報告を操作。[管理画面の起動と操作](docs/admin-demo.md#開発用の所属問題報告を閲覧する) |
 
-旅行者の写真照合を実行するHTTP worker、クリア確定、Firestore/Storageへの永続保存、実際の自治体権限と本番公開は未接続です。合成記録は回答と独立して起動時に用意します。
+永続APIは別のローカルモードで起動でき、合成素材で回答からクリア・本人記録までをFirestoreエミュレーターとGCS代替サーバーで確認できます。実際の旅行者の写真照合、実データへの接続、自治体権限、本番公開は残件です。[永続APIの起動](server/README.md#永続apiをローカルで起動する)
 
 設定なしでも匿名で起動・閲覧できます。Googleログインを使うときだけ、[Firebase接続手順](docs/firebase-auth.md)に従って`.env.local`を設定します。共有用の開発プレビューを **[https://tour-513804.web.app/](https://tour-513804.web.app/)** で公開しています。URLを開くだけで閲覧でき、閲覧にログインは不要です。更新方法と公開範囲は [Firebase Hostingの手順](docs/hosting.md) を参照してください。運営の提出案内はこのREADMEの後半にそのまま残しています。GitHub Actions / Pagesには依存しません。
 
@@ -68,7 +68,7 @@ npm run dev:api
 
 「写真と位置をデモ送信」で写真と撮影情報を検査し、同じ回答の再送を同じ受付として扱います。`QUEST_LOCATION_MODE=demo` を指定すると範囲外と位置不確実を区別します。範囲内では受付済み（`RECEIVED`）を表示します。[回答受付・本人照会](docs/answer-intake.md)・[GPS demoモード](docs/gps-validation.md)
 
-回答画像の[実デコード・EXIF除去と写真照合の呼び出し部品](docs/photo-match.md)も用意しました。[Vertex試験](docs/vertex-trial.md)ではADCでの実通信・永続回数制限と合成画像専用CLIを使えます。回答APIの照合worker・記録保存は未接続で、旅行者の実写真でクリアを返す段階ではありません。
+回答画像の実デコード・EXIF除去と写真照合の呼び出し部品を用意しました。Vertexの実通信・永続回数制限を試す合成画像専用CLIは、通常起動の回答処理と別に利用できます。[画像処理](docs/photo-match.md)・[Vertex試験](docs/vertex-trial.md)
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 

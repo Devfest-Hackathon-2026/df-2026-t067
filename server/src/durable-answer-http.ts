@@ -23,28 +23,35 @@ interface DurableAnswerHttpOptions {
   verifier: IdTokenVerifier
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
+  dataMode?: 'durable-local'
   acquireUpload(uid: string): () => void
   enqueue?(input: AnswerIdentity): Promise<void>
 }
 
-// Explicit assembly for durable routes. The development executable uses its
-// separate demo server and does not instantiate any of these dependencies.
+// Durable routes have no dependency on the development server's in-memory state.
 export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
   const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
   const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
-  return createQuestHttpServer('real', async (request, response) => {
+  const dataMode = options.dataMode ?? 'real'
+  return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await discoveryHandler(request, response, path, params)) return
     const session = path === '/api/v1/session'
     const start = path === '/api/v1/challenges'
     const answer = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
     const attempt = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
-    if (!session && !start && !answer && !attempt) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+    const health = path === '/health'
+    if (!health && !session && !start && !answer && !attempt) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const method = start || answer ? 'POST' : 'GET'
     if (request.method !== method) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
+    }
+    if (health) {
+      validateQuery(params, [])
+      send(response, 200, { status: 'ok', dataMode })
+      return
     }
     const uid = await authenticate(request)
     validateQuery(params, [])

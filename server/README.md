@@ -1,6 +1,6 @@
 # ローカルAPI（架空デモ専用）
 
-Node **26.7.0** / npm **11.19.0**。この独立パッケージは架空の公開データ、Firebase ID token検証、挑戦開始、写真と位置の受付を提供する。開発用の所属・下書き・公開・休止、報告、本人記録もローカルで試せる。実回答の写真照合worker、Firestore/Storageへの永続保存、実際の自治体権限は未接続。[画面と追加設定](../README.md#現在の状態)
+Node **26.7.0** / npm **11.19.0**。架空デモでは公開データ、Firebase ID token検証、挑戦開始、写真と位置の受付、管理操作と本人記録を確認できる。別のローカルモードで、FirestoreとGCSの代替環境を使った回答処理も試せる。[画面と追加設定](../README.md#現在の状態)
 
 リポジトリのルートから実行する。
 
@@ -17,7 +17,7 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 
 | 設定 | 動作 |
 |---|---|
-| `QUEST_DATA_MODE=demo` | 必須の明示選択。未指定・別の値は起動エラー |
+| `QUEST_DATA_MODE` | `demo` または `durable-local` を明示。未指定や他の値は起動エラー |
 | `NODE_ENV=development` / `test` / 未指定 | ローカルデモを許可 |
 | `NODE_ENV=production` / その他の値 | 起動拒否。本番実装は未提供 |
 | `PORT` | 既定8787。`0`や数値でない値は拒否 |
@@ -31,6 +31,23 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
 プロジェクトIDを設定した場合の`auth`は`configured`。これは設定の有無だけを示し、実トークン検証やネットワークの健全性を保証しない。デモデータは「架空」と表示する2地域・3問題。座標は合成した公開領域の形状だけで、実在スポットの座標、正解レコード、照合写真、回答は含まない。
+
+## 永続APIをローカルで起動する
+
+クライアントを拒否するFirestoreエミュレーターと、ループバックのGCS代替サーバーを起動する。次の例はそれぞれ `127.0.0.1:8688` と `127.0.0.1:9688` で動作している場合。初回だけ代替サーバーに専用バケットを作る。[エミュレーターでの検証](../docs/answer-processing.md#非公開jpegの保存)
+
+```sh
+curl -fsS -X POST 'http://127.0.0.1:9688/storage/v1/b?project=demo-t067-durable-local' \
+  -H 'Content-Type: application/json' -d '{"name":"demo-t067-durable-local.appspot.com"}'
+
+QUEST_DATA_MODE=durable-local NODE_ENV=development \
+  FIRESTORE_EMULATOR_HOST=127.0.0.1:8688 QUEST_DURABLE_STORAGE_ENDPOINT=http://127.0.0.1:9688 \
+  npm run dev:api
+```
+
+`FIREBASE_PROJECT_ID` は開発用の署名済みIDトークンを発行するプロジェクトをシェルまたは `.env.local` から渡す。認証付きの操作には既存の開発用ADCでユーザーを参照できる権限も必要。HTTPでトークンの失効と無効化を確認し、定期処理では対象アカウントの存在と有効状態を確認する。Auth EmulatorとStorage SDKの接続先を上書きする `STORAGE_EMULATOR_HOST`、`FIREBASE_STORAGE_EMULATOR_HOST` は起動前に外す。FirestoreとGCSの接続先はIPv4ループバックに限り、データ用プロジェクトは `demo-t067-durable-local` に固定する。
+
+`GET /health` は `dataMode: durable-local` を返す。挑戦開始に使う合成問題は `demo-quest` の版 `1`。テストで使う合成画像と合成座標はサーバーのテストフィクスチャと同じものを使い、実写真や実地点は投入しない。公開問題一覧と通常のWeb画面はデモモードで確認する。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[永続APIと定期回収](../docs/answer-processing.md#httpと定期回収の起動)
 
 ## 実装したルート
 

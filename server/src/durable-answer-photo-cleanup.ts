@@ -11,16 +11,20 @@ type CleanupPhotos = Pick<AnswerPhotoStorage, 'deleteIncoming' | 'deleteRecord'>
 type CleanupOutcome = 'completed' | 'retrying' | 'stopped'
 
 export async function runDueAnswerPhotoCleanup(db: Firestore, photos: CleanupPhotos,
-  { maximumJobs, retryDelayMs }: { maximumJobs: number; retryDelayMs: number }) {
+  { maximumJobs, retryDelayMs, signal }: { maximumJobs: number; retryDelayMs: number; signal?: AbortSignal }) {
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 256 ||
     !Number.isSafeInteger(retryDelayMs) || retryDelayMs < 1) invalidInput()
+  const report = { completed: 0, retrying: 0, stopped: 0 }
+  if (signal?.aborted) return report
   let due
   try {
     due = await db.collection('attempts').where('nextPhotoCleanupAt', '<=', Timestamp.now()).orderBy('nextPhotoCleanupAt')
       .limit(maximumJobs).select('state', 'result', 'digest', 'sourcePhoto', 'unusedRecordPhoto', 'nextPhotoCleanupAt').get()
   } catch { throw processingError(true) }
-  const report = { completed: 0, retrying: 0, stopped: 0 }
-  for (const snapshot of due.docs) report[await cleanupReceipt(snapshot, photos, retryDelayMs)]++
+  for (const snapshot of due.docs) {
+    if (signal?.aborted) break
+    report[await cleanupReceipt(snapshot, photos, retryDelayMs)]++
+  }
   return report
 }
 
