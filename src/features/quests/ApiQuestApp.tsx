@@ -248,7 +248,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       {state === 'error' && <p role="alert">{current?.missing
         ? 'この問題は公開されていないか、見つかりません。別の問題を選べます。'
         : 'サーバーとの通信を確認して、もう一度お試しください。'}</p>}
-      {state !== 'loading' && <button type="button" onClick={() => reload()} disabled={refreshing}>再試行</button>}
+      {state !== 'loading' && <button type="button" onClick={(event) => reload(event)} disabled={refreshing}>再試行</button>}
       {refreshControl}
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
     </section> : undefined

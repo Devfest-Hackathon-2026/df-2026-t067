@@ -58,6 +58,20 @@ describe('APIから問題を表示', () => {
     expect(new URL(window.location.href).searchParams.get('quest')).toBe('quest-b')
   })
 
+  it('地図から地域を選ぶと更新通知を消す', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    const newer = { ...first, version: first.version + 1 }
+    api.listQuests.mockResolvedValueOnce(page([first, second])).mockResolvedValueOnce(page([newer, second]))
+    api.getQuest.mockResolvedValueOnce(first).mockResolvedValueOnce(newer).mockResolvedValueOnce(second)
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByText('問題が更新されました。詳細を開いて内容をご確認ください。')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '地図の公開地域を選択' }))
+    expect(screen.queryByText(/問題が更新されました/)).not.toBeInTheDocument()
+  })
+
   it('uses the durable catalog anonymously and the same data mode for authenticated challenge and records', async () => {
     const user = userEvent.setup()
     const getUserMedia = vi.fn(async () => ({ getTracks: () => [] }))
@@ -385,6 +399,49 @@ describe('APIから問題を表示', () => {
     expect(api.getQuest).toHaveBeenCalledTimes(2)
   })
 
+  it('公開・休止・再公開後の更新で一覧件数と新しい公開版・ヒントへ追随する', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    const initial = { ...first, version: 1, hintCount: 1, clue: '公開版1の詳細' }
+    const republished = { ...first, version: 2, hintCount: 1, title: '再公開された川辺の謎', clue: '公開版2の詳細' }
+    const areaWithOne = { ...areas[0], publishedCount: 1 }
+    const areaPaused = { ...areas[0], publishedCount: 0 }
+    api.listAreas.mockResolvedValueOnce(page([areaWithOne]))
+      .mockResolvedValueOnce(page([areaPaused]))
+      .mockResolvedValueOnce(page([areaWithOne]))
+    api.listQuests.mockResolvedValueOnce(page([initial])).mockResolvedValueOnce(page([])).mockResolvedValueOnce(page([republished]))
+    api.getQuest.mockResolvedValueOnce(initial).mockResolvedValueOnce(republished)
+    api.getHint.mockResolvedValueOnce({ questId: first.questId, version: 1, index: 1, text: '公開版1のヒント' })
+      .mockResolvedValueOnce({ questId: first.questId, version: 2, index: 1, text: '公開版2のヒント' })
+    window.history.replaceState(null, '', '/?area=area-a&quest=quest-a')
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
+    expect(await screen.findByRole('heading', { name: initial.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByText(initial.clue)).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByText('公開版1のヒント')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByRole('heading', { name: '公開問題はありません' })).toBeVisible()
+    expect(screen.getByRole('option', { name: '川辺エリア（0問）' })).toBeInTheDocument()
+    expect(screen.queryByText(initial.clue)).not.toBeInTheDocument()
+    expect(screen.queryByText('公開版1のヒント')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByRole('heading', { name: republished.title })).toBeVisible()
+    expect(screen.getByRole('option', { name: '川辺エリア（1問）' })).toBeInTheDocument()
+    expect(screen.queryByText('公開版1のヒント')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(screen.getByText(republished.clue)).toBeVisible()
+    expect(screen.queryByText(initial.clue)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByText('公開版2のヒント')).toBeVisible()
+    expect(screen.queryByText('公開版1のヒント')).not.toBeInTheDocument()
+    expect(api.getHint).toHaveBeenLastCalledWith({ questId: first.questId, expectedVersion: 2, index: 1 }, expect.anything())
+    expect(window.location.search).toContain('area=area-a')
+    expect(window.location.search).toContain('quest=quest-a')
+  })
+
   it('手動更新中の連打を止め、更新後に消えた問題を0件として扱う', async () => {
     const user = userEvent.setup()
     const api = apiFixture()
@@ -469,8 +526,11 @@ describe('APIから問題を表示', () => {
     await screen.findByRole('heading', { name: first.title })
     await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('サーバーとの通信を確認')
-    await user.click(screen.getByRole('button', { name: '再試行' }))
+    const retryButton = screen.getByRole('button', { name: '再試行' })
+    retryButton.focus()
+    await user.keyboard('{Enter}')
     expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(screen.getByRole('button', { name: '公開情報を更新' })).toHaveFocus()
   })
 
   it('手動更新のtimeout後に、signalを無視する旧応答を待たず再試行できる', async () => {
