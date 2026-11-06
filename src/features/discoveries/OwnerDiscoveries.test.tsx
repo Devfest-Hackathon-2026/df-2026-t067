@@ -5,6 +5,26 @@ import { createApiClient } from '../../shared/api'
 import { discovery } from '../../shared/api/testFixtures'
 import { OwnerDiscoveries } from './OwnerDiscoveries'
 
+it('keeps the earlier explanation and omits blank guidance fields', async () => {
+  const user = userEvent.setup()
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = () => 'blob:synthetic-record'
+    static revokeObjectURL = vi.fn()
+  })
+  const api = {
+    ...createApiClient(),
+    listDiscoveries: vi.fn().mockResolvedValue({ items: [discovery], nextCursor: null }),
+    getDiscovery: vi.fn().mockResolvedValue({ ...discovery, afterClear: { access: 'バス停から徒歩5分', hours: ' ', promoComment: '', explanation: '' } }),
+    getDiscoveryPhoto: vi.fn().mockResolvedValue(new Blob(['fixture'])),
+  }
+  render(<OwnerDiscoveries api={api} />)
+  await user.click(await screen.findByRole('button', { name: discovery.placeName }))
+  expect(await screen.findByText('バス停から徒歩5分')).toBeVisible()
+  expect(screen.getByText(discovery.descriptionSnapshot)).toBeVisible()
+  expect(screen.queryByText('利用時間')).not.toBeInTheDocument()
+  expect(screen.queryByText('自治体からの紹介')).not.toBeInTheDocument()
+})
+
 it('confirms deletion, checks a known receipt without resending, and refreshes the list after completion', async () => {
   const user = userEvent.setup()
   const revokeObjectURL = vi.fn()
@@ -19,6 +39,7 @@ it('confirms deletion, checks a known receipt without resending, and refreshes t
     getDiscovery: vi.fn().mockResolvedValue(discovery), getDiscoveryPhoto: vi.fn().mockResolvedValue(new Blob(['fixture'])) }
   render(<OwnerDiscoveries api={api} />)
   await user.click(await screen.findByRole('button', { name: discovery.placeName }))
+  expect(await screen.findByText(discovery.descriptionSnapshot)).toBeVisible()
   await user.click(await screen.findByRole('button', { name: '記録を削除' }))
   expect(deleteDiscovery).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: 'キャンセル' }))

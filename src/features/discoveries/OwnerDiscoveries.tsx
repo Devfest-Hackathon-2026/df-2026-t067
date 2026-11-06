@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ApiClient, ApiErrorCode } from '../../shared/api'
+import type { ApiClient, ApiErrorCode, Discovery } from '../../shared/api'
 import { useRemote } from '../../shared/useRemote'
 import { DiscoveryDeletion } from './DiscoveryDeletion'
 
@@ -32,6 +32,24 @@ function RecordPhoto({ blob }: { blob: Blob }) {
   return <img ref={image} className="photo-preview" alt="本人の記録写真" />
 }
 
+function RecordGuidance({ record }: { record: Discovery }) {
+  const { afterClear, descriptionSnapshot } = record
+  const fields = ([
+    ['アクセス', afterClear?.access.trim()],
+    ['利用時間', afterClear?.hours.trim()],
+    ['自治体からの紹介', afterClear?.promoComment.trim()],
+    ['解説', afterClear?.explanation.trim() || descriptionSnapshot.trim()],
+  ] as const).filter(([, value]) => value)
+
+  if (fields.length === 0) return null
+  return <dl className="record-guidance">
+    {fields.map(([label, value]) => <div key={label}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>)}
+  </dl>
+}
+
 function DiscoveryDetail({ api, id, onBack, onDeleted }: { api: ApiClient; id: string; onBack: () => void; onDeleted: () => void }) {
   const read = useCallback(async (signal: AbortSignal) => {
     const [record, photo] = await Promise.all([
@@ -49,7 +67,7 @@ function DiscoveryDetail({ api, id, onBack, onDeleted }: { api: ApiClient; id: s
       <RecordPhoto blob={result.value.photo} />
       <h2>{result.value.record.placeName}</h2>
       <p>初回の記録 <RecordDate date={result.value.record.firstClearedAt} /></p>
-      <p>{result.value.record.descriptionSnapshot}</p>
+      <RecordGuidance record={result.value.record} />
       <DiscoveryDeletion api={api} id={id} onDeleted={onDeleted} />
     </>}
   </section>
