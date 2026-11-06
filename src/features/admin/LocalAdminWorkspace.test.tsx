@@ -100,3 +100,22 @@ it('requires verified membership, cancels an old organization read, and shows re
   await user.click(screen.getByRole('button', { name: 'ログアウト' }))
   expect(screen.queryByText('架空の報告本文')).not.toBeInTheDocument()
 })
+
+
+it.each(['demo', 'durable-local'] as const)('uses the selected %s API mode and describes its storage', async (dataMode) => {
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'demo-user', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {},
+    signInWithGoogle: async () => {}, signOut: async () => {}, getIdToken: async () => 'demo-token',
+  }
+  const fetcher = vi.fn<typeof fetch>(async (input) => new Response(JSON.stringify(
+    String(input).endsWith('/session') ? { uid: 'demo-user' } : { items: [], nextCursor: null },
+  ), { headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': dataMode } }))
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} dataMode={dataMode} />)
+    expect(await screen.findByText('利用できる所属がありません。')).toBeVisible()
+    expect(screen.getByText(dataMode === 'demo' ? /サーバーの一時領域に保存/ : /ローカル永続ストアに保存/)).toBeVisible()
+    expect(screen.getByRole('link', { name: /未認証・未接続の架空フォーム/ })).toHaveAttribute('href', '/admin-demo')
+  } finally { vi.unstubAllGlobals() }
+})
