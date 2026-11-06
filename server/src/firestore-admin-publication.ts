@@ -1,5 +1,5 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
-import type { AssetPurpose, ManagedQuest, OrgMembership, PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../../src/shared/api/admin'
+import type { AssetPurpose, ManagedQuest, PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../../src/shared/api/admin'
 import { projectManagedQuest } from './admin-publication'
 import { missingReviewFields } from './admin-review'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
@@ -7,6 +7,7 @@ import { HttpError } from './errors'
 import { answerTransaction, processingError, questChanged, validDigest } from './firestore-answer-data'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { readOrgAssetRecord } from './firestore-org-assets'
+import { requirePublisher } from './firestore-org-memberships'
 import { draftPhotoFeatures } from './photo-match'
 import { maximumCatalogEntries, readPublicArea } from './public-catalog-http'
 
@@ -122,10 +123,6 @@ function latestVersion(stored: unknown, active: number | null): number {
   const latest = stored === undefined ? active ?? 0 : stored
   if (typeof latest !== 'number' || !Number.isSafeInteger(latest) || latest < 0 || (active !== null && active !== latest)) throw processingError()
   return latest
-}
-
-function requirePublisher(member: OrgMembership): void {
-  if (member.role !== 'publisher') throw new HttpError(403, 'FORBIDDEN', '公開担当者の権限が必要です。')
 }
 
 function draftConflict(): HttpError { return new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。') }

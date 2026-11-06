@@ -58,7 +58,7 @@ describe('APIから問題を表示', () => {
     expect(new URL(window.location.href).searchParams.get('quest')).toBe('quest-b')
   })
 
-  it('uses the durable catalog anonymously and the same data mode for authenticated challenge and records', async () => {
+  it('uses the durable catalog anonymously and the same data mode for authenticated reports, challenge and records', async () => {
     const user = userEvent.setup()
     const getUserMedia = vi.fn(async () => ({ getTracks: () => [] }))
     vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
@@ -69,10 +69,11 @@ describe('APIから問題を表示', () => {
       const data = path.startsWith('/api/v1/areas?') || path.startsWith('/api/v1/me/discoveries?') ? page([])
         : path.startsWith('/api/v1/quests?') ? page([first])
           : path === '/api/v1/session' ? { uid: snapshot.user.uid }
-            : path === '/api/v1/challenges' ? { challengeId: 'durable-challenge', questId: first.questId,
+            : path === '/api/v1/reports' ? { reportId: 'durable-report', source: 'real' }
+              : path === '/api/v1/challenges' ? { challengeId: 'durable-challenge', questId: first.questId,
               version: first.version, createdAt: '2026-11-06T00:00:00.000Z' }
               : first
-      return new Response(JSON.stringify(data), { status: path === '/api/v1/challenges' ? 201 : 200,
+      return new Response(JSON.stringify(data), { status: path === '/api/v1/reports' ? 202 : path === '/api/v1/challenges' ? 201 : 200,
         headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'durable-local' } })
     })
     vi.stubGlobal('fetch', fetcher)
@@ -84,6 +85,14 @@ describe('APIから問題を表示', () => {
     expect(catalogCalls.every(([, init]) => !new Headers(init?.headers).has('Authorization'))).toBe(true)
     expect(getUserMedia).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: '問題を報告' }))
+    await user.type(await screen.findByRole('textbox', { name: '報告内容' }), '架空の報告')
+    await user.click(screen.getByRole('button', { name: '報告を送信' }))
+    expect(await screen.findByText('開発用の報告を受け付けました。')).toBeVisible()
+    const report = fetcher.mock.calls.find(([path]) => path === '/api/v1/reports')?.[1]
+    expect(new Headers(report?.headers).get('Authorization')).toBe('Bearer test-token')
+    expect(JSON.parse(String(report?.body))).toEqual({ questId: first.questId, category: 'PHOTO_UNAVAILABLE', text: '架空の報告' })
+    await user.click(screen.getByRole('button', { name: '報告を閉じる' }))
     await user.click(await screen.findByRole('button', { name: '挑戦を始める' }))
     const start = fetcher.mock.calls.find(([path]) => path === '/api/v1/challenges')?.[1]
     expect(new Headers(start?.headers).get('Authorization')).toBe('Bearer test-token')

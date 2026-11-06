@@ -5,7 +5,7 @@ import { ShootingConditionIndicators } from '../../components/ShootingConditionI
 
 export type PreviewMode = 'challenge' | 'after-clear'
 
-export type ChallengePreviewContent = Pick<ManagedQuestDraft['content'], 'title' | 'question' | 'hints'> &
+type ChallengePreviewContent = Pick<ManagedQuestDraft['content'], 'title' | 'question' | 'hints'> &
   ShootingConditions & Pick<ManagedQuestDraft['materials'], 'price' | 'photoNote'>
 
 type Props = {

@@ -1,6 +1,6 @@
 # 共同開発・初期設定ガイド
 
-4人が同じ環境で最小Webアプリを起動するための手順。React・TypeScript・Viteで共通画面を用意した。設定するとGoogleログインを使える。最初の開発用モードでは、ローカルAPIから架空の1問を取得できるようにした。Mapsへの接続とクラウドの管理設定は別の手順で扱う。
+4人が同じ環境で最小Webアプリを起動するための手順。React・TypeScript・Viteで共通画面を用意した。設定するとGoogleログインを使える。審査・開発の起動は永続側へ統一する。Mapsへの接続とクラウドの管理設定は別の手順で扱う。
 
 ## 1. 全員が同じ手順で起動する
 
@@ -41,20 +41,9 @@ Nodeは[公式サイト](https://nodejs.org/en/download)から指定版を入れ
 
 ### 1-3. 起動・確認する
 
-`package.json`があるフォルダで実行する。初回の`npm ci`にはインターネット接続が必要。
+[永続側の共通起動手順](local-api.md)に従って、認証・保存環境・管理所属を準備し、APIとWebを起動する。審査と今後の開発は `durable-local` を基準にする。メモリデモと `/admin-demo` は開発用の後退として残し、新機能は追加しない。
 
-```sh
-npm ci
-npm run dev
-```
-
-[http://localhost:5173/](http://localhost:5173/)を開く。既定モードでは地図のプレビューと架空の問題が表示され、問題を開閉できれば起動確認は完了。Firebase未設定時は「ログイン準備中」と表示し、ログインのボタンは無効。設定する場合は[認証ガイド](firebase-auth.md)に従い、localhostで確認する。終了は **Ctrl+C**。
-
-画面からAPIを試す場合は、[ローカルAPI接続手順](local-api.md)に従い、明示した`local-api`モードと別ターミナルのAPIを起動する。設定なしの起動を実API接続成功と扱わない。サーバーの変更時は`npm --prefix server run check`も実行する。
-
-匿名閲覧には環境変数やクラウドCLIは不要。Googleログインを使う場合だけ`.env.example`を`.env.local`へコピーし、6項目を入力する。実設定と元のJSONをGitへ含めない。`VITE_`で始まる値はブラウザへ公開されるため、秘密鍵やAI認証情報を入れない。[Vite公式説明](https://vite.dev/guide/env-and-mode)
-
-変更したら、次で一括確認する。
+変更後の検証：
 
 ```sh
 npm run check
