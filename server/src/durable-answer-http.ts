@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore'
 import type { IncomingMessage } from 'node:http'
 import type { AttemptResult } from '../../src/shared/api/types'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
+import { handleAssetRequest, matchAssetRoute } from './admin-assets-http'
 import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
 import { createDiscoveryHandler } from './discoveries-http'
@@ -13,6 +14,7 @@ import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './fi
 import type { AnswerIdentity } from './firestore-answer-processing'
 import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-challenges'
 import { FirestoreDiscoveryStore } from './firestore-discoveries'
+import type { FirestoreOrgAssetStore } from './firestore-org-assets'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
 import { handlePublicCatalog } from './public-catalog-http'
@@ -25,6 +27,7 @@ interface DurableAnswerHttpOptions {
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
   dataMode?: 'durable-local'
+  assets?: FirestoreOrgAssetStore
   acquireUpload(uid: string): () => void
   enqueue?(input: AnswerIdentity): Promise<void>
 }
@@ -35,10 +38,27 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
   const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
   const dataMode = options.dataMode ?? 'real'
+  const assets = options.assets
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await handlePublicCatalog(options.db, request, response, path, params)) return
     if (await discoveryHandler(request, response, path, params)) return
+    const asset = assets && matchAssetRoute(path)
+    if (asset) {
+      const method = asset[2] ? 'GET' : 'POST'
+      if (request.method !== method) {
+        response.setHeader('Allow', method)
+        throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
+      }
+      const uid = await authenticate(request)
+      const orgId = parseId(decodeURIComponent(asset[1]))
+      const recheck = () => assets.assertMember(uid, orgId)
+      await recheck()
+      validateQuery(params, [])
+      const assetId = asset[2] === undefined ? undefined : parseId(decodeURIComponent(asset[2]))
+      await handleAssetRequest(request, response, { store: assets, uid, orgId, assetId, photo: Boolean(asset[3]), recheck, send })
+      return
+    }
     const session = path === '/api/v1/session'
     const start = path === '/api/v1/challenges'
     const answer = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)

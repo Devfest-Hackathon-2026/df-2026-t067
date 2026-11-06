@@ -22,6 +22,7 @@ import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
 import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
 import { runDueDiscoveryDeletions } from '../src/firestore-discovery-deletions'
+import { FirestoreOrgAssetStore } from '../src/firestore-org-assets'
 import { preparePhoto } from '../src/photo-input'
 import { createPublishedAnswerMaterialLoader } from '../src/published-answer-material'
 import { initializeTrialLedger } from '../src/vertex-trial-ledger'
@@ -54,6 +55,80 @@ test('Cloud Storage photo generations stay immutable across retries', {
   const other = await preparePhoto({ bytes: otherSyntheticPng, mimeType: 'image/png' })
   const digest = 'a'.repeat(64)
   const attemptId = randomUUID()
+
+  await t.test('durable organization uploads resume across server instances and cannot outlive membership', {
+    skip: !firestoreEmulator,
+  }, async (assetTest) => {
+    assert(firestoreEmulator && /^127\.0\.0\.1:[1-9]\d{0,4}$/.test(firestoreEmulator) &&
+      Number(firestoreEmulator.split(':')[1]) <= 65535)
+    process.env.FIRESTORE_EMULATOR_HOST = firestoreEmulator
+    const assetsApp = initializeApp({ projectId: 'demo-t067-org-assets' }, 'org-assets-' + randomUUID())
+    assetTest.after(() => deleteApp(assetsApp))
+    const db = getFirestore(assetsApp)
+    db.settings({ universeDomain: 'googleapis.com' })
+    const orgId = 'test-org', otherOrg = 'other-org'
+    const member = (uid: string, org: string) =>
+      db.collection('memberships').doc(createHash('sha256').update(JSON.stringify([uid, org])).digest('hex'))
+    for (const [uid, org] of [['editor', orgId], ['colleague', orgId], ['other', otherOrg]]) {
+      await member(uid, org).create({ uid, orgId: org, active: true, role: 'editor', label: '架空の自治体', areaId: 'demo-area' })
+    }
+    let revoke = false
+    const pictures = {
+      async writeReference(...args: Parameters<AnswerPhotoStorage['writeReference']>) {
+        const result = await store.writeReference(...args)
+        if (revoke) await member('editor', orgId).update({ active: false })
+        return result
+      },
+      readReference: store.readReference.bind(store),
+      writeHint: store.writeHint.bind(store),
+      readHint: store.readHint.bind(store),
+    }
+    async function start() {
+      const policy = { maximum: 10, windowMs: 60_000 }
+      const server = createDurableAnswerServer({ db, photos: store, verifier: { verify: async (token) => ({ uid: token }) },
+        dataMode: 'durable-local', assets: new FirestoreOrgAssetStore(db, pictures),
+        answerPolicy: policy, challengePolicy: policy, acquireUpload: () => () => {} })
+      const { base } = await listenServer(assetTest, server)
+      return (uid: string) => createApiClient({ expectedDataMode: 'durable-local',
+        getIdToken: async () => uid, fetch: (path, init) => fetch(base + String(path), init) })
+    }
+    const first = await start(), second = await start()
+    const input = { photo: new Blob([new Uint8Array(syntheticPng)], { type: 'image/png' }),
+      purpose: 'reference' as const, photoRights: '検証用の合成画像', idempotencyKey: 'same-request' }
+    await assert.rejects(first('traveler').uploadOrgAsset(orgId, input), { code: 'FORBIDDEN' })
+    const [saved, replay] = await Promise.all([first('editor').uploadOrgAsset(orgId, input), second('editor').uploadOrgAsset(orgId, input)])
+    assert.deepEqual(saved, replay)
+    assert.equal(saved.source, 'real')
+    assert.deepEqual(await second('colleague').getOrgAsset(orgId, saved.assetId), saved)
+    assert.deepEqual(Buffer.from(await (await second('colleague').getOrgAssetPhoto(orgId, saved.assetId)).arrayBuffer()), photo.bytes)
+    assert.equal((await db.collection('orgAssets').get()).size, 1)
+    await assert.rejects(second('other').getOrgAssetPhoto(orgId, saved.assetId), { code: 'FORBIDDEN' })
+    await assert.rejects(second('other').getOrgAsset(otherOrg, saved.assetId), { code: 'NOT_FOUND' })
+    await assert.rejects(second('editor').uploadOrgAsset(orgId, { ...input, purpose: 'public_hint' }), { code: 'IDEMPOTENCY_CONFLICT' })
+
+    const hint = await second('editor').uploadOrgAsset(orgId, { ...input, purpose: 'public_hint', idempotencyKey: 'hint' })
+    const hintGeneration = (await db.collection('orgAssets').doc(hint.assetId).get()).get('generation')
+    assert.deepEqual(Buffer.from(await (await second('colleague').getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer()), photo.bytes)
+    await assert.rejects(store.readReference(orgId, hint.assetId, hintGeneration), { code: 'SYSTEM_ERROR', retryable: false })
+
+    revoke = true
+    const interrupted = { ...input, idempotencyKey: 'revoked-during-upload' }
+    await assert.rejects(first('editor').uploadOrgAsset(orgId, interrupted), { code: 'FORBIDDEN' })
+    const pending = await db.collection('orgAssets').get()
+    assert.equal(pending.size, 3)
+    const receipt = pending.docs.find((doc) => doc.get('generation') === undefined)
+    assert(receipt)
+    await assert.rejects(second('colleague').getOrgAsset(orgId, receipt.id), { code: 'NOT_FOUND' })
+    revoke = false
+    await member('editor', orgId).update({ active: true })
+    assert.equal((await second('editor').uploadOrgAsset(orgId, interrupted)).assetId, receipt.id)
+    assert.equal((await db.collection('orgAssets').get()).size, 3)
+    const usage = db.collection('orgAssetUsage')
+    assert.deepEqual((await usage.doc('global').get()).data(), { count: 3, bytes: 3 * photo.bytes.length })
+    await usage.doc('org-' + orgId).set({ count: 32 })
+    await assert.rejects(second('editor').uploadOrgAsset(orgId, { ...input, idempotencyKey: 'beyond-cap' }), { code: 'RATE_LIMITED' })
+    assert.deepEqual(await first('editor').uploadOrgAsset(orgId, input), saved)
+  })
 
   const [first, retry] = await Promise.all([
     store.writeIncoming(attemptId, digest, photo), store.writeIncoming(attemptId, digest, photo),
