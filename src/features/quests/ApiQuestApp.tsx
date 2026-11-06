@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import App from '../../App'
 import type { AuthClient } from '../auth/authTypes'
 import { ApiError, createApiClient } from '../../shared/api/client'
@@ -11,6 +11,7 @@ type Result = {
   state: 'loading' | 'ready' | 'empty' | 'error'
   choices: PublicQuest[]; areas: PublicArea[]; quest?: PublicQuest; area?: PublicArea; missing?: boolean
 }
+type RefreshSnapshot = { api: Api; questId: string; version: number }
 
 function readSelectionFromUrl() {
   const params = new URLSearchParams(window.location.search)
@@ -50,13 +51,31 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
   const [selectedId, setSelectedId] = useState(initialSelection.questId)
   const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
   const [retry, setRetry] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshNotice, setRefreshNotice] = useState<{ api: Api; text: string } | null>(null)
+  const refreshSnapshot = useRef<RefreshSnapshot | null>(null)
+  const refreshingRetry = useRef(-1)
+  const refreshInFlight = useRef(false)
+  const refreshOperation = useRef(0)
+  const loadGeneration = useRef(0)
+  const refreshButton = useRef<HTMLButtonElement>(null)
+  const restoreRefreshFocus = useRef(false)
   const [staleQuest, setStaleQuest] = useState<{ questId: string; version: number } | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const catalog = useRef<{ api: Api; choices: Map<string, PublicQuest[]>; areas?: PublicArea[] } | null>(null)
+  const clearRefreshNotice = () => {
+    setRefreshNotice(null)
+    refreshOperation.current += 1
+    refreshSnapshot.current = null
+    refreshInFlight.current = false
+    restoreRefreshFocus.current = false
+    setRefreshing(false)
+  }
 
   useEffect(() => {
     if (!syncUrl) return
     const onPopState = () => {
+      clearRefreshNotice()
       const selection = readSelectionFromUrl()
       setSelectedAreaId(selection.areaId)
       setSelectedId(selection.questId)
@@ -68,11 +87,24 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
   useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
+    const operation = refreshOperation.current
+    const generation = ++loadGeneration.current
     let choices: PublicQuest[] = []
-    const fail = (error?: unknown) => setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'error', choices,
-      areas: catalog.current?.api === api ? catalog.current.areas ?? [] : [],
-      missing: error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'QUEST_UNAVAILABLE') })
-    const deadline = setTimeout(() => { fail(); controller.abort() }, 10_000)
+    let settled = false
+    const fail = (error?: unknown) => {
+      settled = true
+      setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'error', choices,
+        areas: catalog.current?.api === api ? catalog.current.areas ?? [] : [],
+        missing: error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'QUEST_UNAVAILABLE') })
+    }
+    const deadline = setTimeout(() => {
+      fail()
+      controller.abort()
+      if (refreshingRetry.current === retry && refreshOperation.current === operation && loadGeneration.current === generation) {
+        refreshInFlight.current = false
+        setRefreshing(false)
+      }
+    }, 10_000)
     // Discard obsolete responses even when a transport ignores cancellation.
     void (async () => {
       try {
@@ -100,6 +132,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
             setSelectedId('')
             return
           }
+          settled = true
           setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'empty', choices, areas })
           return
         }
@@ -114,11 +147,26 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
         signal.throwIfAborted()
         if (quest.questId !== id) throw new ApiError('INVALID_RESPONSE')
         if (selectedAreaId && quest.areaId !== selectedAreaId) throw new ApiError('INVALID_RESPONSE')
+        settled = true
         setResult({ api, selection: selectedId, areaSelection: selectedAreaId, retry, state: 'ready', choices, areas, quest,
           area: areas.find((item) => item.areaId === quest.areaId) })
+        if (refreshingRetry.current === retry && refreshOperation.current === operation) {
+          const snapshot = refreshSnapshot.current
+          if (snapshot?.api === api && snapshot.questId !== quest.questId) {
+            setRefreshNotice({ api, text: '更新により選択中の問題が公開一覧からなくなったため、別の問題を表示しています。' })
+          } else if (snapshot?.api === api && snapshot.questId === quest.questId && snapshot.version !== quest.version) {
+            setRefreshNotice({ api, text: '問題が更新されました。詳細を開いて内容をご確認ください。' })
+          }
+        }
       } catch (error) {
         if (!signal.aborted) fail(error)
-      } finally { clearTimeout(deadline) }
+      } finally {
+        clearTimeout(deadline)
+        if (settled && refreshingRetry.current === retry && refreshOperation.current === operation && loadGeneration.current === generation) {
+          refreshInFlight.current = false
+          setRefreshing(false)
+        }
+      }
     })()
     return () => { clearTimeout(deadline); controller.abort() }
   }, [api, selectedId, selectedAreaId, retry, syncUrl])
@@ -135,6 +183,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
     <select id="api-area-select" value={selectedAreaId}
       onChange={(event) => {
         const areaId = event.target.value
+        clearRefreshNotice()
         if (syncUrl) writeSelectionToUrl(areaId, '', 'push')
         setSelectedAreaId(areaId); setSelectedId('')
       }}>
@@ -148,6 +197,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       disabled={!choices.length}
       onChange={(event) => {
         const questId = event.target.value
+        clearRefreshNotice()
         if (syncUrl) writeSelectionToUrl(selectedAreaId, questId, 'push')
         setSelectedId(questId)
       }}>
@@ -158,9 +208,34 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
   </div>
 
   const quest = state === 'ready' ? current?.quest : undefined
-  const reload = () => { catalog.current = null; setRetry((value) => value + 1) }
+  const reload = (event?: MouseEvent<HTMLButtonElement>) => {
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
+    refreshOperation.current += 1
+    restoreRefreshFocus.current = !!event && document.activeElement === event.currentTarget
+    setRefreshNotice(null)
+    const shownQuest = current?.state === 'ready' ? current.quest : undefined
+    refreshSnapshot.current = shownQuest ? { api, questId: shownQuest.questId, version: shownQuest.version } : null
+    setRefreshing(true)
+    refreshingRetry.current = retry + 1
+    catalog.current = null
+    setRetry((value) => value + 1)
+  }
+  useEffect(() => {
+    if (refreshing || !restoreRefreshFocus.current) return
+    restoreRefreshFocus.current = false
+    if (document.activeElement === document.body) refreshButton.current?.focus()
+  }, [refreshing])
+  const refreshControl = <>
+    <button ref={refreshButton} type="button" onClick={reload} disabled={refreshing}>
+      {refreshing ? '公開情報を更新中…' : '公開情報を更新'}
+    </button>
+    {refreshing && <span role="status">地域・問題一覧・選択中の詳細を取り直しています。</span>}
+    {refreshNotice?.api === api && <span role="status">{refreshNotice.text}</span>}
+  </>
   const selectArea = (areaId: string) => {
     if (areaId === selectedAreaId || !availableAreas.some((item) => item.areaId === areaId)) return
+    clearRefreshNotice()
     if (syncUrl) writeSelectionToUrl(areaId, '', 'push')
     setSelectedAreaId(areaId)
     setSelectedId('')
@@ -173,13 +248,14 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       {state === 'error' && <p role="alert">{current?.missing
         ? 'この問題は公開されていないか、見つかりません。別の問題を選べます。'
         : 'サーバーとの通信を確認して、もう一度お試しください。'}</p>}
-      {state !== 'loading' && <button type="button" onClick={reload}>再試行</button>}
+      {state !== 'loading' && <button type="button" onClick={(event) => reload(event)} disabled={refreshing}>再試行</button>}
+      {refreshControl}
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
     </section> : undefined
   return <App authClient={authClient} quest={quest} mapAreas={availableAreas} selectedAreaId={selectedAreaId} onSelectArea={selectArea}
     areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
-    questPicker={picker} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
+    questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
     onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}
-    onReloadQuest={reload} />
+    onReloadQuest={() => reload()} />
 }
