@@ -1,0 +1,9 @@
+{
+  "firestore": [
+    {
+      "database": "quest-integration",
+      "rules": "firestore.cloud-trial.rules",
+      "indexes": "firestore.cloud-trial.indexes.json"
+    }
+  ]
+}
