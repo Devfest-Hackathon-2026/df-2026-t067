@@ -1,14 +1,16 @@
 # D向け：用途別の写真素材API
 
-Issue #19の写真とassetIdの受け渡し待ちに対応する。既存のGoogle認証・[所属/下書きAPI](team-api-handoffs.md)と画像検証を再利用する。写真はserverでデコード・向き補正・縮小し、EXIF等を除いたJPEGを保存する。
+Issue #19で挙げた、写真の登録とassetIdの受け渡しに対応する。既存のGoogle認証、[所属/下書きAPI](team-api-handoffs.md)、画像検証を使う。serverで写真をデコードし、向きを補正して縮小する。EXIF等を除いたJPEGを保存する。
 
 **保存先は明示した開発用メモリーだけ。再起動で画像・assetId・再送受付は消える。** 実Storage、AI生成/判定、公開、期限削除は未接続。実利用者・実地点の素材をこの開発ストアへ投入しない。
 
 ## 設定
 
-既存の`QUEST_DATA_MODE=demo`、`FIREBASE_PROJECT_ID`と`QUEST_DEMO_MEMBERSHIPS_FILE`に加え、サーバーの`.env.local`へ`QUEST_ADMIN_ASSETS_MODE=memory`を設定し、`npm run dev:api`で起動する。`VITE_`は付けない。既定のoffは認証・所属確認後503 `SYSTEM_ERROR`で未接続を示し、成功モックへ切り替えない。
+既存の`QUEST_DATA_MODE=demo`、`FIREBASE_PROJECT_ID`、`QUEST_DEMO_MEMBERSHIPS_FILE`に加え、サーバーの`.env.local`に`QUEST_ADMIN_ASSETS_MODE=memory`を設定する。変数名に`VITE_`は付けない。`npm run dev:api`で起動する。
 
-すべてGoogle ID tokenとactiveな編集/公開の所属が必要。利用者の自己申告では所属を作れない。同じ自治体の有効な担当者は素材を共有でき、他自治体の素材は取得・下書きへの参照とも拒否する。POSTでは本文受信前、デコード前、保存直前に所属を確認する。
+既定のoffでは、認証と所属確認の後に503 `SYSTEM_ERROR`を返して未接続を示す。未接続時は成功モックへ切り替えない。
+
+すべての操作にGoogle ID tokenと、編集または公開担当としての有効な所属が必要。利用者の自己申告で所属を作ることはできない。同じ自治体の有効な担当者は素材を共有できる。他の自治体の素材は取得できず、下書きからの参照もできない。POSTでは本文を受信する前、デコードする前、保存する直前に所属を確認する。
 
 ## clientとHTTP
 

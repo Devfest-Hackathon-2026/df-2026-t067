@@ -6,7 +6,7 @@
 
 ## 公開する範囲
 
-地図のデザインプレビューと架空のサンプル問題、Firebase AuthenticationのGoogleログイン・ログアウト・状態復元、端末内の撮影・写真確認・撮影時GPS確認画面を共有する。地図はGoogle Mapsではない。写真とGPSは送信・保存しない。写真判定、クリア確定、本人記録は未実装。
+共有するのは、地図のデザインプレビューと架空のサンプル問題。Firebase AuthenticationのGoogleログイン・ログアウト・状態復元に加え、端末内での撮影、写真の確認、撮影時のGPS確認を試せる。公開プレビューの地図はGoogle Mapsに接続していない。写真とGPSは端末内で確認するだけで、送信も保存もしない。写真判定、クリア確定、本人記録は公開プレビューでは利用できない。
 
 自治体向けの[素材登録・編集・表示確認デモ](https://tour-513804.web.app/admin-demo)も公開する。未認証の架空データ用フォームで、入力や写真は画面内だけに保持し、保存・AI・公開APIには接続しない。
 
@@ -21,7 +21,9 @@ npm ci
 cp .env.example .env.production.local
 ```
 
-`.env.production.local` の `VITE_FIREBASE_` で始まる6項目を、対象Webアプリの設定で埋める。設定値の対応は [Firebase接続手順](firebase-auth.md) を参照する。`VITE_QUEST_DATA_SOURCE=preview` にする。実設定ファイル・元JSON・CLIの認証情報はコミットしない。Firebase Web用設定はブラウザに含まれるため、サーバーの秘密鍵やAIの認証情報を入れない。
+`.env.production.local` で、`VITE_FIREBASE_` から始まる6項目に対象Webアプリの設定値を入れる。項目と設定値の対応は[Firebase接続手順](firebase-auth.md)を参照する。`VITE_QUEST_DATA_SOURCE=preview` を指定する。
+
+実設定ファイル、元のJSON、CLIの認証情報はコミットしない。FirebaseのWeb用設定はブラウザへ配布されるので、サーバーの秘密鍵やAIの認証情報を入れない。
 
 公式Firebase CLIに、対象プロジェクトへの公開権限がある本人のGoogleアカウントでログインする。メンバー間でGoogleパスワードを共有しない。
 
