@@ -2,7 +2,7 @@
 
 BとDが画面を接続するとき、Aの追加実装を待つ作業を減らすための手順。既存の共通clientを使う。写真照合とVertex設定は別の作業で進める。[進捗Issue #19](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/19)
 
-ここで使うのは、`QUEST_DATA_MODE=demo`でlocalhostに起動するサーバー。管理下書きは**サーバープロセス内に一時保存**し、再起動すると消える。初期の下書き保存では実Firestore/Storage、自治体招待、画像アップロード、AI生成、試験、公開・休止に接続していなかった。後から追加した開発用の操作は下の各節で扱う。実利用者や実地点の素材はこのサーバーに入れない。
+メモリー版は `QUEST_DATA_MODE=demo` でlocalhostに起動する。再起動で下書きが消える。Firestoreエミュレーターに下書きを保存する場合は `durable-local` を使う。操作の範囲は以下の各節を参照。検証には架空の素材を使う。
 
 C向けの本人記録一覧/詳細・写真・削除は[本人記録API接続手順](owner-discoveries.md)を参照する。保存先未接続を空一覧や保存成功へ置き換えず、記録を作るHTTPは提供しない。
 
@@ -42,6 +42,18 @@ const hint = await api.getHint({
 | `updateManagedQuest(orgId, questId, input, call?)` | PATCH `/orgs/:orgId/quests/:questId` | 200 `ManagedQuest` |
 
 全て毎回最新のFirebase ID tokenを送信する。`createApiClient({ expectedDataMode: 'demo', getIdToken: authClient.getIdToken })`を使う。生成しただけでは通信しない。list系は`cursor/limit`（既定20、上限100）でページングする。
+
+### 永続の所属・下書きをローカルで試す
+
+`durable-local` では既存の `GET /me/memberships`、下書き一覧・取得・作成・更新、撮影範囲の取得・更新を使える。API clientは `expectedDataMode: 'durable-local'` と署名済みIDトークンを使う。Firestoreエミュレーターへの所属登録は永続素材APIと共通。新規作成時は所属で設定した公開エリアを使う。[永続素材の所属登録](admin-assets.md#永続素材をローカルで試す)
+
+本文と撮影範囲を `quests/{questId}` に保存する。どちらを更新するときも同じ `expectedDraftRevision` を確認し、成功時に1進める。保存時の所属確認と更新は同じトランザクションで行う。素材IDには自組織で保存が確定した同じ用途の素材を指定する。撮影範囲の座標・半径を返すのは専用の管理APIだけ。旅行者向けの公開カタログには公開版の別文書が必要。
+
+`submitManagedQuestReview` で保存済みの下書きを確認依頼できる。所属、下書きの版番号、素材の保存状態を同じトランザクションで確認する。必要項目がそろえば `review_pending` を保存し、不足があれば `draft` と不足項目を返す。同じ下書きの再送では版番号は進まない。[確認項目](api.md#17-dの下書き確認依頼)
+
+同じ起動モードで合成素材の写真試験を実行し、試験した下書きの版に結果を保存できる。[永続の写真試験](admin-photo-tests.md#永続の写真試験をローカルで試す)
+
+管理画面の接続、永続の公開・休止は後続。
 
 ### 開発用の所属を設定する
 
