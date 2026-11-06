@@ -10,11 +10,14 @@ import { preparePhoto } from './photo-input'
 
 export interface DiscoveryQuery { areaId?: string; cursor?: string; limit?: number }
 export interface DiscoveryPhoto { bytes: Uint8Array; contentType: 'image/jpeg' }
-export interface DiscoveryRepository {
-  readonly storageMode: 'memory'
+export interface DiscoveryReadRepository {
+  readonly storageMode: 'memory' | 'firestore'
   listOwned(uid: string, query: DiscoveryQuery): Promise<Page<Discovery>>
   getOwned(uid: string, discoveryId: string): Promise<Discovery | null>
   getPhotoOwned(uid: string, discoveryId: string): Promise<DiscoveryPhoto | null>
+}
+export interface DiscoveryRepository extends DiscoveryReadRepository {
+  readonly storageMode: 'memory'
   deleteOwned(uid: string, discoveryId: string): Promise<DeletionReceipt | null>
   getDeletionOwned(uid: string, deletionId: string): Promise<DeletionStatus | null>
 }

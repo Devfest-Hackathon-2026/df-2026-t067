@@ -1,12 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { DISCOVERY_PHOTO_MAX_BYTES } from '../../src/shared/api/types'
 import { parseDeletionReceipt, parseDeletionStatus, parseDiscovery, parsePage } from '../../src/shared/api/validation'
-import type { DiscoveryRepository } from './discoveries'
+import type { DiscoveryReadRepository, DiscoveryRepository } from './discoveries'
 import { HttpError } from './errors'
 import { parseId, parseLimit, validateQuery } from './query'
 
 export function createDiscoveryHandler(options: {
-  repository?: DiscoveryRepository
+  repository?: DiscoveryReadRepository & Partial<Pick<DiscoveryRepository, 'deleteOwned' | 'getDeletionOwned'>>
   authenticate: (request: IncomingMessage) => Promise<string>
   send: (response: ServerResponse, status: number, body: unknown) => void
 }) {
@@ -23,7 +23,7 @@ export function createDiscoveryHandler(options: {
     const uid = await options.authenticate(request)
     const repository = options.repository
     if (!repository) throw new HttpError(503, 'SYSTEM_ERROR', '本人記録の保存先が未接続です。', true)
-    response.setHeader('X-Quest-Records-Mode', repository.storageMode)
+    if (repository.storageMode === 'memory') response.setHeader('X-Quest-Records-Mode', 'memory')
     try {
       if (isList) {
         validateQuery(params, ['areaId', 'cursor', 'limit'])
@@ -35,10 +35,12 @@ export function createDiscoveryHandler(options: {
         validateQuery(params, [])
         const id = parseId(decodeURIComponent((record ?? deletion)![1]))
         if (deletion) {
+          if (!repository.getDeletionOwned) throw deletionUnavailable()
           const status = await repository.getDeletionOwned(uid, id)
           if (!status) throw missing()
           options.send(response, 200, parseDeletionStatus(status))
         } else if (request.method === 'DELETE') {
+          if (!repository.deleteOwned) throw deletionUnavailable()
           const receipt = await repository.deleteOwned(uid, id)
           if (!receipt) throw missing()
           options.send(response, 202, parseDeletionReceipt(receipt))
@@ -68,3 +70,7 @@ export function createDiscoveryHandler(options: {
 }
 
 function missing(): HttpError { return new HttpError(404, 'NOT_FOUND', '見つかりません。') }
+
+function deletionUnavailable(): HttpError {
+  return new HttpError(503, 'SYSTEM_ERROR', '本人記録の削除は未接続です。')
+}

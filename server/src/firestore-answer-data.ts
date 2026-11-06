@@ -69,6 +69,10 @@ export function recordAnswerPhotoPath(attemptId: string): string {
   return `answer-photos/${attemptId}/record.jpg`
 }
 
+export function validRecordPhotoPath(value: unknown): value is string {
+  return typeof value === 'string' && /^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(value)
+}
+
 export function readAnswerSource(data: DocumentData, attemptId: string) {
   const path = incomingAnswerPhotoPath(attemptId, data.digest)
   const generation: unknown = data.sourcePhoto?.generation

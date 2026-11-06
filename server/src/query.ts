@@ -67,22 +67,31 @@ export function paginate<T>(items: T[], params: URLSearchParams, scope: string, 
   let start = 0
   const cursor = params.get('cursor')
   if (cursor !== null) {
-    if (!/^[A-Za-z0-9_-]{1,2048}$/.test(cursor)) invalidInput()
-    let data: unknown
-    try {
-      const decoded = Buffer.from(cursor, 'base64url')
-      if (decoded.toString('base64url') !== cursor) invalidInput()
-      data = JSON.parse(decoded.toString('utf8'))
-    } catch { invalidInput() }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) invalidInput()
-    const d = data as Record<string, unknown>
-    if (Object.keys(d).sort().join(',') !== 'after,scope,v' || d.v !== 1 || d.scope !== scope || typeof d.after !== 'string') invalidInput()
-    const index = items.findIndex((item) => id(item) === d.after)
+    const after = readScopedCursor(cursor, scope)
+    const index = items.findIndex((item) => id(item) === after)
     if (index < 0) invalidInput()
     start = index + 1
   }
   const page = items.slice(start, start + limit)
   const nextCursor = start + limit < items.length
-    ? Buffer.from(JSON.stringify({ v: 1, scope, after: id(page[page.length - 1]) })).toString('base64url') : null
+    ? createScopedCursor(scope, id(page[page.length - 1])) : null
   return { items: page, nextCursor }
+}
+
+export function readScopedCursor(cursor: string, scope: string): string {
+  if (!/^[A-Za-z0-9_-]{1,2048}$/.test(cursor)) invalidInput()
+  let data: unknown
+  try {
+    const decoded = Buffer.from(cursor, 'base64url')
+    if (decoded.toString('base64url') !== cursor) invalidInput()
+    data = JSON.parse(decoded.toString('utf8'))
+  } catch { invalidInput() }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) invalidInput()
+  const d = data as Record<string, unknown>
+  if (Object.keys(d).sort().join(',') !== 'after,scope,v' || d.v !== 1 || d.scope !== scope || typeof d.after !== 'string') invalidInput()
+  return d.after
+}
+
+export function createScopedCursor(scope: string, after: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, scope, after })).toString('base64url')
 }
