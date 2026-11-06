@@ -20,6 +20,54 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { headers: {
 } })
 const page = (items: unknown[]) => json({ items, nextCursor: null })
 
+it('confirms durable identity and membership before saving a real-source shooting area revision', async () => {
+  const user = userEvent.setup()
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {},
+    signInWithGoogle: async () => {}, signOut: async () => {}, getIdToken: async () => 'test-token',
+  }
+  const saved = { ...quest, source: 'real', shootingAreaStatus: 'unconfigured' }
+  const areas = { orgId: quest.orgId, questId: quest.questId, draftRevision: quest.draftRevision, source: 'real', zones: [] }
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    const path = String(input)
+    let body: unknown
+    if (path === '/api/v1/session') body = { uid: snapshot.user.uid }
+    else if (path.startsWith('/api/v1/me/memberships?')) body = { items: [{
+      orgId: quest.orgId, areaId: quest.areaId, label: '永続の架空自治体', role: 'publisher',
+    }], nextCursor: null }
+    else if (path.endsWith('/shooting-areas')) body = init?.method === 'PUT'
+      ? { ...areas, draftRevision: 3, zones: JSON.parse(String(init.body)).zones } : areas
+    else if (path.startsWith('/api/v1/orgs/' + quest.orgId + '/quests?')) body = { items: [saved], nextCursor: null }
+    else throw new Error('Unexpected durable request: ' + path)
+    return new Response(JSON.stringify(body), { headers: {
+      'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'durable-local',
+    } })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} dataMode="durable-local" />)
+    await user.click(await screen.findByRole('button', { name: /永続の架空自治体/ }))
+    expect(await screen.findByText(quest.draft.content.title)).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '撮影範囲を設定' }))
+    await user.click(await screen.findByRole('button', { name: '範囲を追加' }))
+    await user.type(screen.getByLabelText('緯度'), '0')
+    await user.type(screen.getByLabelText('経度'), '0')
+    await user.type(screen.getByLabelText('半径（m）'), '100')
+    await user.click(screen.getByRole('button', { name: '撮影範囲を保存' }))
+    expect(await screen.findByText('非公開の撮影範囲を保存しました。')).toBeVisible()
+    const writes = fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ expectedDraftRevision: 2,
+      zones: [{ latitude: 0, longitude: 0 }] })
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/session')
+    for (const [, init] of fetcher.mock.calls) {
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token')
+    }
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  } finally { vi.unstubAllGlobals() }
+})
+
 it('does not fall back to the memory API when the selected persistent API returns a different mode', async () => {
   const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
   const authClient: AuthClient = {
