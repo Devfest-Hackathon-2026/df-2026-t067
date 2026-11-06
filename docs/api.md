@@ -89,7 +89,7 @@
 | POST /orgs/:orgId/assets | 編集・公開 | 参考写真等。用途・権利確認、容量検査を経てassetId発行 |
 | GET /orgs/:orgId/assets/:assetId | 編集・公開 | 自組織の素材メタデータのみ |
 | GET /orgs/:orgId/assets/:assetId/photo | 編集・公開 | 自組織の認証付きJPEG。public_hint用途でも自動公開しない |
-| POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 保存済みの版に対する下書き候補。開発用実装は19節 |
+| POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 保存済みの版に対する下書き候補。ローカルの設定と素材条件は19節 |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
 | POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
@@ -218,7 +218,9 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 200の`DraftSuggestion`は`{orgId, questId, draftRevision, content, source}`。`content`は既存の下書きと同じ5項目で、タイトル・問題文・3本のヒント・確認済み特徴・作成根拠メモを持つ。候補を受け取った画面で対象の版と編集中の内容を確認し、採用した内容を既存の下書き保存APIへ渡す。候補を取得するだけでは保存、改版、確認依頼、公開は起きない。
 
-既定は未接続の503 `SYSTEM_ERROR`。開発用の`QUEST_ADMIN_DRAFT_MODE=fixtures`と`QUEST_ADMIN_ASSETS_MODE=memory`を明示すると、対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成`match.png`がある版に、固定の候補を`source:mock`で返す。外部AIを呼ばない。版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。[合成素材の用意](admin-photo-tests.md#合成素材で公開休止を試す)
+`durable-local` の通常起動と、`QUEST_ADMIN_DRAFT_MODE=fixtures`・`QUEST_ADMIN_ASSETS_MODE=memory` を明示した `demo` で、合成素材用の固定候補を `source:mock` で返す。対象名・根拠・写真権利が入力済みで、同組織の参考用途に登録した合成 `match.png` が必要。永続側は保存された写真の世代を指定して読み、読み取り後に所属と版を再確認する。候補の取得と素材登録で、ローカルの利用者別回数枠と同時処理枠を共有する。
+
+候補の未設定は503 `SYSTEM_ERROR`、版違いは409 `DRAFT_CONFLICT`、素材・確認材料の不足は400 `INVALID_INPUT`。共通クライアントは明示したローカルモードの候補だけ `source:mock` を許可する。実AIによる生成は利用条件・費用条件の確認後に接続する。[合成素材の用意](admin-photo-tests.md#合成素材で公開休止を試す)
 
 ## 20. 開発用の問題報告
 

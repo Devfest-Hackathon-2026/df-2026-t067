@@ -6,6 +6,7 @@ import { handleAssetRequest, matchAssetRoute } from './admin-assets-http'
 import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
+import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { createDiscoveryHandler } from './discoveries-http'
 import { createDurableDraftHandler } from './durable-admin-drafts-http'
 import { createDurableReportHandler } from './durable-reports-http'
@@ -37,6 +38,7 @@ interface DurableAnswerHttpOptions {
   dataMode?: 'durable-local'
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
+  suggestDraft?: FixtureDraftSuggester
   photoTest?: AdminPhotoTestOptions
   publication?: PublicationPhotos
   acquireUpload(uid: string): () => void
@@ -56,7 +58,9 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   } : undefined
   const publicationPhotos = dataMode === 'durable-local' ? options.publication : undefined
   const publication = drafts && publicationPhotos && new FirestoreManagedPublication(options.db, drafts, publicationPhotos)
-  const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication)
+  const suggestion = dataMode === 'durable-local' && assets && options.suggestDraft
+    ? { assets, suggest: options.suggestDraft } : undefined
+  const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication, suggestion)
   const reportHandler = dataMode === 'durable-local' ? createDurableReportHandler(new FirestoreReportStore(options.db), authenticate) : undefined
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
