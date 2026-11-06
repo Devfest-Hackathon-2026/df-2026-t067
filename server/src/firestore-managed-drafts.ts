@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import { parseCaptureZones, parseManagedQuest } from '../../src/shared/api/admin'
-import type { ManagedQuestDraft, ManagedShootingAreas, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
+import type { AssetPurpose, ManagedQuestDraft, ManagedShootingAreas, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
+import { missingReviewFields } from './admin-review'
 import { HttpError, invalidInput } from './errors'
 import { answerTransaction, notFound, processingError } from './firestore-answer-data'
 import { readOrgAssetRecord } from './firestore-org-assets'
@@ -73,6 +74,23 @@ export class FirestoreManagedDraftStore {
     })
   }
 
+  submitReview(uid: string, orgId: string, questId: string, expectedRevision: number) {
+    return answerTransaction(this.db, async (tx): Promise<ReviewSubmission> => {
+      const { ref, quest } = await this.getOwned(tx, uid, orgId, questId)
+      if (quest.draftRevision !== expectedRevision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
+      if (quest.status === 'published') throw new HttpError(409, 'DRAFT_CONFLICT', 'この下書き版は公開済みです。')
+      const { referenceAssetId, hintAssetId } = quest.draft
+      const [reference, hint] = await Promise.all([
+        this.hasAsset(tx, orgId, referenceAssetId, 'reference'),
+        this.hasAsset(tx, orgId, hintAssetId, 'public_hint'),
+      ])
+      const missing = missingReviewFields(quest, { reference, public_hint: hint })
+      const status = missing.length ? 'draft' : 'review_pending'
+      if (status !== quest.status) tx.update(ref, { status })
+      return { quest: { ...quest, status }, missing }
+    })
+  }
+
   private async getOwned(tx: Transaction, uid: string, orgId: string, questId: string) {
     await requireOrgMember(this.db, tx, uid, orgId)
     return readDraft(await tx.get(this.db.collection('quests').doc(questId)), orgId)
@@ -80,10 +98,14 @@ export class FirestoreManagedDraftStore {
 
   private async checkAssets(tx: Transaction, orgId: string, draft: ManagedQuestDraft) {
     for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint']] as const) {
-      if (assetId === null) continue
-      const record = readOrgAssetRecord(await tx.get(this.db.collection('orgAssets').doc(assetId)), orgId)
-      if (!record?.generation || record.asset.purpose !== purpose) invalidInput()
+      if (assetId !== null && !await this.hasAsset(tx, orgId, assetId, purpose)) invalidInput()
     }
+  }
+
+  private async hasAsset(tx: Transaction, orgId: string, assetId: string | null, purpose: AssetPurpose) {
+    if (assetId === null) return false
+    const record = readOrgAssetRecord(await tx.get(this.db.collection('orgAssets').doc(assetId)), orgId)
+    return Boolean(record?.generation && record.asset.purpose === purpose)
   }
 
   private async reserveCapacity(tx: Transaction, orgId: string) {

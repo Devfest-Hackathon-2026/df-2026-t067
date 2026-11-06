@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AssetPurpose, CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, ReviewField, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
+import type { AssetPurpose, CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
 import { parseManagedAsset, parseManagedQuestDraft, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { HttpError, invalidInput } from './errors'
 import { draftPhotoFeatures } from './photo-match'
@@ -7,6 +7,7 @@ import type { PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../.
 import type { PublicQuest } from '../../src/shared/api/types'
 import { parsePublicQuest } from '../../src/shared/api/validation'
 import type { PhotoTestEvidence } from './admin-photo-tests'
+import { missingReviewFields } from './admin-review'
 
 interface AnswerMaterial {
   referenceAssetId: string
@@ -160,21 +161,13 @@ export class DemoAdminStore {
     const publication = this.publications.get(questId)
     return publication && { orgId: publication.orgId, questVersion: publication.quest.version }
   }
-  private reviewMissing(quest: ManagedQuest): ReviewField[] {
+  private reviewMissing(quest: ManagedQuest) {
     const { orgId } = quest
-    const { materials, content, referenceAssetId, hintAssetId } = quest.draft
-    const missing: ReviewField[] = []
-    if (!materials.name.trim()) missing.push('materials.name')
-    if (!materials.evidence.trim()) missing.push('materials.evidence')
-    if (!materials.photoRights.trim()) missing.push('materials.photoRights')
-    if (!referenceAssetId || !this.hasAsset(orgId, referenceAssetId, 'reference')) missing.push('referenceAssetId')
-    if (hintAssetId && !this.hasAsset(orgId, hintAssetId, 'public_hint')) missing.push('hintAssetId')
-    if (quest.shootingAreaStatus !== 'configured') missing.push('shootingAreas')
-    if (!content.title.trim()) missing.push('content.title')
-    if (!content.question.trim()) missing.push('content.question')
-    if (content.hints.some((hint) => !hint.trim())) missing.push('content.hints')
-    if (!draftPhotoFeatures(content.verifiedFeatures)) missing.push('content.verifiedFeatures')
-    return missing
+    const { referenceAssetId, hintAssetId } = quest.draft
+    return missingReviewFields(quest, {
+      reference: referenceAssetId !== null && this.hasAsset(orgId, referenceAssetId, 'reference'),
+      public_hint: hintAssetId !== null && this.hasAsset(orgId, hintAssetId, 'public_hint'),
+    })
   }
   getAtRevision(orgId: string, questId: string, expectedRevision: number): ManagedQuest {
     const quest = this.get(orgId, questId)
