@@ -3,7 +3,7 @@ import { parseCreateManagedQuest, parseDraftRevisionRequest, parseDraftSuggestio
 import { ContractError } from '../../src/shared/api/validation'
 import type { AssetHttpStore } from './admin-assets-http'
 import { handlePhotoTest } from './admin-photo-tests-http'
-import type { FixtureDraftSuggester } from './demo-draft-suggestions'
+import type { DraftSuggester } from './draft-suggester'
 import { HttpError, invalidInput } from './errors'
 import type { FirestoreManagedPublication } from './firestore-admin-publication'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
@@ -14,7 +14,7 @@ import { paginate, parseId, validateQuery } from './query'
 type PhotoTestDependencies = Pick<Parameters<typeof handlePhotoTest>[2], 'assets' | 'options' | 'store' | 'acquire'>
 type DraftSuggestionDependencies = {
   assets: Pick<AssetHttpStore, 'acquire' | 'getOwned' | 'getPhotoOwned'>
-  suggest: FixtureDraftSuggester
+  generator: DraftSuggester
 }
 
 export function createDurableDraftHandler(store: FirestoreManagedDraftStore, authenticate: (request: IncomingMessage) => Promise<string>,
@@ -77,19 +77,30 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
         if (!suggestion) throw new HttpError(503, 'SYSTEM_ERROR', '下書き生成が未接続です。')
         const { referenceAssetId, materials } = draft
         if (!referenceAssetId || !materials.name.trim() || !materials.evidence.trim() || !materials.photoRights.trim()) invalidInput()
-        const { assets, suggest } = suggestion
+        if (response.destroyed || response.writableEnded) return true
+        const { assets, generator } = suggestion
         const release = assets.acquire(uid)
+        const controller = new AbortController()
+        const abort = () => controller.abort()
+        response.once('close', abort)
         try {
           const asset = await assets.getOwned(orgId, referenceAssetId)
           if (asset?.purpose !== 'reference') invalidInput()
           const reference = await assets.getPhotoOwned(orgId, referenceAssetId)
-          // Storage reads await I/O. Reject changes to access or the saved draft before returning the candidate.
+          // Recheck access after Storage I/O before allowing an external request.
           await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
-          if (response.destroyed || response.writableEnded) return true
-          const content = reference && suggest(reference)
+          if (controller.signal.aborted) return true
+          const content = reference && await generator.suggest(reference, materials, controller.signal)
+          if (controller.signal.aborted) return true
           if (!content) throw new HttpError(400, 'INVALID_INPUT', '下書きの参考素材に指定の合成画像を登録してください。')
-          send(response, 200, parseDraftSuggestion({ orgId, questId, draftRevision: expectedDraftRevision, content, source: 'mock' }))
+          await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
+          if (controller.signal.aborted) return true
+          send(response, 200, parseDraftSuggestion({ orgId, questId, draftRevision: expectedDraftRevision, content, source: generator.source }))
+        } catch (error) {
+          if (controller.signal.aborted) return true
+          throw error
         } finally {
+          response.removeListener('close', abort)
           release()
         }
       } else if (action === 'publish' || action === 'pause') {
