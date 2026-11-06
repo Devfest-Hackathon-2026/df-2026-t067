@@ -54,6 +54,14 @@ async function loadFrame(stream: MediaStream, width = 640, height = 480) {
 }
 
 describe('local camera preview', () => {
+  it('shows a disabled preparation submit action in the normal photo flow', async () => {
+    const media = setup()
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(await screen.findByRole('button', { name: '解答を送信する（準備中）' })).toBeDisabled()
+  })
+
   it('requests video only and waits for a decoded frame before enabling capture', async () => {
     const media = setup()
     render(<CameraPreview onClose={media.onClose} />)
@@ -162,6 +170,57 @@ describe('local camera preview', () => {
     view.unmount()
     expect(media.revokeObjectURL).toHaveBeenCalledTimes(2)
     expect(media.revokeObjectURL).toHaveBeenLastCalledWith('blob:synthetic-photo-1')
+  })
+
+  it('locks rotation as soon as a developer submission starts and preserves its receipt', async () => {
+    const media = setup()
+    const submitAnswer = vi.fn(async () => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-locked' }))
+    const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
+    render(<CameraPreview onClose={media.onClose} answer={answer} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
+    expect(screen.getByRole('button', { name: '左に90度回転' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '右に90度回転' })).toBeDisabled()
+    expect(await screen.findByText('デモ受付済みです。写真判定と記録保存は未接続です。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '受付状態を確認' })).toBeEnabled()
+    expect(submitAnswer).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the developer submission mounted but disabled during rotation', async () => {
+    const media = setup()
+    let resolveBitmap!: (bitmap: ImageBitmap) => void
+    media.createImageBitmap.mockImplementationOnce(() => new Promise(resolve => { resolveBitmap = resolve }))
+    const submitAnswer = vi.fn(async () => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-after-rotation' }))
+    const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
+    render(<CameraPreview onClose={media.onClose} answer={answer} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    await media.user.click(screen.getByRole('button', { name: '右に90度回転' }))
+    const send = screen.getByRole('button', { name: '写真と位置をデモ送信' })
+    expect(send).toBeDisabled()
+    fireEvent.click(send)
+    expect(submitAnswer).not.toHaveBeenCalled()
+    await act(async () => resolveBitmap(media.bitmap))
+    await waitFor(() => expect(send).toBeEnabled())
+    await media.user.click(send)
+    expect(await screen.findByText('デモ受付済みです。写真判定と記録保存は未接続です。')).toBeVisible()
+    expect(submitAnswer).toHaveBeenCalledOnce()
+  })
+
+  it('keeps retake and close available while a submission is pending', async () => {
+    const media = setup()
+    const submitAnswer = vi.fn(() => new Promise<never>(() => {}))
+    const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
+    render(<CameraPreview onClose={media.onClose} answer={answer} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
+    expect(await screen.findByRole('button', { name: '受付を確認しています…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '撮り直す' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '撮影を終了' })).toBeEnabled()
+    await media.user.click(screen.getByRole('button', { name: '撮影を終了' }))
+    expect(media.onClose).toHaveBeenCalledOnce()
   })
 
   it('shows the map button only when explicitly enabled in development', async () => {

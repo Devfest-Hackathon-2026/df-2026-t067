@@ -20,6 +20,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   const [phase, setPhase] = useState<'opening' | 'live' | 'capturing' | 'photo' | 'error'>('opening')
   const [photo, setPhoto] = useState<{ url: string; blob: Blob; originalBlob: Blob; rotation: number } | null>(null)
   const [rotating, setRotating] = useState(false)
+  const [submissionStarted, setSubmissionStarted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<CaptureMetadata | null>(null)
   const [locating, setLocating] = useState(false)
@@ -171,6 +172,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
     setRotating(false)
     setLocating(false)
     setPhoto(null)
+    setSubmissionStarted(false)
     setError(null)
     setMetadata(null)
     setShowLocationMap(false)
@@ -180,7 +182,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   }
 
   async function rotatePhoto(direction: -1 | 1) {
-    if (!photo || rotating) return
+    if (!photo || rotating || submissionStarted) return
     const own = ++rotationGeneration.current
     const nextRotation = (photo.rotation + direction + 4) % 4
     setRotating(true)
@@ -239,13 +241,15 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
       {photo && <div className="camera-actions" aria-label="写真の向き">
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating} aria-label="左に90度回転">左に90度回転</button>
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating} aria-label="右に90度回転">右に90度回転</button>
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted} aria-label="左に90度回転">左に90度回転</button>
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted} aria-label="右に90度回転">右に90度回転</button>
       </div>}
-      {answer && photo && metadata && !rotating && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} />}
+      {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} disabled={rotating}
+        onSubmissionStarted={() => setSubmissionStarted(true)} />}
       <div className="camera-actions">
         {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}
         {photoUrl && !metadata && <button type="button" className="primary-button" onClick={requestLocation} disabled={locating}>{locating ? '撮影地を取得中…' : '位置情報を再試行'}</button>}
+        {photoUrl && !answer && <button type="button" className="primary-button" disabled>解答を送信する（準備中）</button>}
         {photoUrl && <button type="button" className="secondary-button" onClick={restart}>撮り直す</button>}
         {phase === 'error' && <button type="button" className="secondary-button" onClick={restart}>カメラを再試行</button>}
         <button type="button" className="secondary-button" onClick={() => { dispose(); setLocating(false); onClose() }}>撮影を終了</button>
