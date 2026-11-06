@@ -65,7 +65,13 @@ function answerFailure(cause: unknown): Failure {
   }
 }
 
-export function DemoAnswerSubmission({ context, photo, metadata }: { context: DemoAnswerContext; photo: Blob; metadata: CaptureMetadata }) {
+export function DemoAnswerSubmission({ context, photo, metadata, disabled, onSubmissionStarted }: {
+  context: DemoAnswerContext
+  photo: Blob
+  metadata: CaptureMetadata
+  disabled: boolean
+  onSubmissionStarted: () => void
+}) {
   const durable = context.dataMode === 'durable-local'
   const [receipt, setReceipt] = useState<ReceiptView | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
@@ -97,6 +103,7 @@ export function DemoAnswerSubmission({ context, photo, metadata }: { context: De
     if (active.current || failure?.reload || failure?.retake || failure?.retryAfterSeconds || (receipt && !receipt.canCheck)) return
     const operation: Operation = { controller: new AbortController() }
     active.current = operation
+    if (!receipt) onSubmissionStarted()
     setPending(true)
     setFailure(null)
     operation.deadline = setTimeout(() => {
@@ -108,7 +115,8 @@ export function DemoAnswerSubmission({ context, photo, metadata }: { context: De
         : await context.api.submitAnswer({ challengeId: context.challengeId, photo, metadata,
           idempotencyKey: idempotencyKey.current ??= crypto.randomUUID() }, call)
       if (active.current !== operation) return
-      setReceipt(receiptView(response, durable, receipt?.attemptId))
+      const nextReceipt = receiptView(response, durable, receipt?.attemptId)
+      setReceipt(nextReceipt)
     } catch (cause) {
       if (active.current !== operation) return
       const next = answerFailure(cause)
@@ -125,7 +133,7 @@ export function DemoAnswerSubmission({ context, photo, metadata }: { context: De
     {failure && <p role="alert">{failure.message}</p>}
     {(failure?.reload || receipt?.reload) && <button type="button" className="retry-button" onClick={context.onReloadQuest}>問題を読み直す</button>}
     {!failure?.reload && !failure?.retake && (!receipt || receipt.canCheck) &&
-      <button type="button" className="primary-button" disabled={pending || !!failure?.retryAfterSeconds} onClick={exchange}>
+      <button type="button" className="primary-button" disabled={disabled || pending || !!failure?.retryAfterSeconds} onClick={exchange}>
         {pending ? '受付を確認しています…' : receipt ? (durable ? '判定結果を確認' : '受付状態を確認')
           : failure ? '同じ回答を再送' : durable ? '写真と位置をテスト送信' : '写真と位置をデモ送信'}
       </button>}
