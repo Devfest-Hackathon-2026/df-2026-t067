@@ -1,8 +1,8 @@
-import { FieldValue, GrpcStatus, Timestamp } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import type { QueryDocumentSnapshot } from 'firebase-admin/firestore'
 import { runDurableAnswer } from './durable-answer-worker'
 import { HttpError, invalidInput } from './errors'
-import { processingError, validAnswerUid, validDigest } from './firestore-answer-data'
+import { processingError, updateAnswerSnapshot, validAnswerUid, validDigest } from './firestore-answer-data'
 import type { AnswerIdentity } from './firestore-answer-processing'
 import { parseId } from './query'
 
@@ -30,7 +30,7 @@ export async function runDueAnswerJobs({ worker, maximumJobs, retryDelayMs }: Jo
     report.examined++
     const identity = jobIdentity(job)
     if (!identity) {
-      if (await updateSchedule(job, FieldValue.delete())) report.discarded++
+      if (await updateAnswerSnapshot(job, { nextWorkAt: FieldValue.delete() })) report.discarded++
       continue
     }
     try {
@@ -40,11 +40,11 @@ export async function runDueAnswerJobs({ worker, maximumJobs, retryDelayMs }: Jo
     } catch (error) {
       if (worker.signal?.aborted) break
       if (error instanceof HttpError && !error.retryable) {
-        if (await updateSchedule(job, FieldValue.delete())) report.discarded++
+        if (await updateAnswerSnapshot(job, { nextWorkAt: FieldValue.delete() })) report.discarded++
       } else {
         // If this pass claimed or advanced the answer, that transaction owns
         // the schedule. Never reinsert work from an older query snapshot.
-        await updateSchedule(job, Timestamp.fromMillis(Date.now() + retryDelayMs))
+        await updateAnswerSnapshot(job, { nextWorkAt: Timestamp.fromMillis(Date.now() + retryDelayMs) })
         report.deferred++
       }
     }
@@ -58,15 +58,4 @@ function jobIdentity(job: QueryDocumentSnapshot): AnswerIdentity | null {
     !['RECEIVED', 'IMAGE_EVALUATED', 'COMMITTING'].includes(state)) return null
   try { return { uid, digest, attemptId: parseId(job.id) } }
   catch { return null }
-}
-
-async function updateSchedule(job: QueryDocumentSnapshot, nextWorkAt: Timestamp | FieldValue): Promise<boolean> {
-  try {
-    await job.ref.update({ nextWorkAt }, { lastUpdateTime: job.updateTime })
-    return true
-  } catch (error) {
-    if (error !== null && typeof error === 'object' && 'code' in error &&
-      (error.code === GrpcStatus.FAILED_PRECONDITION || error.code === GrpcStatus.NOT_FOUND)) return false
-    throw processingError(true)
-  }
 }
