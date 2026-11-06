@@ -352,8 +352,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
       const body = adminInput(parseDraftRevisionRequest, { expectedDraftRevision })
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/generate', (data) => {
         const result = parseDraftSuggestion(data)
+        const local = options.expectedDataMode === 'demo' || options.expectedDataMode === 'durable-local'
         if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== expectedDraftRevision ||
-          (result.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('draftSuggestion.identity')
+          (result.source === 'mock' && !local)) throw new ContractError('draftSuggestion.identity')
         return result
       }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },

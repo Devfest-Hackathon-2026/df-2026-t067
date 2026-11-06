@@ -6,6 +6,7 @@ import { DemoAnswerStore } from './answers'
 import type { DurableLocalConfig } from './config'
 import { createDemoData } from './demo-data'
 import { createDemoLocationValidation } from './demo-location'
+import { createFixtureDraftSuggester } from './demo-draft-suggestions'
 import { createFixturePhotoMatcher, durableFixtureFeatures, syntheticPng } from './demo-photo-test'
 import { createDurableAnswerRuntime } from './durable-answer-runtime'
 import { createSyntheticVertexTrialMatcher } from './durable-vertex-trial'
@@ -81,6 +82,7 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const runtime = createDurableAnswerRuntime({
       db, photos, verifier, dataMode: config.mode,
       assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
+      suggestDraft: await createFixtureDraftSuggester(),
       photoTest: { matcher, source: ledger ? 'real' : 'mock', timeoutMs: ledger ? 30_000 : undefined },
       publication: photos,
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),

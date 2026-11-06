@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parseDraftRevisionRequest, parseDraftSuggestion, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
+import type { AssetHttpStore } from './admin-assets-http'
 import { handlePhotoTest } from './admin-photo-tests-http'
+import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { HttpError, invalidInput } from './errors'
 import type { FirestoreManagedPublication } from './firestore-admin-publication'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
@@ -10,12 +12,16 @@ import { readJsonObject } from './json-body'
 import { paginate, parseId, validateQuery } from './query'
 
 type PhotoTestDependencies = Pick<Parameters<typeof handlePhotoTest>[2], 'assets' | 'options' | 'store' | 'acquire'>
+type DraftSuggestionDependencies = {
+  assets: Pick<AssetHttpStore, 'acquire' | 'getOwned' | 'getPhotoOwned'>
+  suggest: FixtureDraftSuggester
+}
 
 export function createDurableDraftHandler(store: FirestoreManagedDraftStore, authenticate: (request: IncomingMessage) => Promise<string>,
-  photoTest?: PhotoTestDependencies, publication?: FirestoreManagedPublication) {
+  photoTest?: PhotoTestDependencies, publication?: FirestoreManagedPublication, suggestion?: DraftSuggestionDependencies) {
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const memberships = path === '/api/v1/me/memberships'
-    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test|publish|pause))?)?$/.exec(path)
+    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test|publish|pause|generate))?)?$/.exec(path)
     if (!memberships && !quest) return false
 
     const action = quest?.[3]
@@ -55,7 +61,7 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
     }
 
     await store.assertMember(uid, orgId)
-    const body = await readJsonObject(request, 65_536)
+    const body = await readJsonObject(request, action === 'generate' ? 4096 : 65_536)
     if (response.destroyed) return true
     try {
       if (questId === undefined) {
@@ -65,6 +71,27 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
       } else if (action === 'submit-review') {
         const { expectedDraftRevision } = parseSubmitReview(body)
         send(response, 200, await store.submitReview(uid, orgId, questId, expectedDraftRevision))
+      } else if (action === 'generate') {
+        const { expectedDraftRevision } = parseDraftRevisionRequest(body)
+        const { draft } = await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
+        if (!suggestion) throw new HttpError(503, 'SYSTEM_ERROR', '下書き生成が未接続です。')
+        const { referenceAssetId, materials } = draft
+        if (!referenceAssetId || !materials.name.trim() || !materials.evidence.trim() || !materials.photoRights.trim()) invalidInput()
+        const { assets, suggest } = suggestion
+        const release = assets.acquire(uid)
+        try {
+          const asset = await assets.getOwned(orgId, referenceAssetId)
+          if (asset?.purpose !== 'reference') invalidInput()
+          const reference = await assets.getPhotoOwned(orgId, referenceAssetId)
+          // Storage reads await I/O. Reject changes to access or the saved draft before returning the candidate.
+          await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
+          if (response.destroyed || response.writableEnded) return true
+          const content = reference && suggest(reference)
+          if (!content) throw new HttpError(400, 'INVALID_INPUT', '下書きの参考素材に指定の合成画像を登録してください。')
+          send(response, 200, parseDraftSuggestion({ orgId, questId, draftRevision: expectedDraftRevision, content, source: 'mock' }))
+        } finally {
+          release()
+        }
       } else if (action === 'publish' || action === 'pause') {
         if (!publication) throw new HttpError(503, 'SYSTEM_ERROR', '公開・休止の処理が未接続です。')
         const updated = action === 'publish'
