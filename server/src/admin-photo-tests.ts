@@ -6,6 +6,20 @@ import type { PhotoMatcher } from './photo-match'
 
 export interface PhotoTestEvidence extends PhotoTestResult { photoDigest: string }
 
+export interface PhotoTestRequest {
+  uid: string
+  orgId: string
+  questId: string
+  key: string
+  draftRevision: number
+}
+
+export type PhotoTestWork = (track: (matcher: PhotoMatcher) => PhotoMatcher) => Promise<{ result: PhotoTestResult; photoDigest: string }>
+
+export function photoTestKey({ uid, orgId, questId, key }: PhotoTestRequest): string {
+  return JSON.stringify([uid, orgId, questId, key])
+}
+
 // Result-only memory cache. Candidate photos and visitor records are never
 // stored here. Authentication and current draft checks belong to each request.
 export class DemoPhotoTestStore {
@@ -19,8 +33,8 @@ export class DemoPhotoTestStore {
     const evidence = this.evidence.get(testId)
     return evidence && { ...evidence }
   }
-  async execute(key: string, digest: string,
-    work: (track: (matcher: PhotoMatcher) => PhotoMatcher) => Promise<{ result: PhotoTestResult; photoDigest: string }>): Promise<PhotoTestResult> {
+  async execute(request: PhotoTestRequest, digest: string, work: PhotoTestWork): Promise<PhotoTestResult> {
+    const key = photoTestKey(request)
     const previous = this.jobs.get(key)
     if (previous) {
       if (previous.digest !== digest) throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', '同じ試験キーで異なる内容は送信できません。')

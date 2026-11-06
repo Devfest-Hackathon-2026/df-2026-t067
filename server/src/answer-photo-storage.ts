@@ -29,6 +29,14 @@ export class AnswerPhotoStorage {
     return this.read({ path: referencePath(orgId, assetId), generation })
   }
 
+  async writeHint(orgId: string, assetId: string, photo: PreparedPhoto): Promise<PhotoReference> {
+    return this.writePrepared(hintPath(orgId, assetId), photo)
+  }
+
+  async readHint(orgId: string, assetId: string, generation: string): Promise<PhotoInput> {
+    return this.read({ path: hintPath(orgId, assetId), generation })
+  }
+
   async writeIncoming(attemptId: string, digest: string, photo: PreparedPhoto): Promise<PhotoReference> {
     return this.writePrepared(incomingPath(attemptId, digest), photo)
   }
@@ -123,6 +131,10 @@ export class AnswerPhotoStorage {
 
 function referencePath(orgId: string, assetId: string): string {
   return `reference-photos/${parseId(orgId)}/${parseId(assetId)}.jpg`
+}
+
+function hintPath(orgId: string, assetId: string): string {
+  return `hint-photos/${parseId(orgId)}/${parseId(assetId)}.jpg`
 }
 
 function incomingPath(attemptId: string, digest: string): string {

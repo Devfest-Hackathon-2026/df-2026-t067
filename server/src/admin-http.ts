@@ -3,7 +3,7 @@ import { parseCreateManagedQuest, parseDraftRevisionRequest, parseDraftSuggestio
 import type { OrgMembership } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
 import type { DemoAdminStore } from './admin'
-import { handleAssetRequest } from './admin-assets-http'
+import { handleAssetRequest, matchAssetRoute } from './admin-assets-http'
 import type { DemoAssetStore } from './admin-assets'
 import { DemoPhotoTestStore } from './admin-photo-tests'
 import { handlePhotoTest } from './admin-photo-tests-http'
@@ -37,7 +37,7 @@ export function createAdminHandler(options: {
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const isMemberships = path === '/api/v1/me/memberships'
     const route = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+))?$/.exec(path)
-    const assetRoute = /^\/api\/v1\/orgs\/([^/]+)\/assets(?:\/([^/]+)(\/photo)?)?$/.exec(path)
+    const assetRoute = matchAssetRoute(path)
     const shootingRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/shooting-areas$/.exec(path)
     const actionRoute = /^\/api\/v1\/orgs\/([^/]+)\/quests\/([^/]+)\/(test|submit-review|publish|pause|generate)$/.exec(path)
     const reportsRoute = /^\/api\/v1\/orgs\/([^/]+)\/reports$/.exec(path)

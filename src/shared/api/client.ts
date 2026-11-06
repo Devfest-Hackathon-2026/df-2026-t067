@@ -314,7 +314,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request(path, (data) => {
         const result = parsePhotoTestResult(data)
         if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== metadata.expectedDraftRevision ||
-          (result.source === 'mock' && options.expectedDataMode !== 'demo')) throw new ContractError('photoTest.identity')
+          (result.source === 'mock' && options.expectedDataMode !== 'demo' && options.expectedDataMode !== 'durable-local')) {
+          throw new ContractError('photoTest.identity')
+        }
         return result
       }, { ...call, authenticated: true, method: 'POST', body, headers: { 'Idempotency-Key': input.idempotencyKey } })
     },
