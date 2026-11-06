@@ -1,22 +1,26 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parseCreateManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
+import { handlePhotoTest } from './admin-photo-tests-http'
 import { HttpError, invalidInput } from './errors'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { send } from './http-server'
 import { readJsonObject } from './json-body'
 import { paginate, parseId, validateQuery } from './query'
 
-export function createDurableDraftHandler(store: FirestoreManagedDraftStore, authenticate: (request: IncomingMessage) => Promise<string>) {
+type PhotoTestDependencies = Pick<Parameters<typeof handlePhotoTest>[2], 'assets' | 'options' | 'store' | 'acquire'>
+
+export function createDurableDraftHandler(store: FirestoreManagedDraftStore, authenticate: (request: IncomingMessage) => Promise<string>,
+  photoTest?: PhotoTestDependencies) {
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const memberships = path === '/api/v1/me/memberships'
-    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review))?)?$/.exec(path)
+    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test))?)?$/.exec(path)
     if (!memberships && !quest) return false
 
     const action = quest?.[3]
     const rawQuestId = quest?.[2]
     const allowed = memberships ? ['GET'] : action === 'shooting-areas' ? ['GET', 'PUT'] :
-      action === 'submit-review' ? ['POST'] : rawQuestId ? ['GET', 'PATCH'] : ['GET', 'POST']
+      action ? ['POST'] : rawQuestId ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -38,6 +42,12 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
       return true
     }
     validateQuery(params, [])
+    if (action === 'test' && questId !== undefined) {
+      await store.get(uid, orgId, questId)
+      await handlePhotoTest(request, response, { ...photoTest, uid, orgId, questId, send,
+        recheck: (revision) => store.getAtRevision(uid, orgId, questId, revision) })
+      return true
+    }
     if (request.method === 'GET' && questId !== undefined) {
       send(response, 200, action === 'shooting-areas' ? await store.getShootingAreas(uid, orgId, questId) : await store.get(uid, orgId, questId))
       return true
