@@ -2,10 +2,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError, createApiClient } from '../../shared/api'
+import type { LocalApiDataMode } from '../../shared/api'
 import { challenge, quest } from '../../shared/api/testFixtures'
 import { ChallengeCapture } from './ChallengeCapture'
 
-function fixture() {
+function fixture(dataMode: LocalApiDataMode = 'demo') {
   const stop = vi.fn()
   const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream
   const getUserMedia = vi.fn(async () => stream)
@@ -16,7 +17,7 @@ function fixture() {
   const getAttempt = vi.fn()
   const api = { ...createApiClient(), createChallenge, submitAnswer, getAttempt }
   const reload = vi.fn()
-  const view = render(<ChallengeCapture api={api} quest={quest} onReloadQuest={reload} />)
+  const view = render(<ChallengeCapture api={api} quest={quest} dataMode={dataMode} onReloadQuest={reload} />)
   return { ...view, createChallenge, submitAnswer, getAttempt, getUserMedia, stop, reload, user: userEvent.setup() }
 }
 
@@ -39,6 +40,22 @@ function takePhoto() {
 }
 
 describe('challenge before camera', () => {
+  it('shows a durable receipt and its completed result without submitting twice', async () => {
+    const f = fixture('durable-local')
+    const receipt = { attemptId: 'durable-receipt', state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'real' }
+    f.submitAnswer.mockResolvedValue(receipt)
+    f.getAttempt.mockResolvedValue({ ...receipt, state: 'COMPLETED', outcome: 'CORRECT',
+      nextAction: 'OPEN_DISCOVERY', optionalDiscoveryId: 'durable-discovery' })
+    await f.user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+    await waitFor(() => expect(f.getUserMedia).toHaveBeenCalledTimes(1))
+    takePhoto()
+    await f.user.click(screen.getByRole('button', { name: '写真と位置をテスト送信' }))
+    expect(await screen.findByText('回答を受け付けました。判定結果を確認できます。')).toBeVisible()
+    await f.user.click(screen.getByRole('button', { name: '判定結果を確認' }))
+    expect(await screen.findByText('テストでクリアしました。「自分の記録」で確認できます。')).toBeVisible()
+    expect(f.getAttempt).toHaveBeenCalledExactlyOnceWith(receipt.attemptId, { signal: expect.any(AbortSignal) })
+    expect(f.submitAnswer).toHaveBeenCalledTimes(1)
+  })
   it('only sends after explicit confirmation, reuses the retry key, and checks a known receipt by GET', async () => {
     const f = fixture()
     const receipt = { attemptId: 'demo-receipt', state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'mock' }

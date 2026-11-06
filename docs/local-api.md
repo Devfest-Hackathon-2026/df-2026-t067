@@ -7,14 +7,19 @@
 | 起動方法 | 動作 |
 |---|---|
 | `npm run dev` の `/` | ローカルAPIを使う。`VITE_QUEST_DATA_SOURCE`の指定は不要 |
+| `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` の `/` | Firestoreエミュレーターの公開カタログと永続回答・本人記録を使う。サーバーも `durable-local` で起動する |
 | `npm run dev` の `/admin-local` | 開発用の管理画面。Googleログインと開発用の所属設定が必要 |
 | `npm run build` → `npm run preview` | 既存の画面内サンプルを表示。公開問題の取得は行わない |
 
-旅行者画面はAPIのデモモードを検証する。固定のサンプルマーカーは開発用API画面では表示しない。
+旅行者画面は選択したモードとAPIの応答ヘッダーが一致することを確認する。固定のサンプルマーカーは開発用API画面では表示しない。
 
 `npm run build`の成果物を`npm run preview`で確認する場合は、先に`VITE_QUEST_DATA_SOURCE=preview`へ戻してビルドする。実APIを一般公開するためのモードや配信設定は、この段階では追加していない。
 
 ## 2つのターミナルで起動する
+
+`durable-local` で試す場合は、まずサーバーとエミュレーターを起動する。次に別のターミナルで `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` を実行し、[旅行者画面](http://127.0.0.1:5173/)を開く。ログインせずに架空の1問と通常ヒントを確認できる。回答や本人記録の操作には署名済みIDトークンと、サーバーがアカウントを照会できる開発用の認証設定が必要。回答の検証には合成画像と架空の座標を使い、送信後は「判定結果を確認」で状態を照会する。[永続APIの起動手順](../server/README.md#永続apiをローカルで起動する)
+
+以下はインメモリの `demo` モードの手順。
 
 Googleログインも試す場合は[認証ガイド](firebase-auth.md)の6項目を設定する。サーバーの`FIREBASE_PROJECT_ID`には、ブラウザ側と**同じプロジェクトのID**を指定する。サービスアカウント鍵は不要。
 

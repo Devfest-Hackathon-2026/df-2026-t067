@@ -9,7 +9,7 @@ import { Icon } from './components/Icon'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
 import type { PublicQuest } from './shared/api/types'
 import { createApiClient } from './shared/api'
-import type { ApiClient } from './shared/api'
+import type { ApiClient, LocalApiDataMode } from './shared/api'
 import { CameraPreview } from './features/capture/CameraPreview'
 import { ChallengeCapture } from './features/capture/ChallengeCapture'
 import { OwnerDiscoveries } from './features/discoveries/OwnerDiscoveries'
@@ -40,6 +40,7 @@ type AppProps = {
   questPicker?: ReactNode
   catalogFallback?: ReactNode
   apiMode?: boolean
+  apiDataMode?: LocalApiDataMode
   apiClient?: ApiClient
   onReloadQuest?: () => void
   getHint?: ApiClient['getHint']
@@ -76,7 +77,7 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
   })
 }
 
-export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false }: AppProps = {}) {
+export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false, apiDataMode = 'demo' }: AppProps = {}) {
   const [openState, setOpenState] = useState<{ quest?: PublicQuest; open: boolean }>({ open: false })
   const isQuestOpen = openState.quest === externalQuest && openState.open
   const [recordsOpen, setRecordsOpen] = useState(false)
@@ -85,8 +86,10 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
   const localApiMode = apiMode || source === 'local-api'
+  const durableLocal = apiMode && apiDataMode === 'durable-local'
   const showRecords = localApiMode && recordsOpen
-  const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(), expectedDataMode: apiMode || source === 'local-api' ? 'demo' : undefined }), [providedApi, authClient, source, apiMode])
+  const api = useMemo(() => providedApi ?? createApiClient({ getIdToken: () => authClient.getIdToken(),
+    expectedDataMode: localApiMode ? apiDataMode : undefined }), [providedApi, authClient, localApiMode, apiDataMode])
   const connection = useQuestConnection(externalQuest || catalogFallback ? 'preview' : source, api)
   const content = connection.result.status === 'ready' ? connection.result.value : null
   const quest = externalQuest ?? (!catalogFallback && content ? (({ areaLabel: _area, ...dto }) => dto)(content) : null)
@@ -237,7 +240,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
             <div>
               <h1 id="explore-title">全国から謎を探す</h1>
             </div>
-            <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
+            <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{durableLocal ? '永続API・ローカル' : apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
           </div>
 
           <div className="explore-workspace">
@@ -262,18 +265,18 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                           : 'ログイン機能は準備中です。問題はそのまま閲覧できます。'}
                   feedback={feedback} onToggle={() => { const next = !openRef.current; selectionGeneration.current += 1; openRef.current = next; if (!next) closeCamera(); setOpenState({ quest: externalQuest, open: next }) }} onStart={(selection) => { if (onStartChallenge) return login(selection); if (auth.status === 'signed-in' && canUseCamera && quest) setCameraOwner({ auth, confirmation: serverIdentity.result, questId: selection.questId, version: selection.expectedVersion }); else return login(selection) }}>
                     {!questStale && !onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && uid !== null && visiblePending === null && <ChallengeCapture
-                      key={JSON.stringify([uid, quest.questId, quest.version, captureRevision])} api={api} quest={quest}
+                      key={JSON.stringify([uid, quest.questId, quest.version, captureRevision])} api={api} quest={quest} dataMode={apiDataMode}
                       onReloadQuest={() => { closeCamera(); if (externalQuest) onReloadQuest?.(); else connection.retry() }} />}
                     {auth.status === 'signed-in' && serverIdentity.result?.status === 'error' && <div className="auth-feedback"><p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></div>}
                     {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
-                    {localApiMode && <QuestReport key={questKey} api={api} questId={quest.questId}
+                    {localApiMode && !durableLocal && <QuestReport key={questKey} api={api} questId={quest.questId}
                       ownerUid={canUseCamera && visiblePending === null ? uid : null} canSignIn={auth.status === 'signed-out'}
                       signInPending={visiblePending !== null} onSignIn={() => void login()} />}
                   </QuestDetails>
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>
               <p className="browse-note">問題の閲覧にログインは必要ありません。</p>
-              <div className="demo-note"><span className="demo-note-dot" /><p>{apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
+              <div className="demo-note"><span className="demo-note-dot" /><p>{durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
             </aside>
           </div>
         </section>

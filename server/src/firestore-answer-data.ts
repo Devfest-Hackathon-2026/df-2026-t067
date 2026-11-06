@@ -57,11 +57,15 @@ function versionDocuments(db: Firestore, questId: string, version: number) {
   return [db.collection('quests').doc(questId), db.collection('questVersions').doc(`${questId}:${version}`)] as const
 }
 
+export function isPublicationStatus(status: unknown): boolean {
+  return status === 'draft' || status === 'review_pending' || status === 'published'
+}
+
 function checkPublishedVersion(questId: string, version: number, publication?: DocumentData, snapshot?: DocumentData) {
   if (!publication || publication.publishedVersion === null || publication.status === 'paused') {
     throw new HttpError(409, 'QUEST_UNAVAILABLE', 'この問題は利用できません。')
   }
-  if (!['draft', 'review_pending', 'published'].includes(publication.status)) throw processingError()
+  if (!isPublicationStatus(publication.status)) throw processingError()
   if (storedVersion(publication.publishedVersion) !== version) throw questChanged()
   if (!snapshot) throw processingError()
   return { questId, version, snapshot, placeId: storedId(snapshot.placeId) }

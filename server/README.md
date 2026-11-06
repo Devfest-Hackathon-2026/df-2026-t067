@@ -53,7 +53,9 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 
 `FIREBASE_PROJECT_ID` は開発用の署名済みIDトークンを発行するプロジェクトをシェルまたは `.env.local` から渡す。認証付きの操作には既存の開発用ADCでユーザーを参照できる権限も必要。HTTPでトークンの失効と無効化を確認し、定期処理では対象アカウントの存在と有効状態を確認する。Auth EmulatorとStorage SDKの接続先を上書きする `STORAGE_EMULATOR_HOST`、`FIREBASE_STORAGE_EMULATOR_HOST` は起動前に外す。FirestoreとGCSの接続先はIPv4ループバックに限り、データ用プロジェクトは `demo-t067-durable-local` に固定する。
 
-`GET /health` は `dataMode: durable-local` を返す。挑戦開始に使う合成問題は `demo-quest` の版 `1`。テストで使う合成画像と合成座標はサーバーのテストフィクスチャと同じものを使い、実写真や実地点は投入しない。公開問題一覧と通常のWeb画面はデモモードで確認する。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[永続APIと定期回収](../docs/answer-processing.md#httpと定期回収の起動)
+`GET /health` は `dataMode: durable-local` を返す。起動時に架空の地域と問題 `demo-quest` の版 `1` を用意する。別のターミナルで `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` を実行すると、未ログインで一覧・詳細・通常ヒントを開ける。テストの回答には合成画像と架空の座標を使う。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[Webの接続手順](../docs/local-api.md#モードを選ぶ)・[永続APIと定期回収](../docs/answer-processing.md#httpと定期回収の起動)
+
+公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントは公開版の本文だけを返す。管理操作、報告、ヒント画像の配信は `demo` モードで確認できる。[永続公開カタログ](../docs/api.md#永続公開カタログ)
 
 ## 実装したルート
 

@@ -174,7 +174,9 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
     <section className="camera-panel" aria-label="写真撮影と確認">
       <h4>{photoUrl ? '写真を確認' : '写真を撮影'}</h4>
       <p className="sample-note">{answer
-        ? '撮影時に現在地を1回取得します。「写真と位置をデモ送信」を押すと、写真・位置・精度・時刻を開発用のローカルAPIへ送ります。受付と位置条件の確認までを試せます。'
+        ? answer.dataMode === 'durable-local'
+          ? 'テスト送信を押すと写真・位置・精度・時刻をローカルAPIへ送ります。合成画像と架空の座標を使ってください。'
+          : '撮影時に現在地を1回取得します。「写真と位置をデモ送信」を押すと、写真・位置・精度・時刻を開発用のローカルAPIへ送ります。受付と位置条件の確認までを試せます。'
         : '撮影時に現在地を1回取得します。写真・位置情報・撮影と測位の時刻はこの画面内だけで保持し、送信・保存・AI判定は行いません。'}</p>
       {photoUrl ? <img className="photo-preview" src={photoUrl} alt="撮影した写真のプレビュー" />
         : <video ref={videoRef} className="camera-video" autoPlay playsInline muted aria-label="カメラ映像"

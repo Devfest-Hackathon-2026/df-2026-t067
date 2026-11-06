@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import App from '../../App'
 import type { AuthClient } from '../auth/authTypes'
 import { ApiError, createApiClient } from '../../shared/api/client'
+import type { LocalApiDataMode } from '../../shared/api/client'
 import type { Page, PublicArea, PublicQuest } from '../../shared/api/types'
 
 type Api = Pick<ReturnType<typeof createApiClient>, 'listQuests' | 'getQuest' | 'listAreas' | 'getHint'>
@@ -41,8 +42,10 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
   return items
 }
 
-export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { api?: Api; syncUrl?: boolean; authClient?: AuthClient }) {
-  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo' }), [providedApi])
+export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, dataMode = 'demo' }: {
+  api?: Api; syncUrl?: boolean; authClient?: AuthClient; dataMode?: LocalApiDataMode
+}) {
+  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode }), [providedApi, dataMode])
   const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
   const [selectedId, setSelectedId] = useState(initialSelection.questId)
   const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
@@ -157,7 +160,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { 
   const quest = state === 'ready' ? current?.quest : undefined
   const reload = () => { catalog.current = null; setRetry((value) => value + 1) }
   const fallback = !quest ? <section className="api-load-state" aria-live="polite">
-      <p className="eyebrow">公開APIデモ</p>
+      <p className="eyebrow">{dataMode === 'durable-local' ? '永続API・ローカル' : '公開APIデモ'}</p>
       <h1 id="explore-title">{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>
       {state === 'loading' && <p role="status">サーバーから問題を取得しています。</p>}
       {state === 'empty' && <p>{selectedAreaId ? 'この地域に公開問題はありません。地域を変えるか全国からお選びください。' : '現在選べる公開問題はありません。'}</p>}
@@ -168,7 +171,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient }: { 
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
     </section> : undefined
   return <App authClient={authClient} quest={quest} areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
-    questPicker={picker} catalogFallback={fallback} apiMode getHint={api.getHint}
+    questPicker={picker} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
     onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}
     onReloadQuest={reload} />

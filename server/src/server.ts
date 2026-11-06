@@ -21,7 +21,7 @@ import type { LocationValidation } from './location'
 import { HttpError, invalidInput } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
-import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
+import { intersectsBbox, paginate, parseAreaQuery, parseId, positiveRouteNumber, validateQuery } from './query'
 import { DemoReportStore } from './reports'
 
 export interface ServerOptions {
@@ -38,12 +38,6 @@ export interface ServerOptions {
   challenges?: DemoChallengeStore
   answers?: DemoAnswerStore
   locationValidation?: LocationValidation | 'demo'
-}
-
-function positiveRouteNumber(value: string): number {
-  const parsed = Number(value)
-  if (!/^[1-9]\d{0,15}$/.test(value) || !Number.isSafeInteger(parsed)) invalidInput()
-  return parsed
 }
 
 export function createServer(options: ServerOptions) {

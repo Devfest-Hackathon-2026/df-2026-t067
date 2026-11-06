@@ -8,6 +8,12 @@ export function parseId(value: string): string {
   return value
 }
 
+export function positiveRouteNumber(value: string): number {
+  const parsed = Number(value)
+  if (!/^[1-9]\d{0,15}$/.test(value) || !Number.isSafeInteger(parsed)) invalidInput()
+  return parsed
+}
+
 export function validateQuery(params: URLSearchParams, allowed: readonly string[]): void {
   for (const key of params.keys()) {
     if (!allowed.includes(key) || params.getAll(key).length !== 1) invalidInput()
