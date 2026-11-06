@@ -8,9 +8,11 @@ import { join } from 'node:path'
 import { initializeTrialLedger, withTrialSlot } from '../src/vertex-trial-ledger'
 import { createVertexTrialTransport, trialEndpoint } from '../src/vertex-transport'
 import { createVertexPhotoMatcher } from '../src/vertex-match'
+import { createSyntheticVertexTrialMatcher } from '../src/durable-vertex-trial'
+import { comparePhotos } from '../src/photo-match'
 import { preparePhoto } from '../src/photo-input'
 import { syntheticPng } from './photo-fixtures'
-import { runVertexTrial } from '../src/vertex-trial-cli'
+import { runVertexTrial, syntheticTrialInput } from '../src/vertex-trial-cli'
 
 const signal = () => new AbortController().signal
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
@@ -26,6 +28,27 @@ async function comparison() {
   return { reference: photo, candidate: photo, features: ['架空の赤い対象'] }
 }
 const ok = () => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"verdict":"match"}' }] } }] })
+
+test('durable Vertex uses the same authored tower and feature data as the CLI after storage normalization', async () => {
+  const tower = await syntheticTrialInput('match')
+  const bridge = await syntheticTrialInput('mismatch')
+  const other = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+  let calls = 0
+  const matcher = await createSyntheticVertexTrialMatcher(async (request) => {
+    const [features, , reference, , candidate] = request.contents[0].parts
+    assert.deepEqual(features, { text: JSON.stringify({ verifiedFeatures: tower.features }) })
+    assert.deepEqual(reference, { inlineData: { mimeType: 'image/jpeg', data: tower.reference.bytes.toString('base64') } })
+    const expected = ++calls === 1 ? tower : bridge
+    assert.deepEqual(candidate, { inlineData: { mimeType: 'image/jpeg', data: expected.candidate.bytes.toString('base64') } })
+    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: calls === 1 ? '{"verdict":"match"}' : '{"verdict":"mismatch"}' }] } }] }
+  })
+  assert.equal(await comparePhotos(tower, { matcher }), 'MATCH')
+  // Admin test photos are still normalized only once when the matcher starts.
+  assert.equal(await matcher({ ...bridge, reference: await preparePhoto(bridge.reference) }, { signal: signal() }), 'WRONG_TARGET')
+  await assert.rejects(comparePhotos({ ...tower, candidate: other }, { matcher }), { code: 'SYSTEM_ERROR', retryable: false })
+  await assert.rejects(comparePhotos({ ...tower, features: [...tower.features, 'other'] }, { matcher }), { code: 'SYSTEM_ERROR', retryable: false })
+  assert.equal(calls, 2)
+})
 
 test('a private ledger inherits the already used call, persists and refuses reinitialization', async (t) => {
   const file = await fixture(t)

@@ -96,9 +96,34 @@ CLIはコードで生成した架空の図形だけを使い、写真ファイ�
 
 開発環境の `durable-local` で `QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` を明示すると、回答workerが同じtransportを使う。CLIで使っている `QUEST_VERTEX_TRIAL_LEDGER` と既存のADCが必要。FirestoreとGCSの接続先はループバックのまま使う。[永続APIの起動手順](../server/README.md#永続apiをローカルで起動する)
 
-workerは非公開の参考JPEGを世代指定で取得する。正規化後の参考・回答の両画像と特徴がコード内の合成フィクスチャに一致するときだけ送信する。合成フィクスチャの照合結果は入力の確認に使い、回答の判定にはVertexの応答を使う。対象外の画像や特徴はVertexへの認証・通信の前に拒否する。試験モードでも実際のカメラ写真や位置は入力しない。
+workerは非公開の参考JPEGを世代指定で取得する。正規化後の参考・回答の両画像と特徴がコード内の合成画像に一致するときだけ送信する。対象外の画像や特徴はVertexへの認証・通信の前に拒否する。回答の判定にはVertexの応答を使う。
 
-自動テストではFirestoreとGCSの代替環境で、受付、参考画像取得、固定REST宛ての要求、台帳の加算、本人記録まで確認する。Vertexの応答はテスト用の代替で、このworker経由の実Vertex接続と実写真での精度は未検証。
+赤い塔を使う場合は、サーバーのビルド後にリポジトリのルートで下記を実行する。出力した `match.png` を参考画像と一致する回答に使い、`features.txt` の内容を下書きの確認済み特徴に設定する。`mismatch.png` は別対象、`uncertain.png` は確認困難な図形。ローカルの参考・回答画像を確認した後、CLIと同じJPEGを送る。
+
+```sh
+fixture_dir=$(mktemp -d /tmp/quest-vertex-fixtures.XXXXXX)
+node - "$fixture_dir" <<'NODE'
+const { writeFileSync } = require('node:fs')
+const { join } = require('node:path')
+const { renderVertexTrialFixture, vertexTrialCases, vertexTrialFeatures } =
+  require('./server/dist/server/src/vertex-trial-fixtures.js')
+const dir = process.argv[2]
+Promise.all(vertexTrialCases.map(async (kind) => {
+  writeFileSync(join(dir, kind + '.png'), await renderVertexTrialFixture(kind))
+})).then(() => {
+  writeFileSync(join(dir, 'features.txt'), vertexTrialFeatures.join('\n'))
+  console.log(dir)
+}).catch(() => { process.exitCode = 1 })
+NODE
+```
+
+自動テストではFirestoreとGCSの代替環境で、受付、参考画像取得、固定REST宛ての要求、台帳の加算、本人記録まで確認する。Vertexの応答はテスト用に代替する。
+
+### 永続回答での実Vertex確認（2026-11-06）
+
+FirestoreとGCSはローカルの代替環境、Google認証はテスト用の代替を使った。2×2の合成画像では実VertexがHTTP 200で `IMAGE_UNCERTAIN` を返した。赤い塔の合成画像ではHTTP 200で一致し、回答workerが `CORRECT` を確定した。本人の写真取得・削除と、別の利用者からの取得拒否まで確認した。
+
+回答workerからの送信は各1回で、共有台帳は5/20回から7/20回になった。どちらも合成画像による結果。実写真での精度と実クラウド上の保存は未検証。
 
 ### 画像試験の記録（2026-11-05）
 
@@ -109,7 +134,7 @@ workerは非公開の参考JPEGを世代指定で取得する。正規化後の�
 | 赤い塔と灰色一色・初回 | エラーで終了。詳細を取得していないため原因は確定できず、成功扱いしない |
 | 同じ灰色入力・診断付き1回 | HTTP 200 / STOP、IMAGE_UNCERTAIN。約2.2秒 |
 
-画像試験は4回送信（うち1回失敗）、初回テキスト1回と合わせて**使用済み5/20回、残り15回**。失敗分も加算し、台帳の排他解放を確認した。診断ではHTTP状態・終了理由・応答の長さだけを確認し、生のモデル出力や画像は保存していない。権利を確認した合成図形の少数試験であり、実スポット・別角度・不鮮明な実写真の精度評価ではない。
+この時点の画像試験は4回送信（うち1回失敗）、初回テキスト1回と合わせて**使用済み5/20回**。失敗分も加算し、台帳の排他解放を確認した。診断ではHTTP状態・終了理由・応答の長さだけを確認した。権利を確認した合成図形での試験で、実スポット・別角度・不鮮明な実写真の精度は未検証。
 
 単体テストでは合成応答を使い、台帳の再初期化/上限/破損/権限不備/ロック残り、別プロセスからの再開、同時送信拒否、失敗時の加算、認証待ち/通信の期限と取消、非JSON/過大応答/ブロック/署名・非終了の扱いを確認する。ネットワークの自動再試行はない。
 
