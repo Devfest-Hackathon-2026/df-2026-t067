@@ -1,6 +1,6 @@
 @import "../../theme.css";
 
-.admin-demo { box-sizing: border-box; max-width: 880px; margin: 0 auto; padding: 28px 20px 56px; color: var(--ui-ink); font: 16px/1.55 system-ui, sans-serif; }
+.admin-demo { box-sizing: border-box; max-width: 1040px; margin: 0 auto; padding: 36px 28px 64px; color: var(--ui-ink); font-size: 16px; font-family: inherit; line-height: 1.75; }
 .admin-demo *, .admin-demo *::before, .admin-demo *::after { box-sizing: border-box; }
 .admin-demo h1 { margin: 3px 0 0; font-size: clamp(1.5rem, 5vw, 2rem); }
 .admin-demo h2 { margin: 0 0 16px; font-size: 1.2rem; }
@@ -50,10 +50,8 @@
 .traveler-card .preview-hint { margin: 8px 0; padding: 10px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); }
 .preview-hint > button { min-height: 40px; cursor: pointer; font: inherit; font-weight: var(--ui-weight-strong); color: inherit; background: white; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); padding: 8px 12px; }
 .traveler-preview > button { min-height: 40px; padding: 8px 14px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: white; color: var(--ui-ink); font: inherit; cursor: pointer; }
-@media (max-width: 560px) { .admin-demo { padding: 18px 12px 36px; } .form-section { padding: 16px; } .steps { grid-template-columns: 1fr; } .field-pair { grid-template-columns: 1fr; gap: 0; } }
 
 /* The same theme, including A03, A04, A05 and their inline confirmation states. */
-.admin-demo { color: var(--ui-ink); max-width: 1040px; padding: 36px 28px 64px; font-family: inherit; line-height: 1.75; }
 .admin-header { align-items: start; padding-bottom: 24px; border-bottom: var(--ui-border-width) solid var(--ui-line); }
 .admin-demo h1, .admin-demo h2, .admin-demo h3 { font-weight: var(--ui-weight-display); letter-spacing: -.025em; }
 .admin-demo h1 { margin-top: 10px; font-size: clamp(1.6rem, 3.5vw, 2.3rem); line-height: 1.45; }

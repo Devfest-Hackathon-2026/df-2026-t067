@@ -112,3 +112,13 @@ PR #30の撮影条件2項目・自治体コメント・解説は、この管理�
 ## A05の写真判定試験API
 
 版と用途に結び付く写真試験の共通client/HTTPを追加した。既定は照合未接続の503。合成素材の開発用設定で試験から公開・休止までを試せる。既存画面は自動接続せず、試験結果は開発用と明示する。画面内編集で古い結果を無効化して保存したrevisionで試す。[写真試験と起動手順](admin-photo-tests.md)
+
+
+### 管理画面のコード配置
+
+`/admin-local` のAPI接続管理画面と共通の下書きフォーム・表示プレビューは `src/features/admin/` に置く。
+`/admin-demo` は `src/features/admin-demo/AdminDemo.tsx` の未認証・未接続専用ラッパーから同じフォームを使う。
+URLと操作手順、API契約は維持する。既存のフォームテストは `src/features/admin/QuestDraftForm.test.tsx` に移して継続する。
+
+`/admin-local` も旅行者画面と同じ `VITE_QUEST_DATA_SOURCE=durable-local` 設定を使い、APIのモードヘッダーを検証する。
+未指定時は従来どおり `demo`。保存先の案内も、demoの一時領域とdurable-localのローカル永続ストアを区別する。

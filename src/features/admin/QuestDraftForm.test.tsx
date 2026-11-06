@@ -4,7 +4,8 @@ import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, createApiClient } from '../../shared/api'
 import type { ManagedQuest, ManagedQuestDraft } from '../../shared/api'
-import AdminDemo from './AdminDemo'
+import AdminDemo from '../admin-demo/AdminDemo'
+import QuestDraftForm from './QuestDraftForm'
 
 const created: string[] = []
 const revoked: string[] = []
@@ -30,7 +31,7 @@ it('saves a local draft with its reference, then updates the saved revision and 
   const createManagedQuest = vi.fn().mockImplementation(async (_orgId: string, draft: ManagedQuestDraft) => ({ ...saved, draft }))
   const updateManagedQuest = vi.fn().mockRejectedValue(new ApiError('DRAFT_CONFLICT'))
   const api = { ...createApiClient(), uploadOrgAsset, createManagedQuest, updateManagedQuest }
-  render(<AdminDemo connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+  render(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
     role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
   const file = image()
   await user.type(screen.getByLabelText('対象名'), '架空の時計')
@@ -62,7 +63,7 @@ it('blocks a second create when the response is lost and preserves the entered d
   const createManagedQuest = vi.fn().mockRejectedValue(new ApiError('NETWORK_ERROR'))
   const api = { ...createApiClient(), createManagedQuest }
   const back = vi.fn()
-  render(<AdminDemo connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+  render(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
     role: 'editor', areaId: 'demo-area' }, onBack: back }} />)
   await user.type(screen.getByLabelText('対象名'), '架空の対象')
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
@@ -92,7 +93,7 @@ it('loads a candidate for the saved version and waits for explicit adoption and 
     draftRevision: 3, source: 'mock', content: candidate })
   const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 4 })
   const api = { ...createApiClient(), generateManagedQuestDraft, updateManagedQuest }
-  render(<AdminDemo connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
+  render(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
     role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
   await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
   await user.click(screen.getByRole('button', { name: '保存済み版の候補を取得' }))
