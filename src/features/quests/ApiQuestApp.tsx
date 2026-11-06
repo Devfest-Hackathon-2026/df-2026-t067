@@ -257,5 +257,5 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
     questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
     onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}
-    onReloadQuest={() => reload()} />
+    onReloadQuest={(event) => reload(event)} />
 }

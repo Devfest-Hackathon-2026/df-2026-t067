@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
+import type { MouseEvent } from 'react'
 import { demoAreaLabel } from './features/quests/demoQuest'
 import { QuestDetails } from './features/quests/QuestDetails'
 import { QuestReport } from './features/quests/QuestReport'
@@ -46,7 +47,7 @@ type AppProps = {
   apiMode?: boolean
   apiDataMode?: LocalApiDataMode
   apiClient?: ApiClient
-  onReloadQuest?: () => void
+  onReloadQuest?: (event?: MouseEvent<HTMLButtonElement>) => void
   getHint?: ApiClient['getHint']
   questStale?: boolean
   onHintVersionStale?(): void
@@ -257,7 +258,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                 {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
                   getHint={providedGetHint ?? api.getHint} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
-                  onReloadQuest={() => { if (externalQuest) onReloadQuest?.(); else connection.retry() }}
+                  onReloadQuest={(event) => { if (externalQuest) onReloadQuest?.(event); else connection.retry() }}
                   hideStartAction={!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null}
                   disabled={questStale || visiblePending !== null || (auth.status !== 'signed-out' && auth.status !== 'signed-in') || (auth.status === 'signed-in' && (onStartChallenge ? false : !canUseCamera || cameraVisible))}
                   buttonLabel={visiblePending === 'sign-in' ? '処理中…' : auth.status === 'signed-in' ? (onStartChallenge ? '挑戦を開始する' : cameraVisible ? '撮影中' : serverIdentity.result?.status === 'loading' ? 'ログインの確認中…' : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : '撮影を始める') : 'Googleログインして挑戦する'}

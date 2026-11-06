@@ -306,4 +306,8 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .hint-item > button, .hint-item [role="alert"] button, .hint-version-changed button { min-height: 44px; padding: 9px 14px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); font: inherit; cursor: pointer; }
 .hint-item p, .hint-version-changed p, .hints-note { margin: 8px 0 0; color: var(--ui-muted); font-size: 13px; line-height: 1.7; }
 .hint-item [role="alert"] { color: var(--ui-error); }
+.hint-item [role="alert"] .hint-retry, .quest-reload-subtle { min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--ui-radius); background: transparent; color: var(--ui-muted); font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
+.hint-item [role="alert"] .hint-retry { text-decoration: underline; text-underline-offset: 2px; }
+.quest-reload-subtle { margin-top: 8px; border-color: var(--ui-disabled-line); }
+.hint-retry:focus-visible, .quest-reload-subtle:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 .hints-note { margin: 0; }

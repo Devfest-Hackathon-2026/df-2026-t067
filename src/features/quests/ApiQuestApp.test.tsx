@@ -45,6 +45,25 @@ function signedOutAuth(): AuthClient {
 }
 
 describe('APIから問題を表示', () => {
+  it('404ヒントから手動更新し、完了後に公開情報更新へフォーカスを戻す', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, hintCount: 1 }
+    const api = apiFixture()
+    api.getQuest.mockResolvedValue(quest)
+    api.getHint.mockRejectedValueOnce(new ApiError('NOT_FOUND', { status: 404 }))
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
+    expect(await screen.findByRole('heading', { name: quest.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('見つかりません（404）')
+    const reloadHintButton = screen.getByRole('button', { name: '問題を読みなおす' })
+    reloadHintButton.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('button', { name: '公開情報を更新' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '公開情報を更新' })).toHaveFocus())
+    expect(api.listQuests).toHaveBeenCalledTimes(2)
+  })
+
   it('地図の地域クリックで地域・問題・URL選択を同期する', async () => {
     const api = apiFixture()
     render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
@@ -204,7 +223,7 @@ describe('APIから問題を表示', () => {
     expect(screen.queryByRole('button', { name: 'ヒント1を見る' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'ヒント画像を見る' })).not.toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
-    await user.click(screen.getByRole('button', { name: '最新版の問題を読み直す' }))
+    await user.click(screen.getByRole('button', { name: '問題を読みなおす' }))
     await waitFor(() => expect(api.getQuest).toHaveBeenCalledTimes(2))
     await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
     expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
