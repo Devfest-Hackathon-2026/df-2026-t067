@@ -272,7 +272,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       onReloadQuest={() => { closeCamera(); if (externalQuest) onReloadQuest?.(); else connection.retry() }} />}
                     {auth.status === 'signed-in' && serverIdentity.result?.status === 'error' && <div className="auth-feedback"><p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></div>}
                     {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
-                    {localApiMode && !durableLocal && <QuestReport key={questKey} api={api} questId={quest.questId}
+                    {localApiMode && <QuestReport key={questKey} api={api} questId={quest.questId} dataMode={apiDataMode}
                       ownerUid={canUseCamera && visiblePending === null ? uid : null} canSignIn={auth.status === 'signed-out'}
                       signInPending={visiblePending !== null} onSignIn={() => void login()} />}
                   </QuestDetails>

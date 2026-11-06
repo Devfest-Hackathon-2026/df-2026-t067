@@ -8,6 +8,7 @@ import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
 import { createDiscoveryHandler } from './discoveries-http'
 import { createDurableDraftHandler } from './durable-admin-drafts-http'
+import { createDurableReportHandler } from './durable-reports-http'
 import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import type { AdmissionPolicy } from './firestore-admission'
@@ -21,6 +22,7 @@ import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-
 import { FirestoreDiscoveryStore } from './firestore-discoveries'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import type { FirestoreOrgAssetStore } from './firestore-org-assets'
+import { FirestoreReportStore } from './firestore-reports'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
 import { handlePublicCatalog } from './public-catalog-http'
@@ -55,11 +57,13 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const publicationPhotos = dataMode === 'durable-local' ? options.publication : undefined
   const publication = drafts && publicationPhotos && new FirestoreManagedPublication(options.db, drafts, publicationPhotos)
   const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication)
+  const reportHandler = dataMode === 'durable-local' ? createDurableReportHandler(new FirestoreReportStore(options.db), authenticate) : undefined
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (await discoveryHandler(request, response, path, params)) return
     if (await draftHandler?.(request, response, path, params)) return
+    if (await reportHandler?.(request, response, path, params)) return
     const asset = assets && matchAssetRoute(path)
     if (asset) {
       const method = asset[2] ? 'GET' : 'POST'

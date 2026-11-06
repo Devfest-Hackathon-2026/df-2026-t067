@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, REPORT_CATEGORIES } from '../../shared/api'
-import type { ApiClient, ReportInput } from '../../shared/api'
+import type { ApiClient, LocalApiDataMode, ReportInput } from '../../shared/api'
 import { reportCategoryLabels } from '../../shared/reportLabels'
 import { useRequestAction } from '../../shared/useRequestAction'
 
@@ -19,7 +19,7 @@ function reportError(cause: unknown): string {
   return '報告の受付を確認できませんでした。通信状況を確認して再試行してください。'
 }
 
-function ReportForm({ api, questId }: { api: ApiClient; questId: string }) {
+function ReportForm({ api, questId, dataMode }: { api: ApiClient; questId: string; dataMode: LocalApiDataMode }) {
   const [category, setCategory] = useState<ReportInput['category']>('PHOTO_UNAVAILABLE')
   const [text, setText] = useState('')
   const [state, setState] = useState<Submission>({ status: 'idle' })
@@ -40,7 +40,7 @@ function ReportForm({ api, questId }: { api: ApiClient; questId: string }) {
     try {
       const result = await api.submitReport({ questId, category, text, idempotencyKey: key.current ??= crypto.randomUUID() }, { signal: operation.signal })
       if (!operation.isCurrent()) return
-      if (result.source !== 'mock') throw new ApiError('INVALID_RESPONSE')
+      if (result.source !== (dataMode === 'durable-local' ? 'real' : 'mock')) throw new ApiError('INVALID_RESPONSE')
       setState({ status: 'received' })
     } catch (cause) {
       if (operation.isCurrent()) setState({ status: 'error', message: reportError(cause) })
@@ -57,20 +57,20 @@ function ReportForm({ api, questId }: { api: ApiClient; questId: string }) {
       onChange={(event) => { setText(event.target.value); edited() }} /></label>
     {state.status === 'error' && <p role="alert">{state.message}</p>}
     <button type="submit" className="secondary-button" disabled={state.status === 'sending' || !text.trim()}>
-      {state.status === 'sending' ? '受付を確認しています…' : 'デモ報告を送信'}
+      {state.status === 'sending' ? '受付を確認しています…' : dataMode === 'durable-local' ? '報告を送信' : 'デモ報告を送信'}
     </button>
   </form>
 }
 
-export function QuestReport({ api, questId, ownerUid, canSignIn, signInPending, onSignIn }: {
-  api: ApiClient; questId: string; ownerUid: string | null; canSignIn: boolean; signInPending: boolean; onSignIn: () => void
+export function QuestReport({ api, questId, dataMode, ownerUid, canSignIn, signInPending, onSignIn }: {
+  api: ApiClient; questId: string; dataMode: LocalApiDataMode; ownerUid: string | null; canSignIn: boolean; signInPending: boolean; onSignIn: () => void
 }) {
   const [open, setOpen] = useState(false)
   return <section aria-label="開発用の問題報告">
     <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((previous) => !previous)}>
       {open ? '報告を閉じる' : '問題を報告'}
     </button>
-    {open && (ownerUid !== null ? <ReportForm key={ownerUid} api={api} questId={questId} />
+    {open && (ownerUid !== null ? <ReportForm key={ownerUid} api={api} questId={questId} dataMode={dataMode} />
       : canSignIn ? <button type="button" className="secondary-button" disabled={signInPending} onClick={onSignIn}>Googleログインして報告する</button>
         : <p role="status">ログイン確認後に報告できます。</p>)}
   </section>
