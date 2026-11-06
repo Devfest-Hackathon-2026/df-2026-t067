@@ -10,6 +10,7 @@ import { createFixturePhotoMatcher, durableFixtureFeatures, syntheticPng } from 
 import { createDurableAnswerRuntime } from './durable-answer-runtime'
 import { createSyntheticVertexTrialMatcher } from './durable-vertex-trial'
 import { createFirebaseVerifier } from './firebase-auth'
+import { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { FirestoreOrgAssetStore } from './firestore-org-assets'
 import { preparePhoto } from './photo-input'
 import { createPublishedAnswerMaterialLoader } from './published-answer-material'
@@ -78,7 +79,8 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const uploadLimiter = new DemoAnswerStore()
     const policy = { maximum: 10, windowMs: 60_000 }
     const runtime = createDurableAnswerRuntime({
-      db, photos, verifier, dataMode: config.mode, assets: new FirestoreOrgAssetStore(db, photos),
+      db, photos, verifier, dataMode: config.mode,
+      assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),
       worker: { ...material, leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher, matchTimeoutMs: ledger ? 30_000 : undefined },
       maintenance: { intervalMs: 1000, maximumJobs: 8, retryDelayMs: 5000,
