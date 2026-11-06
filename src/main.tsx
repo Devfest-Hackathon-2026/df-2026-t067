@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client'
 const root = createRoot(document.getElementById('root')!)
 
 if (import.meta.env.DEV && window.location.pathname === '/admin-local') {
-  void import('./features/admin-demo/LocalAdminWorkspace').then(({ LocalAdminWorkspace }) => {
-    root.render(<StrictMode><LocalAdminWorkspace /></StrictMode>)
+  void import('./features/admin/LocalAdminWorkspace').then(({ LocalAdminWorkspace }) => {
+    root.render(<StrictMode><LocalAdminWorkspace dataMode={import.meta.env.VITE_QUEST_DATA_SOURCE === 'durable-local' ? 'durable-local' : 'demo'} /></StrictMode>)
   })
 } else if (window.location.pathname === '/admin-demo') {
   void import('./features/admin-demo/AdminDemo').then(({ default: AdminDemo }) => {
