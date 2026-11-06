@@ -12,7 +12,7 @@ function shown(value: string) {
 
 export default function ClearExplanationPreview({ content }: Props) {
   return <article className="traveler-card" id="after-clear-preview" aria-labelledby="after-clear-heading">
-    <h3 id="after-clear-heading">クリア後の解説（デモ）</h3>
+    <h3 id="after-clear-heading">クリア後の解説</h3>
     <dl>
       <dt>アクセス補足</dt><dd>{shown(content.access)}</dd>
       <dt>利用できる時間</dt><dd>{shown(content.hours)}</dd>

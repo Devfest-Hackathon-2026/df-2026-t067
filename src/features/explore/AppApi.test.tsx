@@ -91,8 +91,12 @@ describe('explicit local API integration', () => {
     await act(async () => complete(json({ reportId: 'demo-report', source: 'mock' }, 202)))
     expect(screen.queryByText('開発用の報告を受け付けました。')).not.toBeInTheDocument()
   })
-  it('opens only the verified owner records and releases the previous account photo', async () => {
+  it('shows guidance and a photo only in the verified owner record', async () => {
     let uid = 'test-user'
+    const afterClear = {
+      access: '駅から徒歩10分', hours: '09:00〜17:00',
+      promoComment: '<a href="/untrusted">自治体の案内</a>', explanation: '初回クリア時の解説',
+    }
     const photoPath = '/api/v1/me/discoveries/' + discovery.discoveryId + '/photo'
     let holdPhoto = false
     let finishPhoto!: (response: Response) => void
@@ -106,7 +110,7 @@ describe('explicit local API integration', () => {
       const path = String(input)
       if (path === '/api/v1/session') return json({ uid })
       if (path.startsWith('/api/v1/me/discoveries?')) return json({ items: uid === 'test-user' ? [discovery] : [], nextCursor: null })
-      if (path === '/api/v1/me/discoveries/' + discovery.discoveryId) return json(discovery)
+      if (path === '/api/v1/me/discoveries/' + discovery.discoveryId) return json({ ...discovery, afterClear })
       if (path === photoPath) return holdPhoto ? new Promise((resolve) => { finishPhoto = resolve }) : photoResponse()
       return json(apiQuest)
     })
@@ -117,10 +121,15 @@ describe('explicit local API integration', () => {
     await user.click(await screen.findByRole('button', { name: discovery.placeName }))
     const photo = await screen.findByRole('img', { name: '本人の記録写真' })
     await waitFor(() => expect(photo).toHaveAttribute('src', 'blob:owner-fixture'))
+    const detail = within(screen.getByRole('region', { name: '記録詳細' }))
+    for (const value of Object.values(afterClear)) expect(detail.getByText(value)).toBeVisible()
+    expect(detail.queryByRole('link', { name: '自治体の案内' })).not.toBeInTheDocument()
+    expect(detail.queryByText(discovery.descriptionSnapshot)).not.toBeInTheDocument()
     const photoCall = fetcher.mock.calls.find(([path]) => path === photoPath)
     expect(new Headers(photoCall?.[1]?.headers).get('Authorization')).toBe('Bearer current-token')
     await user.click(screen.getByRole('button', { name: '記録一覧へ戻る' }))
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:owner-fixture')
+    expect(screen.queryByText(afterClear.explanation)).not.toBeInTheDocument()
     holdPhoto = true
     await user.click(await screen.findByRole('button', { name: discovery.placeName }))
     await waitFor(() => expect(finishPhoto).toBeTypeOf('function'))
@@ -131,6 +140,7 @@ describe('explicit local API integration', () => {
     expect(pending?.aborted).toBe(true)
     await act(async () => finishPhoto(photoResponse()))
     expect(screen.queryByRole('img', { name: '本人の記録写真' })).not.toBeInTheDocument()
+    expect(screen.queryByText(afterClear.explanation)).not.toBeInTheDocument()
     expect(createObjectURL).toHaveBeenCalledTimes(1)
   })
   it('checks the server identity for a B-supplied quest without loading the fixed quest again', async () => {

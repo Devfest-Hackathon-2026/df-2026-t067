@@ -285,6 +285,9 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .record-list li { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .record-detail { display: grid; gap: 12px; overflow-wrap: anywhere; }
 .record-detail > button { justify-self: start; }
+.record-guidance { display: grid; gap: 12px; margin: 0; }
+.record-guidance dt { font-weight: var(--ui-weight-strong); }
+.record-guidance dd { margin: 0; white-space: pre-wrap; }
 .quest-report-form, .quest-report-form label { display: grid; gap: 8px; }
 .quest-report-form { margin-top: 12px; }
 .quest-report-form textarea, .quest-report-form select { font: inherit; }
