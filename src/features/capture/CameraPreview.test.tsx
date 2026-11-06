@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CameraPreview } from './CameraPreview'
 import { isCaptureLocationMapDebugEnabled } from './captureMapDebug'
+import type { DemoAnswerContext } from './DemoAnswerSubmission'
 
 function position(coords: Partial<GeolocationCoordinates> = {}, timestamp = Date.now()) {
   return { coords: { latitude: 35, longitude: 135, accuracy: 12.4, altitude: null,
@@ -24,17 +25,22 @@ function setup() {
   }))
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
   const drawImage = vi.fn()
+  const translate = vi.fn()
+  const rotate = vi.fn()
   const canvasSize = vi.fn()
   const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
     canvasSize(this.width, this.height)
-    return { drawImage } as unknown as CanvasRenderingContext2D
+    return { drawImage, translate, rotate } as unknown as CanvasRenderingContext2D
   })
-  const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['synthetic-photo'], { type: 'image/jpeg' })))
-  const createObjectURL = vi.fn((_blob: Blob | MediaSource) => 'blob:synthetic-photo')
+  const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob([`synthetic-photo-${toBlob.mock.calls.length}`], { type: 'image/jpeg' })))
+  const createObjectURL = vi.fn((_blob: Blob | MediaSource) => `blob:synthetic-photo-${createObjectURL.mock.calls.length - 1}`)
   const revokeObjectURL = vi.fn((_url: string) => {})
+  const bitmap = { width: 640, height: 480, close: vi.fn() } as unknown as ImageBitmap
+  const createImageBitmap = vi.fn(async () => bitmap)
+  vi.stubGlobal('createImageBitmap', createImageBitmap)
   vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
   const onClose = vi.fn()
-  return { stop, stream, getUserMedia, getCurrentPosition, play, drawImage, canvasSize, getContext, toBlob, createObjectURL, revokeObjectURL, onClose, user: userEvent.setup() }
+  return { stop, stream, getUserMedia, getCurrentPosition, play, drawImage, translate, rotate, canvasSize, getContext, toBlob, createObjectURL, revokeObjectURL, createImageBitmap, bitmap, onClose, user: userEvent.setup() }
 }
 
 async function loadFrame(stream: MediaStream, width = 640, height = 480) {
@@ -104,7 +110,7 @@ describe('local camera preview', () => {
     const view = render(<CameraPreview onClose={media.onClose} />)
     await loadFrame(media.stream)
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
-    expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
+    expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo-0')
     expect(media.stop).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
     expect(screen.getByRole('button', { name: '撮影地を見る' })).toHaveAttribute('aria-expanded', 'false')
@@ -113,7 +119,7 @@ describe('local camera preview', () => {
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     expect(media.toBlob.mock.calls[0].slice(1)).toEqual(['image/jpeg', .9])
     view.unmount()
-    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo')
+    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo-0')
   })
 
   it('captures the frame immediately and obtains GPS afterward', async () => {
@@ -130,6 +136,32 @@ describe('local camera preview', () => {
     act(() => media.getCurrentPosition.mock.calls[0][0](position()))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
     expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()
+  })
+
+  it('rotates the encoded photo in quarter turns and keeps GPS and capture time', async () => {
+    const media = setup()
+    const submitAnswer = vi.fn(async (_input: { photo: Blob }) => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-1' }))
+    const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
+    const view = render(<CameraPreview onClose={media.onClose} answer={answer} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const capturedMetadata = screen.getByText(/撮影地を写真に紐づけました/).textContent
+    await media.user.click(screen.getByRole('button', { name: '右に90度回転' }))
+    await waitFor(() => expect(media.createObjectURL).toHaveBeenCalledTimes(2))
+    expect(media.canvasSize).toHaveBeenLastCalledWith(480, 640)
+    expect(media.translate).toHaveBeenCalledWith(240, 320)
+    expect(media.rotate).toHaveBeenCalledWith(Math.PI / 2)
+    expect(media.bitmap.close).toHaveBeenCalledOnce()
+    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo-0')
+    expect(screen.getByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo-1')
+    expect(screen.getByText(/撮影地を写真に紐づけました/).textContent).toBe(capturedMetadata)
+    expect(screen.getByRole('button', { name: '左に90度回転' })).toBeEnabled()
+    await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
+    await waitFor(() => expect(submitAnswer).toHaveBeenCalledOnce())
+    expect(submitAnswer.mock.calls[0][0].photo).toBe(media.createObjectURL.mock.calls[1][0])
+    view.unmount()
+    expect(media.revokeObjectURL).toHaveBeenCalledTimes(2)
+    expect(media.revokeObjectURL).toHaveBeenLastCalledWith('blob:synthetic-photo-1')
   })
 
   it('shows the map button only when explicitly enabled in development', async () => {
@@ -163,13 +195,13 @@ describe('local camera preview', () => {
     expect(screen.getByLabelText('撮影地の地図')).toBeVisible()
     await media.user.click(screen.getByRole('button', { name: '地図を閉じる' }))
     expect(screen.queryByLabelText('撮影地の地図')).not.toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo')
+    expect(screen.getByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo-0')
     expect(screen.getByText(/撮影地を写真に紐づけました/)).toBeVisible()
     expect(media.revokeObjectURL).not.toHaveBeenCalled()
     await media.user.click(screen.getByRole('button', { name: '撮影地を見る' }))
     await media.user.click(screen.getByRole('button', { name: '撮り直す' }))
     await loadFrame(second)
-    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo')
+    expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo-0')
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('撮影地の地図')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()
