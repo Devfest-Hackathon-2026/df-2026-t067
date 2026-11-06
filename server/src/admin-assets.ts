@@ -4,7 +4,10 @@ import { parseUploadedOrgAsset } from '../../src/shared/api/admin'
 import type { PreparedPhoto } from './photo-input'
 import { HttpError, invalidInput } from './errors'
 
+export const orgAssetLimits = { perOrg: 32, capacity: 128, maximumBytes: 32 * 1024 * 1024 }
+
 export class DemoAssetStore {
+  readonly mode = 'memory'
   private readonly assets = new Map<string, { asset: UploadedOrgAsset; bytes: Buffer }>()
   private readonly replays = new Map<string, { id: string; digest: string }>()
   private readonly windows = new Map<string, { start: number; count: number }>()
@@ -17,8 +20,8 @@ export class DemoAssetStore {
   private readonly now: () => number
 
   constructor(options: { capacity?: number; maximumBytes?: number; requestsPerMinute?: number; concurrentUploads?: number; now?: () => number } = {}) {
-    this.capacity = options.capacity ?? 128
-    this.maximumBytes = options.maximumBytes ?? 32 * 1024 * 1024
+    this.capacity = options.capacity ?? orgAssetLimits.capacity
+    this.maximumBytes = options.maximumBytes ?? orgAssetLimits.maximumBytes
     this.requestsPerMinute = options.requestsPerMinute ?? 10
     this.concurrentUploads = options.concurrentUploads ?? 2
     this.now = options.now ?? Date.now
@@ -55,7 +58,7 @@ export class DemoAssetStore {
     if (previous) return { created: false, asset: previous }
     if (!Buffer.isBuffer(photo.bytes) || photo.bytes.length < 4 || photo.bytes.length > 2 * 1024 * 1024) invalidInput()
     const orgCount = [...this.assets.values()].filter((item) => item.asset.orgId === orgId).length
-    if (this.assets.size >= this.capacity || orgCount >= 32 || this.bytes + photo.bytes.length > this.maximumBytes) throw this.full()
+    if (this.assets.size >= this.capacity || orgCount >= orgAssetLimits.perOrg || this.bytes + photo.bytes.length > this.maximumBytes) throw this.full()
     const asset = parseUploadedOrgAsset({ ...metadata, assetId: randomUUID(), orgId, contentType: 'image/jpeg', width: photo.width,
       height: photo.height, byteLength: photo.bytes.length, source: 'mock' })
     this.assets.set(asset.assetId, { asset, bytes: Buffer.from(photo.bytes) })
