@@ -220,10 +220,10 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 20. 開発用の問題報告
 
-既定は保存先未接続の503。`QUEST_REPORTS_MODE=memory`を明示した開発サーバーで架空の報告を試せる。再起動で報告は消える。
+`demo` では `QUEST_REPORTS_MODE=memory` を設定すると架空の報告を試せる。再起動で報告は消える。`durable-local` ではFirestoreに報告を保存する。
 
 - 旅行者はログイン後に`submitReport({questId, category, text, idempotencyKey})`を呼ぶ。分類は撮影不可`PHOTO_UNAVAILABLE`、判定不具合`MATCHING_PROBLEM`、危険な誘導`UNSAFE_GUIDANCE`。本文は前後の空白を除いた1〜1000文字、JSON全体は4 KiBまで。入力には報告者ID、写真、位置を含めない。
-- 受付は202の`{reportId, source:'mock'}`。同じ本人・キー・内容の再送は同じ受付IDを返し、内容違いは409 `IDEMPOTENCY_CONFLICT`。同じサーバー起動中の新規受付は1人10件・全体256件までで、超過は429。公開経験のある問題の最新公開版を受付時に記録するため、休止後も報告できる。未公開の下書きと未知のIDは404。
+- 受付は202の`{reportId, source}`。`demo` は `mock`、`durable-local` は `real` を返す。同じ本人・キー・内容の再送は同じ受付IDを返し、内容違いは409 `IDEMPOTENCY_CONFLICT`。新規受付は1人10件・全体256件までで、超過は429。永続モードの件数と再送の判定はサーバー間で共有する。公開経験のある問題の最新公開版を受付時に記録するため、休止後も報告できる。未公開の下書きと未知のIDは404。
 - 開発用の自組織`publisher`は`listManagedReports(orgId, {cursor, limit})`で新着順に確認できる。各行は受付ID、組織、問題IDと版、分類、本文、サーバー受付日時、`source`を持つ。報告者のUIDや再送キーは返さない。既定の架空問題A/Bは`demo-org`、Cは`demo-org-b`に割り当てる。管理APIで公開した問題は公開時の所有組織へ送る。
 
 報告受付と休止は独立した操作。報告を見た公開担当者が必要に応じて休止を行う。実運営の対応権限と実データの保持方針はO-04/O-07に残す。
