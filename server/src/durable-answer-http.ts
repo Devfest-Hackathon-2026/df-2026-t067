@@ -3,6 +3,7 @@ import type { IncomingMessage } from 'node:http'
 import type { AttemptResult } from '../../src/shared/api/types'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { handleAssetRequest, matchAssetRoute } from './admin-assets-http'
+import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
 import { createDiscoveryHandler } from './discoveries-http'
@@ -10,6 +11,7 @@ import { createDurableDraftHandler } from './durable-admin-drafts-http'
 import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import type { AdmissionPolicy } from './firestore-admission'
+import { FirestorePhotoTestStore } from './firestore-admin-photo-tests'
 import { processingError } from './firestore-answer-data'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './firestore-answer-intake'
 import type { AnswerIdentity } from './firestore-answer-processing'
@@ -31,6 +33,7 @@ interface DurableAnswerHttpOptions {
   dataMode?: 'durable-local'
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
+  photoTest?: AdminPhotoTestOptions
   acquireUpload(uid: string): () => void
   enqueue?(input: AnswerIdentity): Promise<void>
 }
@@ -40,9 +43,13 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
   const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
   const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
-  const draftHandler = options.drafts && createDurableDraftHandler(options.drafts, authenticate)
   const dataMode = options.dataMode ?? 'real'
   const assets = options.assets
+  const drafts = options.drafts
+  const photoTest = dataMode === 'durable-local' && drafts && assets && options.photoTest ? {
+    store: new FirestorePhotoTestStore(options.db, drafts), assets, options: options.photoTest, acquire: options.acquireUpload,
+  } : undefined
+  const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest)
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await handlePublicCatalog(options.db, request, response, path, params)) return

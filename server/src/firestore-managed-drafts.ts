@@ -33,6 +33,16 @@ export class FirestoreManagedDraftStore {
     return answerTransaction(this.db, async (tx) => (await this.getOwned(tx, uid, orgId, questId)).quest, true)
   }
 
+  getAtRevision(uid: string, orgId: string, questId: string, revision: number) {
+    return answerTransaction(this.db, (tx) => this.readAtRevision(tx, uid, orgId, questId, revision), true)
+  }
+
+  async readAtRevision(tx: Transaction, uid: string, orgId: string, questId: string, revision: number) {
+    const { quest } = await this.getOwned(tx, uid, orgId, questId)
+    if (quest.draftRevision !== revision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
+    return quest
+  }
+
   getShootingAreas(uid: string, orgId: string, questId: string) {
     return answerTransaction(this.db, async (tx): Promise<ManagedShootingAreas> => {
       const { quest, zones } = await this.getOwned(tx, uid, orgId, questId)
