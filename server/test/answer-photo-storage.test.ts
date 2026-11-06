@@ -311,15 +311,17 @@ test('Cloud Storage photo generations stay immutable across retries', {
 
     const beforePause = await submit()
     const paused = await submit()
-    await assert.rejects(runDurableAnswer(paused, { ...options, loadReference: async () => {
+    const pausedResult = await runDurableAnswer(paused, { ...options, loadReference: async () => {
       await quest.update({ publishedVersion: null, status: 'paused' })
       return { reference: other, features: ['合成の確認済み特徴'] }
-    } }), { code: 'QUEST_UNAVAILABLE' })
+    } })
+    assert(pausedResult.kind === 'completed' && pausedResult.result.outcome === 'QUEST_UNAVAILABLE')
     await assert.rejects(client(paused.uid).createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
-    await assert.rejects(client(paused.uid).getAttempt(paused.attemptId), { code: 'QUEST_UNAVAILABLE' })
+    assert.deepEqual(await client(paused.uid).getAttempt(paused.attemptId), pausedResult.result)
     assert.deepEqual(await owner.getDiscovery(discovery.discoveryId), discovery)
     assert.deepEqual(Buffer.from(await (await owner.getDiscoveryPhoto(discovery.discoveryId)).arrayBuffer()), photo.bytes)
-    assert.equal((await sweep()).discarded, 1)
+    assert.equal((await sweep()).completed, 1)
+    assert.equal((await client(beforePause.uid).getAttempt(beforePause.attemptId)).outcome, 'QUEST_UNAVAILABLE')
     assert.equal((await db.collection('attempts').doc(beforePause.attemptId).get()).get('nextWorkAt'), undefined)
     assert.equal(matcherCalls, 2)
     const discoveries = await db.collection('discoveries').where('placeId', '==', placeId).get()

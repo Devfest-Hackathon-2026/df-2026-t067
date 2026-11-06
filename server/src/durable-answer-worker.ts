@@ -4,7 +4,7 @@ import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { authUnavailable, HttpError, unauthenticated } from './errors'
 import { processingError } from './firestore-answer-data'
 import { assertAnswerWorkLive, claimAnswerWork, commitVerifiedAnswer, completeKnownDiscovery, recordAnswerMatch,
-  recordAnswerPhoto, recordRejectedAnswer } from './firestore-answer-processing'
+  recordAnswerPhoto, recordRejectedAnswer, settleInvalidatedAnswer } from './firestore-answer-processing'
 import type { AnswerIdentity, ClaimOptions, LeasedAnswer } from './firestore-answer-processing'
 import { evaluateLocation } from './location'
 import type { LocationPolicy } from './location'
@@ -30,38 +30,45 @@ type WorkerResult = { kind: 'busy' | 'verification-expired' } | { kind: 'complet
 // for the published version. This worker does not select a provider or policy.
 export async function runDurableAnswer(input: AnswerIdentity, options: WorkerOptions): Promise<WorkerResult> {
   const { db, photos } = options
-  await requireAuthorization(input.uid, options)
-  const work = await claimAnswerWork(db, input, options)
-  if (work.kind !== 'claimed') return work
-  const lease = { ...input, leaseId: work.leaseId }
-  if (work.step === 'verify') {
+  let lease: LeasedAnswer | undefined
+  let writtenGeneration: string | undefined
+  try {
     await requireAuthorization(input.uid, options)
-    const existing = await completeKnownDiscovery(db, lease)
-    if (existing) return { kind: 'completed', result: existing }
-    const version = { questId: work.questId, version: work.version, placeId: work.placeId }
-    let policy: LocationPolicy
-    try { policy = await options.locationPolicy(version) }
-    catch (error) { throw error instanceof HttpError ? error : processingError(true) }
-    const location = evaluateLocation(work.source.metadata, policy, work.source.receivedAt)
-    if (location !== 'WITHIN_AREA') {
+    const work = await claimAnswerWork(db, input, options)
+    if (work.kind !== 'claimed') return work
+    lease = { ...input, leaseId: work.leaseId }
+    if (work.step === 'verify') {
       await requireAuthorization(input.uid, options)
-      return { kind: 'completed', result: await recordRejectedAnswer(db, lease, location) }
+      const existing = await completeKnownDiscovery(db, lease)
+      if (existing) return { kind: 'completed', result: existing }
+      const version = { questId: work.questId, version: work.version, placeId: work.placeId }
+      let policy: LocationPolicy
+      try { policy = await options.locationPolicy(version) }
+      catch (error) { throw error instanceof HttpError ? error : processingError(true) }
+      const location = evaluateLocation(work.source.metadata, policy, work.source.receivedAt)
+      if (location !== 'WITHIN_AREA') {
+        await requireAuthorization(input.uid, options)
+        return { kind: 'completed', result: await recordRejectedAnswer(db, lease, location) }
+      }
+      const decision = await matchAnswer(lease, version, work.source.photoObject, options)
+      await requireAuthorization(input.uid, options)
+      if (decision !== 'MATCH') return { kind: 'completed', result: await recordRejectedAnswer(db, lease, decision) }
+      await recordAnswerMatch(db, lease, { placeId: work.placeId, version: work.version, location, photo: decision })
     }
-    const decision = await matchAnswer(lease, version, work.source.photoObject, options)
+    if (work.step !== 'commit') {
+      await requireAuthorization(input.uid, options)
+      await assertAnswerWorkLive(db, lease, 'prepare-photo')
+      throwIfAborted(options.signal)
+      const photo = await photos.writeRecord(input.attemptId, input.digest, work.source.photoObject)
+      writtenGeneration = photo.generation
+      await requireAuthorization(input.uid, options)
+      await recordAnswerPhoto(db, lease, writtenGeneration)
+    }
     await requireAuthorization(input.uid, options)
-    if (decision !== 'MATCH') return { kind: 'completed', result: await recordRejectedAnswer(db, lease, decision) }
-    await recordAnswerMatch(db, lease, { placeId: work.placeId, version: work.version, location, photo: decision })
+    return { kind: 'completed', result: await commitVerifiedAnswer(db, lease) }
+  } catch (error) {
+    return settleInvalidatedAnswer(db, input, error, lease?.leaseId, writtenGeneration)
   }
-  if (work.step !== 'commit') {
-    await requireAuthorization(input.uid, options)
-    await assertAnswerWorkLive(db, lease, 'prepare-photo')
-    throwIfAborted(options.signal)
-    const photo = await photos.writeRecord(input.attemptId, input.digest, work.source.photoObject)
-    await requireAuthorization(input.uid, options)
-    await recordAnswerPhoto(db, lease, photo.generation)
-  }
-  await requireAuthorization(input.uid, options)
-  return { kind: 'completed', result: await commitVerifiedAnswer(db, lease) }
 }
 
 async function matchAnswer(lease: LeasedAnswer, version: VerificationVersion,
