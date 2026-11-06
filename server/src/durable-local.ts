@@ -6,15 +6,19 @@ import { DemoAnswerStore } from './answers'
 import type { DurableLocalConfig } from './config'
 import { createDemoData } from './demo-data'
 import { createDemoLocationValidation } from './demo-location'
-import { createFixturePhotoMatcher, syntheticPng } from './demo-photo-test'
+import { createFixturePhotoMatcher, durableFixtureFeatures, syntheticPng } from './demo-photo-test'
 import { createDurableAnswerRuntime } from './durable-answer-runtime'
+import { createSyntheticVertexTrialMatcher } from './durable-vertex-trial'
 import { createFirebaseVerifier } from './firebase-auth'
-import { processingError } from './firestore-answer-data'
 import { preparePhoto } from './photo-input'
+import { createPublishedAnswerMaterialLoader } from './published-answer-material'
+import { createVertexTrialTransport } from './vertex-transport'
 
 const projectId = 'demo-t067-durable-local'
 const questId = 'demo-quest'
 const placeId = 'demo-durable-place'
+const orgId = 'demo-org'
+const referenceAssetId = 'demo-durable-reference'
 const version = 1
 
 export async function createDurableLocalRuntime(config: DurableLocalConfig) {
@@ -29,6 +33,13 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const bucket = new Storage({ projectId, apiEndpoint: config.storageEndpoint,
       retryOptions: { totalTimeout: 10 } }).bucket(projectId + '.appspot.com')
     if (!(await bucket.exists())[0]) throw new Error('Local bucket missing.')
+    const photos = new AnswerPhotoStorage(bucket)
+    const location = createDemoLocationValidation().policyFor(questId, version)
+    if (!location) throw new Error('Local capture zone missing.')
+    const { zones, ...locationLimits } = location
+    const reference = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+    const { generation: referenceGeneration } = await photos.writeReference(orgId, referenceAssetId, reference)
+    const answerMaterial = { orgId, referenceAssetId, referenceGeneration, features: [...durableFixtureFeatures], zones: [...zones] }
     const quest = db.collection('quests').doc(questId)
     const published = db.collection('questVersions').doc(questId + ':' + version)
     const catalog = createDemoData()
@@ -39,39 +50,40 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const projection = db.collection('questPublic').doc(questId)
     await db.runTransaction(async (tx) => {
       const [current, snapshot, areaDoc, publicDoc] = await tx.getAll(quest, published, area, projection)
-      if (current.exists !== snapshot.exists || (snapshot.exists && snapshot.get('placeId') !== placeId)) {
+      const savedOrg = current.get('orgId')
+      const savedMaterial = snapshot.get('answerMaterial')
+      if (current.exists !== snapshot.exists || (snapshot.exists && snapshot.get('placeId') !== placeId) ||
+        (savedOrg !== undefined && savedOrg !== orgId) || (savedMaterial !== undefined &&
+        (savedMaterial?.orgId !== orgId || savedMaterial.referenceAssetId !== referenceAssetId ||
+          savedMaterial.referenceGeneration !== referenceGeneration))) {
         throw new Error('Local fixture is inconsistent.')
       }
       if (!current.exists) {
-        tx.create(quest, { publishedVersion: version, status: 'published' })
+        tx.create(quest, { publishedVersion: version, status: 'published', orgId })
         tx.create(published, { placeId, areaId: publicArea.areaId, placeName: '架空の対象',
-          descriptionSnapshot: '永続APIの確認用に作った架空の記録です。', revealedLocation: { latitude: 0, longitude: 0 } })
+          descriptionSnapshot: '永続APIの確認用に作った架空の記録です。', revealedLocation: { latitude: 0, longitude: 0 }, answerMaterial })
+      } else {
+        // Older local fixtures have no private reference fields yet.
+        if (savedOrg === undefined) tx.update(quest, { orgId })
+        if (savedMaterial === undefined) tx.update(published, { answerMaterial })
       }
       if (!areaDoc.exists) tx.create(area, { label: publicArea.label, marker: publicArea.marker,
         publicGeometryJson: JSON.stringify(publicArea.publicGeometry) })
       if (!publicDoc.exists) tx.create(projection, { quest: publicQuest, hints: catalog.hints.get(questId) ?? [] })
     })
-    const location = createDemoLocationValidation().policyFor(questId, version)
-    if (!location) throw new Error('Local capture zone missing.')
-    const reference = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
-    const matcher = await createFixturePhotoMatcher()
+    const material = createPublishedAnswerMaterialLoader(db, photos, locationLimits)
+    const ledger = config.vertexTrialLedger
+    const matcher = ledger ? await createSyntheticVertexTrialMatcher(createVertexTrialTransport(ledger)) : await createFixturePhotoMatcher()
     const uploadLimiter = new DemoAnswerStore()
     const policy = { maximum: 10, windowMs: 60_000 }
     const runtime = createDurableAnswerRuntime({
-      db, photos: new AnswerPhotoStorage(bucket), verifier, dataMode: config.mode,
+      db, photos, verifier, dataMode: config.mode,
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),
-      worker: {
-        leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher,
-        async locationPolicy(target) {
-          if (target.questId !== questId || target.version !== version || target.placeId !== placeId) throw processingError()
-          return location
-        },
-        async loadReference() { return { reference, features: ['合成の確認済み特徴'] } },
-      },
+      worker: { ...material, leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher, matchTimeoutMs: ledger ? 30_000 : undefined },
       maintenance: { intervalMs: 1000, maximumJobs: 8, retryDelayMs: 5000,
         onFailure: (pass) => { console.error('Durable local maintenance failed: ' + pass) } },
     })
-    return { ...runtime, close, label: 'DURABLE LOCAL; synthetic quest and matcher' }
+    return { ...runtime, close, label: ledger ? 'DURABLE LOCAL, synthetic Vertex trial' : 'DURABLE LOCAL, synthetic fixture matcher' }
   } catch {
     await close().catch(() => {})
     throw new Error('Durable local startup failed. Check the loopback emulators, bucket and local fixture.')

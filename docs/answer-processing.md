@@ -97,7 +97,15 @@ QUEST_FIRESTORE_TEST_HOST=127.0.0.1:8688 QUEST_STORAGE_TEST_HOST=127.0.0.1:9688 
 
 matcherを呼ぶ直前に本人・公開版・リースを再確認する。`WRONG_TARGET` と `IMAGE_UNCERTAIN` は区別して保存し、記録は作らない。照合サービスの障害は `SYSTEM_ERROR` を返し、照合中のリースと結果未確定の状態を保つ。照合結果を保存した後の画像書き込み障害は、後から画像保存へ戻って再開できる。確定と不合格結果の保存時には撮影情報を削除する。
 
-両方のローカル代替環境と合成JPEG・代替matcherで、位置判定、4種類の不合格、既存記録での照合省略、照合直前の休止、照合障害、写真保存からの再開を確認する。挑戦・受付・照会のHTTPとworkerは `durable-local` で一緒に起動できる。実サービス用の素材取得とmatcherは残件。[永続HTTP](answer-intake.md#永続httpの組み立て)
+両方のローカル代替環境と合成JPEGで、位置判定、4種類の不合格、既存記録での照合省略、照合直前の休止、照合障害、写真保存からの再開を確認する。挑戦・受付・照会のHTTPとworkerは `durable-local` で一緒に起動できる。[永続HTTP](answer-intake.md#永続httpの組み立て)
+
+### 公開版から非公開素材を読む
+
+`questVersions/{questId}:{version}` の `answerMaterial` に、`orgId`、`referenceAssetId`、`referenceGeneration`、確認済み特徴の `features`、撮影範囲の `zones` を保存する。読み取り時は `quests/{questId}` の所属・公開版と、workerが取得済みの対象IDを照合する。現在の公開版に対応する条件だけを使う。
+
+位置確認を通過した後、組織IDと素材IDから `reference-photos/{orgId}/{assetId}.jpg` を決める。指定した世代の正規化JPEGを取得し、容量、形式、チェックサムを検証する。別世代への切替は行わない。公開カタログは別文書を読み、これらの値を公開しない。公開する側は、新しい参考画像や撮影条件を使うときに新しい版へ固定する。
+
+`durable-local` は架空の素材を専用バケットへ保存し、上記と同じ経路で読む。以前のローカル版に素材情報がなければ起動時に補う。既に固定した世代がバケット側と一致しない場合は起動を止める。FirestoreとGCSのデータは同じ試験環境の組み合わせで保持する。自治体の永続素材登録・公開処理と実環境の接続は後続。[永続APIの起動](../server/README.md#永続apiをローカルで起動する)
 
 ## 回答ジョブの回収
 

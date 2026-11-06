@@ -31,6 +31,19 @@ test('durable-local requires both loopback emulators and an explicit signed Auth
   assert.throws(() => readConfig({ ...env, STORAGE_EMULATOR_HOST: 'https://storage.googleapis.com' }), /Unset STORAGE_EMULATOR_HOST/)
 })
 
+test('durable Vertex trial requires explicit development mode and an absolute existing-ledger setting', () => {
+  const env = { QUEST_DATA_MODE: 'durable-local', NODE_ENV: 'development', FIREBASE_PROJECT_ID: 'demo-auth-project',
+    FIRESTORE_EMULATOR_HOST: '127.0.0.1:8688', QUEST_DURABLE_STORAGE_ENDPOINT: 'http://127.0.0.1:9688',
+    QUEST_DURABLE_PHOTO_MATCHER: 'vertex-trial', QUEST_VERTEX_TRIAL_LEDGER: '/tmp/trial.json' }
+  const config = readConfig(env)
+  assert(config.mode === 'durable-local')
+  assert.equal(config.vertexTrialLedger, '/tmp/trial.json')
+  assert.throws(() => readConfig({ ...env, NODE_ENV: 'test' }), /NODE_ENV=development/)
+  assert.throws(() => readConfig({ ...env, QUEST_VERTEX_TRIAL_LEDGER: 'trial.json' }), /QUEST_VERTEX_TRIAL_LEDGER/)
+  assert.throws(() => readConfig({ ...env, QUEST_DURABLE_PHOTO_MATCHER: 'vertex' }), /QUEST_DURABLE_PHOTO_MATCHER/)
+  assert.throws(() => readConfig({ ...env, QUEST_DATA_MODE: 'demo' }), /durable-local/)
+})
+
 test('GPS demo must be explicitly enabled and unknown modes never fall back', () => {
   const enabled = readConfig({ QUEST_DATA_MODE: 'demo', QUEST_LOCATION_MODE: 'demo' })
   assert.equal('demoLocation' in enabled && enabled.demoLocation, true)

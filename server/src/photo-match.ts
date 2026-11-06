@@ -15,21 +15,21 @@ export function photoSystemError(retryable = true): HttpError {
 
 function cancelled(): DOMException { return new DOMException('写真の確認を中止しました。', 'AbortError') }
 
-function validFeatures(features: readonly string[]): boolean {
+export function validPhotoFeatures(features: unknown): features is readonly string[] {
   return Array.isArray(features) && features.length >= 1 && features.length <= 20 &&
     Array.from(features).every((value) => typeof value === 'string' && value.trim().length > 0 && value.length <= 300)
 }
 
 export function draftPhotoFeatures(value: string): string[] | null {
   const features = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  return validFeatures(features) ? features : null
+  return validPhotoFeatures(features) ? features : null
 }
 
 export async function comparePhotos(input: CompareInput, options: CompareOptions = {}): Promise<PhotoDecision> {
   if (options.signal?.aborted) throw cancelled()
   const timeoutMs = options.timeoutMs ?? 10_000
-  if (!options.matcher || !input?.reference || !validFeatures(input.features) ||
-    !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw photoSystemError(false)
+  if (!options.matcher || !input?.reference || !validPhotoFeatures(input.features) ||
+    !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw photoSystemError(false)
   let reference: PreparedPhoto
   try { reference = await preparePhoto(input.reference) } catch { throw photoSystemError(false) }
   const candidate = await preparePhoto(input.candidate)

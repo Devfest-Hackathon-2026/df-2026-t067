@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Storage } from '@google-cloud/storage'
@@ -8,16 +11,21 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { createApiClient } from '../../src/shared/api/client'
 import { AnswerPhotoStorage } from '../src/answer-photo-storage'
 import { DemoAnswerStore } from '../src/answers'
+import { durableFixtureFeatures } from '../src/demo-photo-test'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
 import { runDueAnswerJobs } from '../src/durable-answer-jobs'
 import { cleanupFinishedAnswerPhotos, runDueAnswerPhotoCleanup } from '../src/durable-answer-photo-cleanup'
 import { createDurableAnswerRuntime } from '../src/durable-answer-runtime'
 import { runDurableAnswer } from '../src/durable-answer-worker'
+import { createSyntheticVertexTrialMatcher } from '../src/durable-vertex-trial'
 import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
 import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
 import { runDueDiscoveryDeletions } from '../src/firestore-discovery-deletions'
 import { preparePhoto } from '../src/photo-input'
+import { createPublishedAnswerMaterialLoader } from '../src/published-answer-material'
+import { initializeTrialLedger } from '../src/vertex-trial-ledger'
+import { createVertexTrialTransport, trialEndpoint } from '../src/vertex-transport'
 import { listenServer } from './helpers'
 import { otherSyntheticPng, syntheticPng } from './photo-fixtures'
 
@@ -326,19 +334,65 @@ test('Cloud Storage photo generations stay immutable across retries', {
     await assert.rejects(store.readIncoming(legacyAttempt, digest, legacyIncoming), { code: 'SYSTEM_ERROR' })
   })
 
-  await t.test('listening runtime recovers queued work and drains the current answer before stopping', { skip: !firestoreEmulator }, async (runtimeTest) => {
+  await t.test('listening runtime resolves private material, calls guarded Vertex and drains work on shutdown', { skip: !firestoreEmulator }, async (runtimeTest) => {
     const runtimeApp = initializeApp({ projectId: 'demo-t067-runtime-test' }, 'runtime-' + randomUUID())
     const db = getFirestore(runtimeApp)
-    const questId = 'synthetic-quest'
+    const questId = 'synthetic-quest', placeId = 'synthetic-place', orgId = 'synthetic-org', assetId = 'reference-a'
+    const reference = await store.writeReference(orgId, assetId, photo)
+    const referenceDoc = db.collection('questVersions').doc(questId + ':1')
+    const answerMaterial = { orgId, referenceAssetId: assetId, referenceGeneration: reference.generation,
+      features: [...durableFixtureFeatures], zones: [{ latitude: 0, longitude: 0, radiusMeters: 100 }] }
     await Promise.all([
-      db.collection('quests').doc(questId).create({ publishedVersion: 1, status: 'published' }),
-      db.collection('questVersions').doc(questId + ':1').create({ placeId: 'synthetic-place', areaId: 'demo-area',
+      db.collection('quests').doc(questId).create({ publishedVersion: 1, status: 'published', orgId }),
+      referenceDoc.create({ placeId, areaId: 'demo-area', answerMaterial,
         placeName: '合成対象', descriptionSnapshot: '合成説明', revealedLocation: { latitude: 0, longitude: 0 } }),
     ])
+    const material = createPublishedAnswerMaterialLoader(db, store, {
+      maxAccuracyMeters: 30, maxAgeMs: 60_000, maxFutureSkewMs: 5000, maxCaptureMeasurementGapMs: 10_000,
+    })
+    const selection = { questId, version: 1, placeId }
+    await assert.rejects(material.loadReference({ ...selection, version: 2 }), { code: 'QUEST_CHANGED' })
+    await assert.rejects(material.loadReference({ ...selection, placeId: 'other-place' }), { code: 'SYSTEM_ERROR' })
+    await referenceDoc.update({ 'answerMaterial.orgId': 'other-org' })
+    await assert.rejects(material.loadReference(selection), { code: 'SYSTEM_ERROR', retryable: false })
+    await referenceDoc.update({ 'answerMaterial.orgId': orgId, 'answerMaterial.referenceGeneration': '1' })
+    await assert.rejects(material.loadReference(selection), { code: 'SYSTEM_ERROR', retryable: false })
+    await referenceDoc.update({ answerMaterial })
+    assert.deepEqual((await material.loadReference(selection)).reference.bytes, photo.bytes)
+    await db.collection('quests').doc(questId).update({ status: 'paused' })
+    await assert.rejects(material.loadReference(selection), { code: 'QUEST_UNAVAILABLE' })
+    await db.collection('quests').doc(questId).update({ status: 'review_pending' })
+
+    const ledgerDir = await mkdtemp(join(tmpdir(), 'durable-vertex-trial-'))
+    const ledger = join(ledgerDir, 'trial.json')
+    t.after(() => rm(ledgerDir, { force: true, recursive: true }))
+    await initializeTrialLedger(ledger, 5)
     let entered!: () => void, release!: () => void
     const matching = new Promise<void>((resolve) => { entered = resolve })
     const held = new Promise<void>((resolve) => { release = resolve })
-    let calls = 0, deletions = 0
+    let calls = 0, deletions = 0, tokenRequests = 0
+    const matcher = await createSyntheticVertexTrialMatcher(createVertexTrialTransport(ledger, {
+      getAccessToken: async () => { tokenRequests++; return 'synthetic-access-token' },
+      http: async (url, request) => {
+        assert.equal(url, trialEndpoint)
+        const { contents } = JSON.parse(String(request?.body))
+        const parts = contents[0].parts
+        assert.deepEqual(JSON.parse(parts[0].text).verifiedFeatures, durableFixtureFeatures)
+        assert.equal(parts[2].inlineData.data, photo.bytes.toString('base64'))
+        assert.equal(parts[4].inlineData.data, photo.bytes.toString('base64'))
+        if (++calls === 2) { entered(); await held }
+        const verdict = calls === 3 ? 'mismatch' : 'match'
+        return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ verdict }) }] } }] })
+      },
+    }))
+    const signal = new AbortController().signal
+    const allowed = { reference: photo, candidate: photo, features: durableFixtureFeatures }
+    for (const input of [{ ...allowed, reference: other }, { ...allowed, features: ['private value'] },
+      { ...allowed, candidate: { ...photo, bytes: Buffer.from('unknown photo') } }]) {
+      await assert.rejects(matcher(input, { signal }), { code: 'SYSTEM_ERROR', retryable: false })
+    }
+    assert.equal(JSON.parse(await readFile(ledger, 'utf8')).used, 5)
+    assert.equal(tokenRequests, 0)
     const photos = {
       writeIncoming: store.writeIncoming.bind(store), readIncoming: store.readIncoming.bind(store),
       writeRecord: store.writeRecord.bind(store), readRecord: store.readRecord.bind(store),
@@ -353,16 +407,7 @@ test('Cloud Storage photo generations stay immutable across retries', {
       db, photos, verifier: { verify: async (token) => ({ uid: token }) },
       challengePolicy: { maximum: 10, windowMs: 60_000 }, answerPolicy: { maximum: 10, windowMs: 60_000 },
       acquireUpload: () => () => {},
-      worker: {
-        leaseDurationMs: 180_000, authorize: async () => true,
-        locationPolicy: async () => ({ zones: [{ latitude: 0, longitude: 0, radiusMeters: 100 }],
-          maxAccuracyMeters: 30, maxAgeMs: 60_000, maxFutureSkewMs: 5000, maxCaptureMeasurementGapMs: 10_000 }),
-        loadReference: async () => ({ reference: other, features: ['合成の確認済み特徴'] }),
-        matcher: async () => {
-          if (++calls === 2) { entered(); await held }
-          return 'MATCH'
-        },
-      },
+      worker: { ...material, leaseDurationMs: 180_000, authorize: async () => true, matcher, matchTimeoutMs: 30_000 },
       maintenance: { intervalMs: 25, maximumJobs: 10, retryDelayMs: 25, onFailure: (pass) => { failures.push(pass) } },
     })
     const { base } = await listenServer(runtimeTest, runtime.server)
@@ -416,6 +461,9 @@ test('Cloud Storage photo generations stay immutable across retries', {
     assert.equal((await second.getAttempt(active.attemptId)).outcome, 'CORRECT')
     assert.equal((await third.getAttempt(waiting.attemptId)).state, 'RECEIVED')
     assert.equal(calls, 2)
+    assert.equal(JSON.parse(await readFile(ledger, 'utf8')).used, 7)
+    assert.equal(await matcher(allowed, { signal }), 'WRONG_TARGET')
+    assert.equal(JSON.parse(await readFile(ledger, 'utf8')).used, 8)
     assert.deepEqual(failures, [])
   })
 })

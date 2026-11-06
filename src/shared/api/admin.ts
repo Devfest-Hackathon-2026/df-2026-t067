@@ -72,7 +72,7 @@ function revision(input: unknown): number {
   return input
 }
 
-function captureZones(input: unknown): CaptureZone[] {
+export function parseCaptureZones(input: unknown): CaptureZone[] {
   if (!Array.isArray(input) || input.length > 10) throw new ContractError('zones')
   return Array.from(input, (item) => {
     const zone = fields(item, ['latitude', 'longitude', 'radiusMeters'], 'zone')
@@ -87,11 +87,11 @@ export function parseManagedShootingAreas(input: unknown): ManagedShootingAreas 
   const d = fields(input, ['orgId', 'questId', 'draftRevision', 'zones', 'source'], 'shootingAreas')
   if (d.source !== 'real' && d.source !== 'mock') throw new ContractError('source')
   return { orgId: identifier(d.orgId, 'orgId'), questId: identifier(d.questId, 'questId'),
-    draftRevision: revision(d.draftRevision), zones: captureZones(d.zones), source: d.source }
+    draftRevision: revision(d.draftRevision), zones: parseCaptureZones(d.zones), source: d.source }
 }
 export function parseUpdateShootingAreas(input: unknown): UpdateShootingAreas {
   const d = fields(input, ['expectedDraftRevision', 'zones'], 'shootingAreas')
-  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: captureZones(d.zones) }
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: parseCaptureZones(d.zones) }
 }
 export function parsePhotoTestMetadata(input: unknown): PhotoTestMetadata {
   const d = fields(input, ['expectedDraftRevision', 'photoRights'], 'photoTest')
