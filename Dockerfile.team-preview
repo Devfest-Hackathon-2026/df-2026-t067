@@ -1,0 +1,36 @@
+FROM node:26.7.0-bookworm-slim AS build
+WORKDIR /app
+COPY .npmrc package.json package-lock.json ./
+COPY server/.npmrc server/package.json server/package-lock.json ./server/
+RUN npm ci --ignore-scripts && npm --prefix server ci --ignore-scripts
+COPY index.html vite.config.ts tsconfig*.json ./
+COPY src/ ./src/
+COPY server/tsconfig*.json ./server/
+COPY server/src/ ./server/src/
+
+# Browser configuration only. Server identity is provided at runtime.
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_GOOGLE_MAPS_API_KEY
+ENV VITE_QUEST_DATA_SOURCE=team-preview
+RUN test -n "$VITE_FIREBASE_API_KEY" && test -n "$VITE_FIREBASE_AUTH_DOMAIN" \
+    && test -n "$VITE_FIREBASE_PROJECT_ID" && test -n "$VITE_FIREBASE_STORAGE_BUCKET" \
+    && test -n "$VITE_FIREBASE_MESSAGING_SENDER_ID" && test -n "$VITE_FIREBASE_APP_ID" \
+    && npm run build -- --outDir dist-team-preview \
+    && printf '%s\n' "$VITE_FIREBASE_PROJECT_ID" > dist-team-preview/.firebase-project \
+    && npm --prefix server run build \
+    && npm --prefix server prune --omit=dev --ignore-scripts
+
+FROM node:26.7.0-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production QUEST_DATA_MODE=team-preview PORT=8080
+COPY --from=build /app/dist-team-preview ./dist-team-preview
+COPY --from=build /app/server/dist ./server/dist
+COPY --from=build /app/server/node_modules ./server/node_modules
+USER node
+EXPOSE 8080
+CMD ["node", "server/dist/server/src/main.js"]

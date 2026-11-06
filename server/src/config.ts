@@ -23,10 +23,20 @@ export interface DurableLocalConfig {
   vertexDraftTrialLedger?: string
 }
 
-type ServerConfig = DemoServerConfig | DurableLocalConfig
+export const teamPreviewDatabase = 'quest-team-preview'
+
+export interface TeamPreviewConfig {
+  mode: 'team-preview'
+  port: number
+  firebaseProjectId: string
+  projectNumber: string
+  allowedUids: ReadonlySet<string>
+}
+
+type ServerConfig = DemoServerConfig | DurableLocalConfig | TeamPreviewConfig
 
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
-  if (mode !== 'demo') throw new Error('QUEST_DATA_MODE must be explicitly selected as demo or durable-local.')
+  if (mode !== 'demo') throw new Error('QUEST_DATA_MODE must be explicitly selected as demo, durable-local, or team-preview.')
   assertLocalEnvironment(nodeEnv)
 }
 
@@ -51,11 +61,12 @@ export function assertProjectId(projectId: string): void {
 export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const mode = env.QUEST_DATA_MODE
   if (mode === 'durable-local') assertLocalEnvironment(env.NODE_ENV)
-  else assertDemoMode(mode, env.NODE_ENV)
+  else if (mode !== 'team-preview') assertDemoMode(mode, env.NODE_ENV)
   assertNoAuthEmulator(env)
   const portText = env.PORT ?? '8787'
   const port = Number(portText)
   if (!/^[1-9]\d{0,4}$/.test(portText) || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.')
+  if (mode === 'team-preview') return readTeamPreviewConfig(env, port)
   if (mode === 'durable-local') return readDurableLocalConfig(env, port)
   if (env.QUEST_DURABLE_PHOTO_MATCHER !== undefined) {
     throw new Error('QUEST_DURABLE_PHOTO_MATCHER requires QUEST_DATA_MODE=durable-local.')
@@ -111,6 +122,24 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
     config.firebaseProjectId = env.FIREBASE_PROJECT_ID
   }
   return config
+}
+
+function readTeamPreviewConfig(env: NodeJS.ProcessEnv, port: number): TeamPreviewConfig {
+  if (env.NODE_ENV !== 'production') throw new Error('team-preview requires NODE_ENV=production.')
+  for (const name of ['FIRESTORE_EMULATOR_HOST', 'STORAGE_EMULATOR_HOST', 'FIREBASE_STORAGE_EMULATOR_HOST',
+    'QUEST_DURABLE_STORAGE_ENDPOINT', 'QUEST_DURABLE_PHOTO_MATCHER', 'QUEST_DURABLE_DRAFT_GENERATOR', 'QUEST_VERTEX_TRIAL_LEDGER']) {
+    if (env[name] !== undefined) throw new Error(name + ' is not supported in team-preview.')
+  }
+  const firebaseProjectId = env.FIREBASE_PROJECT_ID ?? ''
+  assertProjectId(firebaseProjectId)
+  const projectNumber = env.QUEST_TEAM_PROJECT_NUMBER ?? ''
+  if (!/^[1-9]\d{5,19}$/.test(projectNumber)) throw new Error('QUEST_TEAM_PROJECT_NUMBER must identify the approved project.')
+  const uids = (env.QUEST_TEAM_UIDS ?? '').split(',').map((uid) => uid.trim())
+  const allowedUids = new Set(uids)
+  if (uids.length !== 4 || allowedUids.size !== 4 || uids.some((uid) => !/^[A-Za-z0-9_-]{1,128}$/.test(uid))) {
+    throw new Error('QUEST_TEAM_UIDS must contain four distinct Firebase user IDs.')
+  }
+  return { mode: 'team-preview', port, firebaseProjectId, projectNumber, allowedUids }
 }
 
 function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLocalConfig {

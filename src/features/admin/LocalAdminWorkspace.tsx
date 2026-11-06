@@ -27,7 +27,7 @@ function Pager({ cursor, next, onMove }: { cursor?: string; next?: string | null
   </div>
 }
 
-function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMembership }) {
+function OrganizationWorkspace({ api, member, teamPreview }: { api: ApiClient; member: OrgMembership; teamPreview: boolean }) {
   const [section, setSection] = useState<'quests' | 'reports'>('quests')
   const [cursor, setCursor] = useState<string>()
   const [notice, setNotice] = useState('')
@@ -40,7 +40,7 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
   function select(next: typeof section) { setNotice(''); setCursor(undefined); setSection(next) }
 
   function closeEditor() { setEditor(null); retry() }
-  if (editor?.kind === 'draft') return <QuestDraftForm connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
+  if (editor?.kind === 'draft') return <QuestDraftForm teamPreview={teamPreview} connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
   if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
   if (editor?.kind === 'hint') return <HintAssetEditor api={api} initial={editor.initial} member={member} onBack={closeEditor} />
   if (editor?.kind === 'publication') return <PublicationWorkspace api={api} initial={editor.initial} member={member} onBack={closeEditor}
@@ -50,7 +50,7 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
     <h2 id="org-workspace-title">{heading}</h2>
     <p>{member.label}・{roleLabels[member.role]}</p>
     {notice && <p role="status">{notice}</p>}
-    {member.role === 'publisher' && <div className="admin-list-actions">
+    {member.role === 'publisher' && !teamPreview && <div className="admin-list-actions">
       <button type="button" aria-pressed={section === 'quests'} onClick={() => select('quests')}>問題一覧</button>
       <button type="button" aria-pressed={section === 'reports'} onClick={() => select('reports')}>問題報告</button>
     </div>}
@@ -79,7 +79,7 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
   </section>
 }
 
-function Memberships({ api }: { api: ApiClient }) {
+function Memberships({ api, teamPreview }: { api: ApiClient; teamPreview: boolean }) {
   const [cursor, setCursor] = useState<string>()
   const [selected, setSelected] = useState<string | null>(null)
   const read = useCallback((signal: AbortSignal) => api.listMemberships({ cursor, limit: 20 }, { signal }), [api, cursor])
@@ -99,7 +99,7 @@ function Memberships({ api }: { api: ApiClient }) {
       <Pager cursor={cursor} next={result.status === 'ready' ? result.value.nextCursor : undefined}
         onMove={(next) => { setSelected(null); setCursor(next) }} />
     </section>
-    {current && <OrganizationWorkspace key={JSON.stringify([current.orgId, current.role])} api={api} member={current} />}
+    {current && <OrganizationWorkspace key={JSON.stringify([current.orgId, current.role])} api={api} member={current} teamPreview={teamPreview} />}
   </>
 }
 
@@ -107,6 +107,7 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
   const authClient = useMemo(() => providedAuth ?? createFirebaseAuthClient(), [providedAuth])
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode, getIdToken: authClient.getIdToken }), [providedApi, authClient, dataMode])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
+  const teamPreview = dataMode === 'team-preview'
   const identity = useServerIdentity(true, api, auth)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -126,8 +127,9 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
   }
 
   return <main className="admin-demo">
-    <header className="admin-header"><h1>自治体向けローカル管理</h1><a href="/">旅行者画面へ</a></header>
-    <p className="demo-notice">架空の組織と開発用APIを使います。{dataMode === 'durable-local' ? '下書きと報告はローカル永続ストアに保存されます。' : '下書きと報告はサーバーの一時領域に保存されます。'}</p>
+    <header className="admin-header"><h1>{teamPreview ? '自治体向け共有検証' : '自治体向けローカル管理'}</h1><a href="/">旅行者画面へ</a></header>
+    <p className="demo-notice">{teamPreview ? '下書きと合成素材はチームの検証用データとして保存します。'
+      : '架空の組織と開発用APIを使います。' + (dataMode === 'durable-local' ? '下書きと報告はローカル永続ストアに保存されます。' : '下書きと報告はサーバーの一時領域に保存されます。')}</p>
     <section className="form-section" aria-label="担当者ログイン">
       {auth.status === 'signed-out' && <button type="button" disabled={pending} onClick={() => void authenticate('login')}>Googleログイン</button>}
       {auth.status === 'signed-in' && <button type="button" disabled={pending} onClick={() => void authenticate('logout')}>ログアウト</button>}
@@ -135,10 +137,11 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
       {(auth.status === 'unconfigured' || auth.status === 'unavailable') && <p>Googleログインの設定を確認してください。</p>}
       {error && <p role="alert">{error}</p>}
     </section>
-    {!pending && auth.status === 'signed-in' && (identity.result?.status === 'ready' ? <Memberships key={auth.user.uid} api={api} />
-      : identity.result?.status === 'error' ? <div className="form-section"><p role="alert">ログインを確認できませんでした。</p>
+    {!pending && auth.status === 'signed-in' && (identity.result?.status === 'ready' ? <Memberships key={auth.user.uid} api={api} teamPreview={teamPreview} />
+      : identity.result?.status === 'error' ? <div className="form-section"><p role="alert">{teamPreview && identity.result.code === 'FORBIDDEN'
+        ? 'このアカウントは共有検証に招待されていません。' : 'ログインを確認できませんでした。'}</p>
         <button type="button" onClick={identity.retry}>ログインを確認し直す</button></div>
         : <p role="status">サーバーでログインを確認しています…</p>)}
-    <p><a href="/admin-demo">開発用：未認証・未接続の架空フォームへ戻る</a></p>
+    {!teamPreview && <p><a href="/admin-demo">開発用：未認証・未接続の架空フォームへ戻る</a></p>}
   </main>
 }

@@ -44,7 +44,7 @@ export class ApiError extends Error {
   }
 }
 
-export type LocalApiDataMode = 'demo' | 'durable-local'
+export type LocalApiDataMode = 'demo' | 'durable-local' | 'team-preview'
 
 export interface ApiClientOptions {
   fetch?: typeof globalThis.fetch
@@ -157,7 +157,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Accept', init.photo ? 'image/jpeg' : 'application/json')
-    if (init.authenticated) {
+    if (init.authenticated || options.expectedDataMode === 'team-preview') {
       let token: string | null | undefined
       try { token = await options.getIdToken?.() }
       catch (error) {
@@ -314,7 +314,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request(path, (data) => {
         const result = parsePhotoTestResult(data)
         if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== metadata.expectedDraftRevision ||
-          (result.source === 'mock' && options.expectedDataMode !== 'demo' && options.expectedDataMode !== 'durable-local')) {
+          (result.source === 'mock' && !options.expectedDataMode)) {
           throw new ContractError('photoTest.identity')
         }
         return result
@@ -352,9 +352,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
       const body = adminInput(parseDraftRevisionRequest, { expectedDraftRevision })
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/generate', (data) => {
         const result = parseDraftSuggestion(data)
-        const local = options.expectedDataMode === 'demo' || options.expectedDataMode === 'durable-local'
         if (result.orgId !== orgId || result.questId !== questId || result.draftRevision !== expectedDraftRevision ||
-          (result.source === 'mock' && !local)) throw new ContractError('draftSuggestion.identity')
+          (result.source === 'mock' && !options.expectedDataMode)) throw new ContractError('draftSuggestion.identity')
         return result
       }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },
@@ -385,6 +384,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getQuest(questId: string, call: CallOptions = {}) {
       return request('/quests/' + id(questId), parsePublicQuest, call)
+    },
+    async getPublishedHintPhoto(questId: string, version: number, call: CallOptions = {}) {
+      return privatePhoto('/quests/' + id(questId) + '/hint-image?expectedVersion=' + positiveInteger(version), call)
     },
     async getHint(input: { questId: string; expectedVersion: number; index: number }, call: CallOptions = {}) {
       const questId = id(input.questId)

@@ -42,6 +42,8 @@ VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 
 [共有用の開発プレビュー](https://tour-513804.web.app/)は静的プレビューで、上記の永続側の通し確認先ではありません。[Hostingの手順](docs/hosting.md)。このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
 
+4人で同じデータを操作する環境は、[共有検証の構成と確認手順](docs/team-preview.md)を参照してください。
+
 ## 開発用の後退
 
 `QUEST_DATA_MODE=demo`、`/admin-demo`、`demo-data` は開発用の後退として残します。メモリデモはAPI再起動で消え、未認証の `/admin-demo` は画面内だけの架空フォームです。今後の機能追加は永続側を正とし、デモ側には追加しません。[後退の起動手順](docs/local-api.md#開発用の後退)

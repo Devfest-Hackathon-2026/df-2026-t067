@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icon'
 import { ShootingConditionIndicators } from '../../components/ShootingConditionIndicators'
 import type { createApiClient } from '../../shared/api/client'
 import { ApiError } from '../../shared/api/client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useId } from 'react'
 import type { ReactNode } from 'react'
 import type { MouseEvent } from 'react'
@@ -108,11 +108,38 @@ function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadNeeded }:
   </div>
 }
 
-function OptionalHintImage({ url, title }: { url: string; title: string }) {
+type HintPhoto = ReturnType<typeof createApiClient>['getPublishedHintPhoto']
+
+function ProtectedHintImage({ getPhoto, questId, version, alt, hidden, onLoad, onError }: {
+  getPhoto: HintPhoto; questId: string; version: number; alt: string; hidden: boolean
+  onLoad(): void; onError(): void
+}) {
+  const [source, setSource] = useState<string>()
+  useEffect(() => {
+    const controller = new AbortController()
+    let url: string | undefined
+    void getPhoto(questId, version, { signal: controller.signal }).then((photo) => {
+      if (controller.signal.aborted) return
+      url = URL.createObjectURL(photo)
+      setSource(url)
+    }).catch(() => { if (!controller.signal.aborted) onError() })
+    return () => {
+      controller.abort()
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [getPhoto, questId, version, onError])
+  return source && <img src={source} alt={alt} className="optional-hint-image"
+    style={{ display: hidden ? 'none' : undefined }} onLoad={onLoad} onError={onError} />
+}
+
+function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: PublicQuest; getPhoto?: HintPhoto }) {
   const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [attempt, setAttempt] = useState(0)
+  const onLoad = useCallback(() => setStatus('loaded'), [])
+  const onError = useCallback(() => setStatus('error'), [])
+  const alt = `${quest.title}のヒント画像`
   return <div className="optional-hint">
     <button ref={toggleRef} type="button" className="optional-hint-toggle" aria-expanded={expanded}
       onClick={() => { setExpanded(value => !value); setStatus('loading') }}>
@@ -127,9 +154,10 @@ function OptionalHintImage({ url, title }: { url: string; title: string }) {
           setAttempt(value => value + 1)
         }}>再試行</button>
       </div>}
-      <img key={attempt} src={url} alt={`${title}のヒント画像`} className="optional-hint-image"
-        style={{ display: status === 'loaded' ? undefined : 'none' }}
-        onLoad={() => setStatus('loaded')} onError={() => setStatus('error')} />
+      {getPhoto ? <ProtectedHintImage key={attempt} getPhoto={getPhoto} questId={quest.questId} version={quest.version}
+        alt={alt} hidden={status !== 'loaded'} onLoad={onLoad} onError={onError} />
+        : <img key={attempt} src={url} alt={alt} className="optional-hint-image"
+          style={{ display: status === 'loaded' ? undefined : 'none' }} onLoad={onLoad} onError={onError} />}
     </div>}
   </div>
 }
@@ -146,6 +174,7 @@ interface QuestDetailsProps {
   onToggle(): void
   onStart(selection: ChallengeSelection): void | Promise<unknown>
   getHint?: GetHint
+  getHintPhoto?: HintPhoto
   onHintVersionChanged?(): void
   onReloadQuest?(event?: MouseEvent<HTMLButtonElement>): void
   children?: ReactNode
@@ -153,7 +182,7 @@ interface QuestDetailsProps {
   stale?: boolean
 }
 
-export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false, stale = false, getHint, onHintVersionChanged = () => {}, onReloadQuest = () => {} }: QuestDetailsProps) {
+export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false, stale = false, getHint, getHintPhoto, onHintVersionChanged = () => {}, onReloadQuest = () => {} }: QuestDetailsProps) {
   const detailsId = `quest-details-${useId().replaceAll(':', '')}`
   const hintUrl = quest.optionalHintImage
   const hintIdentity = `${quest.questId}\u0000${quest.version}\u0000${hintUrl ?? ''}\u0000${getHintIdentity(getHint)}`
@@ -192,7 +221,7 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
               if (needed) indexes.add(index); else indexes.delete(index)
               return { identity: hintIdentity, open, indexes }
             })} />
-            {hintUrl && !questStale && <OptionalHintImage key={hintIdentity} url={hintUrl} title={quest.title} />}
+            {hintUrl && !questStale && <OptionalHintImage key={hintIdentity} url={hintUrl} quest={quest} getPhoto={getHintPhoto} />}
             {!hideStartAction && <><button type="button" className="primary-button" disabled={disabled || questStale} onClick={() => { if (!questStale) void onStart({ questId: quest.questId, expectedVersion: quest.version }) }} aria-describedby={`${detailsId}-note`}>
               {buttonLabel}
             </button>

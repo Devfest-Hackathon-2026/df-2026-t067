@@ -90,6 +90,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const authClient = useMemo(() => providedClient ?? createFirebaseAuthClient(), [providedClient])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
+  const teamPreview = apiMode && apiDataMode === 'team-preview'
   const localApiMode = apiMode || source === 'local-api'
   const durableLocal = apiMode && apiDataMode === 'durable-local'
   const showRecords = localApiMode && recordsOpen
@@ -102,7 +103,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const questKey = quest ? `${quest.questId}:${quest.version}` : ''
   const [localStaleQuestKey, setLocalStaleQuestKey] = useState('')
   const questStale = providedQuestStale || (questKey !== '' && localStaleQuestKey === questKey)
-  const serverIdentity = useServerIdentity(apiMode || source === 'local-api', api, auth)
+  const serverIdentity = useServerIdentity(!teamPreview && (apiMode || source === 'local-api'), api, auth)
   const uid = auth.status === 'signed-in' ? auth.user.uid : null
   const canUseCamera = uid !== null && (!(apiMode || source === 'local-api') || serverIdentity.result?.status === 'ready')
   const [cameraOwner, setCameraOwner] = useState<{ auth: AuthSnapshot; confirmation: typeof serverIdentity.result; questId: string; version: number } | null>(null)
@@ -118,7 +119,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const selectedQuest = useRef(quest)
   const openRef = useRef(isQuestOpen)
   const visiblePending = pending?.client === authClient ? pending.kind : null
-  const notice = connectionNotice(auth, durableLocal)
+  const notice = connectionNotice(auth, durableLocal || teamPreview)
 
   useLayoutEffect(() => {
     if (selectedQuest.current?.questId !== quest?.questId || selectedQuest.current?.version !== quest?.version) {
@@ -206,10 +207,10 @@ export default function App({ authClient: providedClient, apiClient: providedApi
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
           <a className={showRecords ? undefined : 'nav-active'} href="#explore-title" aria-current={showRecords ? undefined : 'page'}
             onClick={() => navigateToRecords(false)}><Icon name="map" />謎を探す</a>
-          <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
+          {teamPreview ? <a href="/admin">自治体画面</a> : <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
             disabled={!localApiMode || visiblePending !== null} onClick={() => navigateToRecords(true)}>
             <Icon name="book" />自分の記録{!localApiMode && <span>準備中</span>}
-          </button>
+          </button>}
         </nav>
         <div className="account-area">
           <div className="account-status" role="status" aria-label="ログイン状態">
@@ -245,21 +246,21 @@ export default function App({ authClient: providedClient, apiClient: providedApi
             <div>
               <h1 id="explore-title">全国から謎を探す</h1>
             </div>
-            <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{durableLocal ? '永続API・ローカル' : apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
+            <span className={'preview-label' + (apiMode ? ' api-source' : '')}><span className="status-dot" />{teamPreview ? 'チーム共有検証' : durableLocal ? '永続API・ローカル' : apiMode ? '公開API・デモ' : '開発用プレビュー'}</span>
           </div>
 
           <div className="explore-workspace">
-            <MapPreview areas={mapAreas} selectedAreaId={selectedAreaId} onSelectArea={onSelectArea} showPublicAreas={apiMode && apiDataMode === 'durable-local'} />
+            <MapPreview areas={mapAreas} selectedAreaId={selectedAreaId} onSelectArea={onSelectArea} showPublicAreas={durableLocal || teamPreview} />
 
             <aside className="quest-rail" aria-label="選べる謎">
               <div className="rail-heading"><h2>選べる謎</h2>{!apiMode && <span>1件</span>}</div>
               {questPicker}
               <div ref={questCard}>
-                {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
-                  getHint={providedGetHint ?? api.getHint} stale={questStale}
+                {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={teamPreview ? '共有検証用の問題' : apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
+                  getHint={providedGetHint ?? api.getHint} getHintPhoto={teamPreview ? api.getPublishedHintPhoto : undefined} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
                   onReloadQuest={(event) => { if (externalQuest) onReloadQuest?.(event); else connection.retry() }}
-                  hideStartAction={!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null}
+                  hideStartAction={teamPreview || (!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null)}
                   disabled={questStale || visiblePending !== null || (auth.status !== 'signed-out' && auth.status !== 'signed-in') || (auth.status === 'signed-in' && (onStartChallenge ? false : !canUseCamera || cameraVisible))}
                   buttonLabel={visiblePending === 'sign-in' ? '処理中…' : auth.status === 'signed-in' ? (onStartChallenge ? '挑戦を開始する' : cameraVisible ? '撮影中' : serverIdentity.result?.status === 'loading' ? 'ログインの確認中…' : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : '撮影を始める') : 'Googleログインして挑戦する'}
                   note={questStale ? '問題の版を確認できていません。最新版を読み直すまで挑戦できません。'
@@ -274,14 +275,14 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       onReloadQuest={() => { closeCamera(); if (externalQuest) onReloadQuest?.(); else connection.retry() }} />}
                     {auth.status === 'signed-in' && serverIdentity.result?.status === 'error' && <div className="auth-feedback"><p role="alert">ログインを確認できませんでした。時間をおいて再試行してください。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></div>}
                     {cameraVisible && uid !== null && <CameraPreview key={uid} onClose={closeCamera} />}
-                    {localApiMode && <QuestReport key={questKey} api={api} questId={quest.questId} dataMode={apiDataMode}
+                    {localApiMode && !teamPreview && <QuestReport key={questKey} api={api} questId={quest.questId} dataMode={apiDataMode}
                       ownerUid={canUseCamera && visiblePending === null ? uid : null} canSignIn={auth.status === 'signed-out'}
                       signInPending={visiblePending !== null} onSignIn={() => void login()} />}
                   </QuestDetails>
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>
-              <p className="browse-note">問題の閲覧にログインは必要ありません。</p>
-              <div className="demo-note"><span className="demo-note-dot" /><p>{durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
+              {!teamPreview && <p className="browse-note">問題の閲覧にログインは必要ありません。</p>}
+              <div className="demo-note"><span className="demo-note-dot" /><p>{teamPreview ? '自治体画面で公開した架空の問題を確認できます。' : durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
             </aside>
           </div>
         </section>
@@ -291,8 +292,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       <footer className="site-footer"><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
         <a href="#explore-title" aria-current={showRecords ? undefined : 'page'} onClick={() => navigateToRecords(false)}><Icon name="map" /><span>謎を探す</span></a>
-        <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!localApiMode || visiblePending !== null}
-          onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!localApiMode && <small>準備中</small>}</span></button>
+        {teamPreview ? <a href="/admin">自治体画面</a> : <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!localApiMode || visiblePending !== null}
+          onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!localApiMode && <small>準備中</small>}</span></button>}
       </nav>
     </>
   )

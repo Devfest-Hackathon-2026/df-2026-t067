@@ -35,7 +35,7 @@ function parseHours(hours: string) {
 const hourlyChoices = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`)
 const endHourlyChoices = [...hourlyChoices, '24:00']
 
-export default function QuestDraftForm({ connection }: { connection?: LocalDraftConnection } = {}) {
+export default function QuestDraftForm({ connection, teamPreview = false }: { connection?: LocalDraftConnection; teamPreview?: boolean } = {}) {
   const initial = connection?.initial?.draft
   const [name, setName] = useState(initial?.materials.name ?? '')
   const [evidence, setEvidence] = useState(initial?.materials.evidence ?? '')
@@ -194,7 +194,8 @@ export default function QuestDraftForm({ connection }: { connection?: LocalDraft
       <button type="button" aria-current={step === 'A03' ? 'step' : undefined} onClick={() => setStep('A03')}><b>A03</b><span>素材・場所登録</span></button><button type="button" aria-current={step === 'A04' ? 'step' : undefined} onClick={enterDraft}><b>A04</b><span>下書き・編集（AI未接続）</span></button><button type="button" aria-current={step === 'A05' ? 'step' : undefined} onClick={enterPreview}><b>A05</b><span>表示プレビュー（未公開）</span></button>
     </nav>
     <p className="demo-notice" role="note">{connection
-      ? '「下書きを保存」で入力と選択した合成参考写真をローカルAPIへ送ります。保存先はAPIの起動モードに従います（demoは一時領域、durable-localはローカル永続ストア）。'
+      ? teamPreview ? '「下書きを保存」で入力と選択した合成参考写真をチームの検証用データとして保存します。'
+        : '「下書きを保存」で入力と選択した合成参考写真をローカルAPIへ送ります。保存先はAPIの起動モードに従います（demoは一時領域、durable-localはローカル永続ストア）。'
       : '未認証です。入力と写真の送信・保存は行いません。再読み込みで入力は消えます。AI・認証・認可・正解判定・公開は未接続です。'}</p>
 
     {step === 'A03' ? <form onSubmit={event => {

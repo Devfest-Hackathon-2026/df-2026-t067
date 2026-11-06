@@ -3,7 +3,17 @@ import { createRoot } from 'react-dom/client'
 
 const root = createRoot(document.getElementById('root')!)
 
-if (import.meta.env.DEV && window.location.pathname === '/admin-local') {
+if (import.meta.env.VITE_QUEST_DATA_SOURCE === 'team-preview') {
+  if (window.location.pathname === '/admin') {
+    void import('./features/admin/LocalAdminWorkspace').then(({ LocalAdminWorkspace }) => {
+      root.render(<StrictMode><LocalAdminWorkspace dataMode="team-preview" /></StrictMode>)
+    })
+  } else {
+    void import('./features/quests/TeamPreview').then(({ TeamPreview }) => {
+      root.render(<StrictMode><TeamPreview /></StrictMode>)
+    })
+  }
+} else if (import.meta.env.DEV && window.location.pathname === '/admin-local') {
   void import('./features/admin/LocalAdminWorkspace').then(({ LocalAdminWorkspace }) => {
     root.render(<StrictMode><LocalAdminWorkspace dataMode={import.meta.env.VITE_QUEST_DATA_SOURCE === 'durable-local' ? 'durable-local' : 'demo'} /></StrictMode>)
   })
