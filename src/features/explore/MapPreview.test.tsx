@@ -98,6 +98,26 @@ describe('Google map panel', () => {
     delete window.google
   })
 
+  it('keeps map controls usable while the area error is shown', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
+    vi.resetModules()
+    const addGeoJson = vi.fn().mockImplementationOnce(() => { throw new Error('sdk error') })
+    const setZoom = vi.fn()
+    class Data { setMap() {} addGeoJson = addGeoJson; setStyle() {} addListener() { return { remove() {} } } forEach() {} remove() {} }
+    window.google = { maps: { Map: class { constructor() { return { ...mapInstance, setZoom } } }, Data, LatLngBounds: class { extend() {} }, event: { addListener: () => ({ remove() {} }) } } as never }
+    const { MapPreview: ConfiguredMapPreview } = await import('./MapPreview')
+    const { userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    render(<ConfiguredMapPreview areas={areas} />)
+    const retry = await screen.findByRole('button', { name: '地域エリアを再試行' })
+    expect(retry.parentElement).toHaveClass('map-area-error')
+    await user.click(screen.getByRole('button', { name: '地図を拡大' }))
+    expect(setZoom).toHaveBeenCalledWith(6)
+    await user.click(retry)
+    await waitFor(() => expect(addGeoJson).toHaveBeenCalledTimes(2))
+    delete window.google
+  })
+
   it('fits selected public bounds once, keeps user panning on same selection, and fits initial selection after map readiness', async () => {
     vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
     vi.resetModules()

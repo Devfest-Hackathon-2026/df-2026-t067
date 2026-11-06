@@ -159,7 +159,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
               ? <><span>地図の設定を確認して、このページを再読み込みしてください。</span><button type="button" onClick={() => window.location.reload()}>ページを再読み込み</button></>
               : <button type="button" onClick={() => { setStatus('loading'); setAttempt((value) => value + 1) }}>地図を再試行</button>}</>}
       </div>}
-      {status === 'ready' && areaFailed && <div className="map-state" role="alert"><strong>地域エリアを表示できませんでした</strong><button type="button" onClick={() => { window.clearTimeout(areaFailureTimer.current); areaFailureTimer.current = undefined; setAreaFailed(false); setAreaAttempt((value) => value + 1) }}>地域エリアを再試行</button></div>}
+      {status === 'ready' && areaFailed && <div className="map-state map-area-error" role="alert"><strong>地域エリアを表示できませんでした</strong><button type="button" onClick={() => { window.clearTimeout(areaFailureTimer.current); areaFailureTimer.current = undefined; setAreaFailed(false); setAreaAttempt((value) => value + 1) }}>地域エリアを再試行</button></div>}
       {status === 'ready' && <div className="map-zoom" aria-label="地図の表示操作">
         <button type="button" aria-label="地図を拡大" disabled={zoom >= 12} onClick={() => changeZoom(1)}><Icon name="plus" /></button>
         <button type="button" aria-label="地図を縮小" disabled={zoom <= 3} onClick={() => changeZoom(-1)}><Icon name="minus" /></button>
