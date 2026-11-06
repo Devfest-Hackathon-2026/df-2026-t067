@@ -7,7 +7,9 @@ import type { PhotoInput, PreparedPhoto } from './photo-input'
 import { parseId } from './query'
 
 export interface PhotoReference { path: string; generation: string }
-export interface IncomingPhotoObject extends PhotoReference { attemptId: string; digest: string; createdAt: number }
+interface ListedAnswerPhoto extends PhotoReference { attemptId: string; createdAt: number }
+export interface IncomingPhotoObject extends ListedAnswerPhoto { kind: 'incoming'; digest: string }
+export type AnswerPhotoObject = IncomingPhotoObject | (ListedAnswerPhoto & { kind: 'record' })
 type Bucket = ReturnType<Storage['bucket']>
 interface ObjectMetadata {
   generation?: unknown
@@ -47,18 +49,20 @@ export class AnswerPhotoStorage {
     return this.read(reference)
   }
 
-  async listIncomingPhotos(maximum: number, cursor?: string) {
+  async listAnswerPhotos(maximum: number, cursor?: string) {
     return storageOperation(async () => {
-      const [files, next] = await this.bucket.getFiles({ prefix: 'answer-photos/', matchGlob: 'answer-photos/*/incoming-*.jpg',
+      const [files, next] = await this.bucket.getFiles({ prefix: 'answer-photos/', matchGlob: 'answer-photos/*/{incoming-*.jpg,record.jpg}',
         autoPaginate: false, maxResults: maximum, pageToken: cursor })
       if (files.length > maximum) throw storageError(false)
-      const photos = files.flatMap((file): IncomingPhotoObject[] => {
-        const match = /^answer-photos\/([a-f0-9]{64})\/incoming-([a-f0-9]{64})\.jpg$/.exec(file.name)
+      const photos = files.flatMap((file): AnswerPhotoObject[] => {
+        const match = /^answer-photos\/([a-f0-9]{64})\/(?:incoming-([a-f0-9]{64})|record)\.jpg$/.exec(file.name)
         const createdAt = Date.parse(file.metadata.timeCreated ?? '')
         if (!match || !Number.isFinite(createdAt)) return []
         try {
           const { generation } = checkedMetadata(file.metadata)
-          return [{ attemptId: match[1], digest: match[2], path: file.name, generation, createdAt }]
+          const [ , attemptId, digest] = match
+          const reference = { attemptId, path: file.name, generation, createdAt }
+          return [digest ? { ...reference, kind: 'incoming', digest } : { ...reference, kind: 'record' }]
         } catch (error) {
           if (error instanceof HttpError) return []
           throw error

@@ -4,12 +4,12 @@ import { createDurableAnswerServer } from './durable-answer-http'
 import { runDueAnswerJobs } from './durable-answer-jobs'
 import { runDueAnswerPhotoCleanup } from './durable-answer-photo-cleanup'
 import type { runDurableAnswer } from './durable-answer-worker'
-import { createIntakePhotoCleanup } from './durable-intake-photo-cleanup'
+import { createOrphanPhotoCleanup } from './durable-orphan-photo-cleanup'
 import { runDueDiscoveryDeletions } from './firestore-discovery-deletions'
 
 type HttpOptions = Parameters<typeof createDurableAnswerServer>[0]
 type WorkerOptions = Parameters<typeof runDurableAnswer>[1]
-type MaintenancePass = 'answers' | 'discovery-deletions' | 'answer-photo-cleanup' | 'intake-photo-cleanup'
+type MaintenancePass = 'answers' | 'discovery-deletions' | 'answer-photo-cleanup' | 'orphan-photo-cleanup'
 
 interface RuntimeOptions extends Omit<HttpOptions, 'photos' | 'enqueue'> {
   photos: Pick<AnswerPhotoStorage, 'writeIncoming' | 'readIncoming' | 'writeRecord' | 'readRecord' | 'deleteRecord' | 'deleteIncoming'>
@@ -18,7 +18,7 @@ interface RuntimeOptions extends Omit<HttpOptions, 'photos' | 'enqueue'> {
     intervalMs: number
     maximumJobs: number
     retryDelayMs: number
-    intakePhotos?: Parameters<typeof createIntakePhotoCleanup>[1]
+    orphanPhotos?: Parameters<typeof createOrphanPhotoCleanup>[1]
     onFailure?(pass: MaintenancePass): void
   }
 }
@@ -40,7 +40,7 @@ export function createDurableAnswerRuntime({ worker, maintenance, ...http }: Run
     answers: () => runDueAnswerJobs({ ...sweep, worker: { ...worker, db, photos } }),
     'discovery-deletions': () => runDueDiscoveryDeletions(db, photos, sweep),
     'answer-photo-cleanup': () => runDueAnswerPhotoCleanup(db, photos, sweep),
-    'intake-photo-cleanup': maintenance.intakePhotos && createIntakePhotoCleanup(db, maintenance.intakePhotos, maximumJobs, signal),
+    'orphan-photo-cleanup': maintenance.orphanPhotos && createOrphanPhotoCleanup(db, maintenance.orphanPhotos, maximumJobs, signal),
   }
 
   async function maintain(): Promise<void> {
