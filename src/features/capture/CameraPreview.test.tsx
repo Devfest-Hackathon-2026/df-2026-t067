@@ -158,7 +158,7 @@ describe('local camera preview', () => {
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     const captureFinishedAt = Date.now()
     const capturedMetadata = screen.getByText(/撮影地を写真に紐づけました/).textContent
-    await media.user.click(screen.getByRole('button', { name: '右に90度回転' }))
+    await media.user.click(screen.getByRole('button', { name: '時計回りに回転' }))
     await waitFor(() => expect(media.createObjectURL).toHaveBeenCalledTimes(2))
     expect(media.canvasSize).toHaveBeenLastCalledWith(480, 640)
     expect(media.translate).toHaveBeenCalledWith(240, 320)
@@ -167,7 +167,7 @@ describe('local camera preview', () => {
     expect(media.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:synthetic-photo-0')
     expect(screen.getByRole('img', { name: '撮影した写真のプレビュー' })).toHaveAttribute('src', 'blob:synthetic-photo-1')
     expect(screen.getByText(/撮影地を写真に紐づけました/).textContent).toBe(capturedMetadata)
-    expect(screen.getByRole('button', { name: '左に90度回転' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '反時計回りに回転' })).toBeEnabled()
     await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
     await waitFor(() => expect(submitAnswer).toHaveBeenCalledOnce())
     const { photo, metadata } = submitAnswer.mock.calls[0][0]
@@ -180,6 +180,17 @@ describe('local camera preview', () => {
     expect(media.revokeObjectURL).toHaveBeenLastCalledWith('blob:synthetic-photo-1')
   })
 
+  it('rotates counterclockwise when that button is selected', async () => {
+    const media = setup()
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    await media.user.click(screen.getByRole('button', { name: '反時計回りに回転' }))
+    await waitFor(() => expect(media.createObjectURL).toHaveBeenCalledTimes(2))
+    expect(media.canvasSize).toHaveBeenLastCalledWith(480, 640)
+    expect(media.rotate).toHaveBeenCalledWith(3 * Math.PI / 2)
+  })
+
   it('locks rotation as soon as a developer submission starts and preserves its receipt', async () => {
     const media = setup()
     const receipt = { source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-locked' }
@@ -190,8 +201,8 @@ describe('local camera preview', () => {
     await loadFrame(media.stream)
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
-    expect(screen.getByRole('button', { name: '左に90度回転' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '右に90度回転' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '反時計回りに回転' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '時計回りに回転' })).toBeDisabled()
     expect(await screen.findByText('デモ受付済みです。写真判定と記録保存は未接続です。')).toBeVisible()
     await media.user.click(screen.getByRole('button', { name: '受付状態を確認' }))
     expect(getAttempt).toHaveBeenCalledExactlyOnceWith('attempt-locked', { signal: expect.any(AbortSignal) })
@@ -207,7 +218,7 @@ describe('local camera preview', () => {
     render(<CameraPreview onClose={media.onClose} answer={answer} />)
     await loadFrame(media.stream)
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
-    await media.user.click(screen.getByRole('button', { name: '右に90度回転' }))
+    await media.user.click(screen.getByRole('button', { name: '時計回りに回転' }))
     const send = screen.getByRole('button', { name: '写真と位置をデモ送信' })
     expect(send).toBeDisabled()
     fireEvent.click(send)

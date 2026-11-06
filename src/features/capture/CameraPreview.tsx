@@ -240,9 +240,9 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
         {showLocationMap && <CaptureLocationMap latitude={metadata.position.latitude} longitude={metadata.position.longitude} />}
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
-      {photo && <div className="camera-actions" aria-label="写真の向き">
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted} aria-label="左に90度回転">左に90度回転</button>
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted} aria-label="右に90度回転">右に90度回転</button>
+      {photo && <div className="camera-actions photo-rotation-actions" aria-label="写真の向き">
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted}>反時計回りに回転</button>
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted}>時計回りに回転</button>
       </div>}
       {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} disabled={rotating}
         onSubmissionStarted={() => setSubmissionStarted(true)} />}
