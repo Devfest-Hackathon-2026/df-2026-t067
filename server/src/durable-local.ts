@@ -82,6 +82,7 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
       db, photos, verifier, dataMode: config.mode,
       assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
       photoTest: { matcher, source: ledger ? 'real' : 'mock', timeoutMs: ledger ? 30_000 : undefined },
+      publication: photos,
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),
       worker: { ...material, leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher, matchTimeoutMs: ledger ? 30_000 : undefined },
       maintenance: { intervalMs: 1000, maximumJobs: 8, retryDelayMs: 5000,

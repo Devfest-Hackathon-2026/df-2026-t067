@@ -55,13 +55,15 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 
 `GET /health` は `dataMode: durable-local` を返す。起動時に架空の地域と問題 `demo-quest` の版 `1` を用意する。別のターミナルで `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` を実行すると、未ログインで一覧・詳細・通常ヒントを開ける。テストの回答には合成画像と架空の座標を使う。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[Webの接続手順](../docs/local-api.md#モードを選ぶ)・[永続APIと定期回収](../docs/answer-processing.md#httpと定期回収の起動)
 
-公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントは公開版の本文だけを返す。管理操作、報告、ヒント画像の配信は `demo` モードで確認できる。[永続公開カタログ](../docs/api.md#永続公開カタログ)
+公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントとヒント画像は現在の公開版から取得できる。報告は `demo` モードで確認できる。[永続公開カタログ](../docs/api.md#永続公開カタログ)
 
 永続回答の参考画像は専用バケットへ保存し、公開版に固定した世代をworkerが読み取る。既定は合成フィクスチャの判定を使う。Vertexを試す場合は `NODE_ENV=development` で `QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` と既存の `QUEST_VERTEX_TRIAL_LEDGER` を指定する。[永続回答からのVertex試験](../docs/vertex-trial.md#永続回答から試す)
 
 自治体の写真素材APIも `durable-local` で使える。Firebaseの署名済みIDトークンと、Firestoreエミュレーターに管理者が登録した所属が必要。[永続素材の設定と使い方](../docs/admin-assets.md#永続素材をローカルで試す)
 
 同じ所属で下書きと撮影範囲を保存できる。本文と撮影範囲は同じ版番号で更新の競合を検出する。[永続下書きの使い方](../docs/team-api-handoffs.md#永続の所属下書きをローカルで試す)
+
+自組織の公開担当者は、確認待ちと写真試験がそろった版を公開できる。休止は公開カタログから外し、挑戦開始と回答受付を止める。[公開と休止の使い方](../docs/api.md#18-開発用の公開と休止)
 
 ## 実装したルート
 

@@ -199,14 +199,16 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 18. 開発用の公開と休止
 
-開発サーバーの架空データ専用。自組織の`publisher`のみ実行でき、本文の受信後にも所属と役割を確認する。両操作は200で`ManagedQuest`を返す。
+開発サーバーの架空データ専用。`demo` と `durable-local` で使える。自組織の`publisher`のみ実行でき、本文の受信後にも所属と役割を確認する。両操作は200で`ManagedQuest`を返す。
 
 - `publishManagedQuest(orgId, questId, input)` は`expectedDraftRevision`、`matchTestId`、`mismatchTestId`と`confirmations`を送る。確認項目は`fictionalData`、`visitConditions`、`photoRights`、`shootingArea`、`testCases`の全てが`true`。公開担当者が架空データ・訪問条件・画像の権利と公開範囲・撮影範囲・試験ケースを確認する。
 - 現在の確認待ち下書きと、同じ組織・問題・下書き版でサーバーが記録した`MATCH`と`WRONG_TARGET`が必要。正規化後に同じ画像の試験は使えない。版違いは409 `DRAFT_CONFLICT`、確認不足は409 `REVIEW_REQUIRED`、試験不足は409 `PHOTO_TEST_REQUIRED`。任意の公開ヒント画像は同組織の`public_hint`素材で、参考写真と同じ正規化画像は拒否する。
 - 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像を版へ固定する。撮影範囲、参考素材ID、確認済み特徴も同じ版へ固定し、公開中の版を指定したサーバー内の照合条件取得に限って参照できる。旅行者の一覧・詳細に返す`shootingConditions`は`requiresBoat`と`requiresPaidFacility`のbooleanだけを持つ。料金と撮影注意は`visitConditions`で読める。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
 - `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
 
-`publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。公開状態、最新の版と試験結果はメモリーに保持する。合成画像の試験は明示fixtures設定で使える。実AI照合、永続版履歴、実データの公開、旅行者の写真照合と確定処理は未接続。
+`publishedVersion`は公開中の版番号または`null`。旧版を公開しながら下書きを編集・提出する場合は`status`が`draft`または`review_pending`でも版番号を持つ。`demo` は公開状態、最新の版と試験結果をメモリーに保持する。
+
+`durable-local` は、確認依頼・試験結果・参考素材の世代を検証してから、公開版と公開用文書を同じFirestoreトランザクションで作る。休止では公開用文書を削除し、過去の版を残す。架空の問題では問題IDを記録の対象IDとして扱い、設定した最初の撮影地点をクリア後の記録に使う。[永続ローカルの手順](team-api-handoffs.md#永続の所属下書きをローカルで試す)
 
 ## 19. A04の下書き候補
 
@@ -232,4 +234,4 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 `areas/{areaId}` は地域名、公開代表点とGeoJSON文字列の `publicGeometryJson` を持つ。公開問題の件数は表示できる問題から数える。`questPublic/{questId}` は公開用の `quest` と通常ヒントの配列 `hints` を持つ。同じ読取りトランザクションで `quests/{questId}` の公開版を確認する。下書き編集中でも公開版は読める。休止中、公開版がない場合、公開用文書の版が一致しない場合は一覧と件数から外し、直接取得も404を返す。公開中のヒントを古い版で要求すると409 `QUEST_CHANGED` を返す。
 
-公開APIは非公開の `questVersions` を読まず、共通DTOで検証した公開項目だけを返す。ローカルモードは地域と公開用文書をそれぞれ256件まで読み、上限を超えた場合は503を返す。実環境の公開・休止を書き込む処理、ヒント画像の配信、本番での一覧取得は後続で接続する。[Webと永続APIの起動](local-api.md#モードを選ぶ)
+公開一覧・詳細・通常ヒントは、共通DTOで検証した公開項目だけを `questPublic` から返す。公開ヒント画像の取得では、公開中の版に固定した `public_hint` 素材を指定の世代で読み、返す直前に公開状態を再確認する。ローカルモードは地域と公開用文書をそれぞれ256件まで読み、上限を超えた場合は503を返す。実環境の公開・休止と本番での一覧取得は後続。[Webと永続APIの起動](local-api.md#モードを選ぶ)

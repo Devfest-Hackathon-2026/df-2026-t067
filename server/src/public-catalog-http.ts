@@ -1,14 +1,16 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
+import { publicHintImagePath } from './admin-publication'
+import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { HttpError } from './errors'
-import { answerTransaction, isPublicationStatus, notFound, processingError, questChanged, storedId } from './firestore-answer-data'
+import { answerTransaction, isPublicationStatus, notFound, processingError, questChanged, storedId, validGeneration } from './firestore-answer-data'
 import { send } from './http-server'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, positiveRouteNumber, validateQuery } from './query'
 
 // The local catalog has a fixed read bound. Fail closed instead of showing a
 // partial catalog with incorrect region counts when that bound is exceeded.
-const maximumCatalogEntries = 256
+export const maximumCatalogEntries = 256
 
 async function readCollection(db: Firestore, tx: Transaction, name: 'areas' | 'questPublic') {
   const snapshot = await tx.get(db.collection(name).limit(maximumCatalogEntries + 1))
@@ -37,12 +39,18 @@ async function listPublished(db: Firestore, tx: Transaction) {
   })
 }
 
+export function readPublicArea(row: DocumentSnapshot, publishedCount: number) {
+  return parsePublicArea({ areaId: storedId(row.id), label: row.get('label'), marker: row.get('marker'),
+    publicGeometry: JSON.parse(row.get('publicGeometryJson')), publishedCount })
+}
+
 export async function handlePublicCatalog(db: Firestore, request: IncomingMessage, response: ServerResponse,
-  path: string, params: URLSearchParams): Promise<boolean> {
+  path: string, params: URLSearchParams, photos?: Pick<AnswerPhotoStorage, 'readHint'>): Promise<boolean> {
   const areas = path === '/api/v1/areas'
   const quests = path === '/api/v1/quests'
   const detail = /^\/api\/v1\/quests\/([^/]+)(?:\/hints\/([^/]+))?$/.exec(path)
-  if (!areas && !quests && !detail) return false
+  const hintImage = /^\/api\/v1\/quests\/([^/]+)\/hint-image$/.exec(path)
+  if (!areas && !quests && !detail && !hintImage) return false
   if (request.method !== 'GET') {
     response.setHeader('Allow', 'GET')
     throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -55,11 +63,7 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
       const [rows, published] = await Promise.all([readCollection(db, tx, 'areas'), listPublished(db, tx)])
       const counts = new Map<string, number>()
       for (const { areaId } of published) counts.set(areaId, (counts.get(areaId) ?? 0) + 1)
-      return rows.map((row) => {
-        const areaId = storedId(row.id)
-        return parsePublicArea({ areaId, label: row.get('label'), marker: row.get('marker'),
-          publicGeometry: JSON.parse(row.get('publicGeometryJson')), publishedCount: counts.get(areaId) ?? 0 })
-      }).filter((area) => !bbox || intersectsBbox(area, bbox))
+      return rows.map((row) => readPublicArea(row, counts.get(row.id) ?? 0)).filter((area) => !bbox || intersectsBbox(area, bbox))
     }, true)
     send(response, 200, paginate(items, params, 'areas:' + JSON.stringify(filter), (area) => area.areaId))
   } else if (quests) {
@@ -69,6 +73,19 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
     const items = await answerTransaction(db, (tx) => listPublished(db, tx), true)
     const matching = areaId ? items.filter((quest) => quest.areaId === areaId) : items
     send(response, 200, paginate(matching, params, 'quests:' + (areaId ?? ''), (quest) => quest.questId))
+  } else if (hintImage) {
+    validateQuery(params, ['expectedVersion'])
+    if (!photos) throw notFound()
+    const questId = parseId(decodeURIComponent(hintImage[1]))
+    const version = positiveRouteNumber(params.get('expectedVersion') ?? '')
+    const readHint = () => answerTransaction(db, (tx) => readHintAsset(db, tx, questId, version), true)
+    const { orgId, assetId, generation } = await readHint()
+    const { bytes } = await photos.readHint(orgId, assetId, generation)
+    const current = await readHint()
+    if (current.orgId !== orgId || current.assetId !== assetId || current.generation !== generation) throw processingError()
+    if (response.destroyed || response.writableEnded) return true
+    response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': bytes.length, 'Content-Disposition': 'inline', 'Cache-Control': 'no-store' })
+    response.end(bytes)
   } else if (detail) {
     const questId = parseId(decodeURIComponent(detail[1]))
     const hint = detail[2] !== undefined
@@ -88,4 +105,17 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
     send(response, 200, result)
   }
   return true
+}
+
+async function readHintAsset(db: Firestore, tx: Transaction, questId: string, version: number) {
+  const [projection, current] = await tx.getAll(db.collection('questPublic').doc(questId), db.collection('quests').doc(questId))
+  const published = readPublished(projection, current)
+  if (!published) throw notFound()
+  if (published.quest.version !== version) throw questChanged()
+  if (published.quest.optionalHintImage !== publicHintImagePath(questId, version)) throw notFound()
+  const snapshot = await tx.get(db.collection('questVersions').doc(questId + ':' + version))
+  const hint = snapshot.get('publicHintImage')
+  const orgId = storedId(current.get('orgId'))
+  if (!hint || hint.orgId !== orgId || !validGeneration(hint.generation)) throw processingError()
+  return { orgId, assetId: storedId(hint.assetId), generation: hint.generation }
 }
