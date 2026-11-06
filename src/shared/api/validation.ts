@@ -1,6 +1,6 @@
 import { ATTEMPT_OUTCOMES, ATTEMPT_STATES, REPORT_CATEGORIES } from './types'
 import type {
-  AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
+  AfterClearContent, AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
   ManagedReport, Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, ReportInput, ReportReceipt, SessionIdentity,
   ShootingConditions,
 } from './types'
@@ -168,15 +168,27 @@ export function parseAttemptResult(input: unknown): AttemptResult {
   return { ...base, state, outcome }
 }
 
+export function parseAfterClearContent(input: unknown): AfterClearContent {
+  const d = object(input, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
+  function read(key: keyof AfterClearContent, maximum: number) {
+    const path = 'afterClear.' + key
+    const value = text(d[key], path, true)
+    if (value.length > maximum) throw new ContractError(path)
+    return value
+  }
+  return { access: read('access', 2000), hours: read('hours', 2000), promoComment: read('promoComment', 2000), explanation: read('explanation', 4000) }
+}
+
 export function parseDiscovery(input: unknown): Discovery {
   const d = object(input, ['discoveryId', 'placeId', 'questId', 'questVersion', 'firstClearedAt',
-    'placeName', 'descriptionSnapshot', 'ownerPhoto', 'revealedLocation'], 'Discovery')
+    'placeName', 'descriptionSnapshot', 'ownerPhoto', 'revealedLocation', 'afterClear'], 'Discovery')
   return {
     discoveryId: text(d.discoveryId, 'discoveryId'), placeId: text(d.placeId, 'placeId'),
     questId: text(d.questId, 'questId'), questVersion: integer(d.questVersion, 'questVersion', 1),
     firstClearedAt: utcDate(d.firstClearedAt, 'firstClearedAt'), placeName: text(d.placeName, 'placeName'),
     descriptionSnapshot: text(d.descriptionSnapshot, 'descriptionSnapshot', true),
     ownerPhoto: imageUrl(d.ownerPhoto, 'ownerPhoto'), revealedLocation: position(d.revealedLocation, 'revealedLocation'),
+    ...(d.afterClear === undefined ? {} : { afterClear: parseAfterClearContent(d.afterClear) }),
   }
 }
 

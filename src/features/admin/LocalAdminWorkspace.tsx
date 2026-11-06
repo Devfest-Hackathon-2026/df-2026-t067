@@ -1,17 +1,17 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createApiClient } from '../../shared/api'
-import type { ApiClient, ManagedQuest, ManagedReport, OrgMembership, Page } from '../../shared/api'
+import type { ApiClient, LocalApiDataMode, ManagedQuest, ManagedReport, OrgMembership, Page } from '../../shared/api'
 import { reportCategoryLabels } from '../../shared/reportLabels'
 import { useRemote } from '../../shared/useRemote'
 import type { AuthClient } from '../auth/authTypes'
 import { AuthError, createFirebaseAuthClient } from '../auth/firebaseAuth'
 import { useServerIdentity } from '../explore/useQuestConnection'
 import { PausePublication } from './PausePublication'
-import AdminDemo from './AdminDemo'
+import QuestDraftForm from './QuestDraftForm'
 import { ShootingAreasEditor } from './ShootingAreasEditor'
 import { PublicationWorkspace } from './PublicationWorkspace'
 import { HintAssetEditor } from './HintAssetEditor'
-import './adminDemo.css'
+import './admin.css'
 
 const statusLabels: Record<ManagedQuest['status'], string> = {
   draft: '下書き', review_pending: '確認待ち', published: '公開中', paused: '休止中',
@@ -40,7 +40,7 @@ function OrganizationWorkspace({ api, member }: { api: ApiClient; member: OrgMem
   function select(next: typeof section) { setNotice(''); setCursor(undefined); setSection(next) }
 
   function closeEditor() { setEditor(null); retry() }
-  if (editor?.kind === 'draft') return <AdminDemo connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
+  if (editor?.kind === 'draft') return <QuestDraftForm connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
   if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
   if (editor?.kind === 'hint') return <HintAssetEditor api={api} initial={editor.initial} member={member} onBack={closeEditor} />
   if (editor?.kind === 'publication') return <PublicationWorkspace api={api} initial={editor.initial} member={member} onBack={closeEditor}
@@ -103,9 +103,9 @@ function Memberships({ api }: { api: ApiClient }) {
   </>
 }
 
-export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: providedApi }: { authClient?: AuthClient; apiClient?: ApiClient } = {}) {
+export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: providedApi, dataMode = 'demo' }: { authClient?: AuthClient; apiClient?: ApiClient; dataMode?: LocalApiDataMode } = {}) {
   const authClient = useMemo(() => providedAuth ?? createFirebaseAuthClient(), [providedAuth])
-  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo', getIdToken: authClient.getIdToken }), [providedApi, authClient])
+  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode, getIdToken: authClient.getIdToken }), [providedApi, authClient, dataMode])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const identity = useServerIdentity(true, api, auth)
   const [pending, setPending] = useState(false)
@@ -127,7 +127,7 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
 
   return <main className="admin-demo">
     <header className="admin-header"><h1>自治体向けローカル管理</h1><a href="/">旅行者画面へ</a></header>
-    <p className="demo-notice">架空の組織と開発用APIを使います。下書きと報告はサーバーの一時領域に保存されます。</p>
+    <p className="demo-notice">架空の組織と開発用APIを使います。{dataMode === 'durable-local' ? '下書きと報告はローカル永続ストアに保存されます。' : '下書きと報告はサーバーの一時領域に保存されます。'}</p>
     <section className="form-section" aria-label="担当者ログイン">
       {auth.status === 'signed-out' && <button type="button" disabled={pending} onClick={() => void authenticate('login')}>Googleログイン</button>}
       {auth.status === 'signed-in' && <button type="button" disabled={pending} onClick={() => void authenticate('logout')}>ログアウト</button>}
@@ -139,6 +139,6 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
       : identity.result?.status === 'error' ? <div className="form-section"><p role="alert">ログインを確認できませんでした。</p>
         <button type="button" onClick={identity.retry}>ログインを確認し直す</button></div>
         : <p role="status">サーバーでログインを確認しています…</p>)}
-    <p><a href="/admin-demo">素材・文章・プレビューの操作デモへ</a></p>
+    <p><a href="/admin-demo">開発用：未認証・未接続の架空フォームへ戻る</a></p>
   </main>
 }

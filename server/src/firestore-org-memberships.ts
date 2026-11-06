@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import { parseOrgMembership } from '../../src/shared/api/admin'
+import type { OrgMembership } from '../../src/shared/api/admin'
 import { HttpError } from './errors'
 import { answerTransaction, processingError } from './firestore-answer-data'
 
@@ -19,6 +20,10 @@ export async function requireOrgMember(db: Firestore, tx: Transaction, uid: stri
   const member = readMember(await tx.get(db.collection('memberships').doc(memberId(uid, orgId))), uid)
   if (!member || member.orgId !== orgId) throw new HttpError(403, 'FORBIDDEN', 'この自治体の操作権限がありません。')
   return member
+}
+
+export function requirePublisher(member: OrgMembership): void {
+  if (member.role !== 'publisher') throw new HttpError(403, 'FORBIDDEN', '公開担当者の権限が必要です。')
 }
 
 export function listOrgMemberships(db: Firestore, uid: string) {
