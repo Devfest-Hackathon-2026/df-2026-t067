@@ -50,7 +50,7 @@ photoRightsは出典・利用権について人が確認した説明で、非空
 
 `durable-local` で起動し、同じ3つの素材APIを使う。共通clientには `expectedDataMode: 'durable-local'` とGoogle IDトークンの取得関数を渡す。返却の `source` は `real` で、保存先がローカルの代替環境であることは `X-Quest-Data-Mode: durable-local` で確認する。[永続APIの起動](../server/README.md#永続apiをローカルで起動する)
 
-検証環境の管理者は、Firestoreエミュレーターの `memberships/{id}` に `uid`、`orgId`、`role`、`active`、`label`、`areaId` を登録する。`id` は `JSON.stringify([uid, orgId])` のSHA-256を16進数で表す。有効な `editor` または `publisher` だけが操作できる。次の例は、署名済みIDトークンに対応する検証用UIDを `QUEST_LOCAL_EDITOR_UID` に設定してから実行する。
+検証環境の管理者は、Firestoreエミュレーターの `memberships/{id}` に `uid`、`orgId`、`role`、`active`、`label`、`areaId` を登録する。`id` は `JSON.stringify([uid, orgId])` のSHA-256を16進数で表す。有効な `editor` または `publisher` だけが操作できる。次の例は、署名済みIDトークンに対応する検証用UIDを `QUEST_LOCAL_EDITOR_UID` に設定してから実行する。公開・休止まで試すアカウントを新規登録する場合は、例の `role: 'editor'` を `role: 'publisher'` に変える。既に所属を登録したアカウントでは、管理者がエミュレーター内の既存の所属を更新する。
 
 ```sh
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8688 node <<'NODE'
