@@ -1,17 +1,6 @@
-# ローカルAPI（架空デモ専用）
+# ローカルAPI（永続側と開発用の後退）
 
-Node **26.7.0** / npm **11.19.0**を使う。架空デモでは公開データの閲覧、Firebase ID tokenの検証、挑戦開始、写真と位置の受付を確認できる。管理操作と本人記録もローカルで試せる。
-
-回答処理を試す場合は、FirestoreとGCSの代替環境を使う別のローカルモードで起動する。[画面と追加設定](../README.md#現在の状態)
-
-リポジトリのルートから実行する。
-
-```sh
-npm --prefix server ci --ignore-scripts
-QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
-```
-
-`http://127.0.0.1:8787/health` と `http://127.0.0.1:8787/api/v1/quests` を開いて動作を確認する。終了するにはCtrl+Cを押す。
+起動手順は[画面とローカルAPIの共通手順](../docs/local-api.md)に集約する。審査・今後の開発は `durable-local` を基準にし、`demo` は開発用の後退として保持する。以下のメモリ・認証検証の説明は、明記がない限り `demo` モードの説明。
 
 `PORT`には1〜65535の整数を指定できる。サーバーはIPv4ループバックの`127.0.0.1`だけで待ち受ける。`SIGINT`/`SIGTERM`を受けると、新しい接続の受付を止め、接続を最大5秒で閉じる。Firebaseアプリも解放する。
 
@@ -40,30 +29,7 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 
 ## 永続APIをローカルで起動する
 
-クライアントを拒否するFirestoreエミュレーターと、ループバックのGCS代替サーバーを起動する。次の例はそれぞれ `127.0.0.1:8688` と `127.0.0.1:9688` で動作している場合。初回だけ代替サーバーに専用バケットを作る。[エミュレーターでの検証](../docs/answer-processing.md#非公開jpegの保存)
-
-```sh
-curl -fsS -X POST 'http://127.0.0.1:9688/storage/v1/b?project=demo-t067-durable-local' \
-  -H 'Content-Type: application/json' -d '{"name":"demo-t067-durable-local.appspot.com"}'
-
-QUEST_DATA_MODE=durable-local NODE_ENV=development \
-  FIRESTORE_EMULATOR_HOST=127.0.0.1:8688 QUEST_DURABLE_STORAGE_ENDPOINT=http://127.0.0.1:9688 \
-  npm run dev:api
-```
-
-`FIREBASE_PROJECT_ID` は開発用の署名済みIDトークンを発行するプロジェクトをシェルまたは `.env.local` から渡す。認証付きの操作には既存の開発用ADCでユーザーを参照できる権限も必要。HTTPでトークンの失効と無効化を確認し、定期処理では対象アカウントの存在と有効状態を確認する。Auth EmulatorとStorage SDKの接続先を上書きする `STORAGE_EMULATOR_HOST`、`FIREBASE_STORAGE_EMULATOR_HOST` は起動前に外す。FirestoreとGCSの接続先はIPv4ループバックに限り、データ用プロジェクトは `demo-t067-durable-local` に固定する。
-
-`GET /health` は `dataMode: durable-local` を返す。起動時に架空の地域と問題 `demo-quest` の版 `1` を用意する。別のターミナルで `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` を実行すると、未ログインで一覧・詳細・通常ヒントを開ける。テストの回答には合成画像と架空の座標を使う。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[Webの接続手順](../docs/local-api.md#モードを選ぶ)・[永続APIと定期回収](../docs/answer-processing.md#httpと定期回収の起動)
-
-公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントとヒント画像は現在の公開版から取得できる。報告は `demo` モードで確認できる。[永続公開カタログ](../docs/api.md#永続公開カタログ)
-
-永続回答の参考画像は専用バケットへ保存し、公開版に固定した世代をworkerが読み取る。既定は合成フィクスチャの判定を使う。Vertexを試す場合は `NODE_ENV=development` で `QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` と既存の `QUEST_VERTEX_TRIAL_LEDGER` を指定する。[永続回答からのVertex試験](../docs/vertex-trial.md#永続回答から試す)
-
-自治体の写真素材APIも `durable-local` で使える。Firebaseの署名済みIDトークンと、Firestoreエミュレーターに管理者が登録した所属が必要。[永続素材の設定と使い方](../docs/admin-assets.md#永続素材をローカルで試す)
-
-同じ所属で下書きと撮影範囲を保存できる。本文と撮影範囲は同じ版番号で更新の競合を検出する。[永続下書きの使い方](../docs/team-api-handoffs.md#永続の所属下書きをローカルで試す)
-
-自組織の公開担当者は、確認待ちと写真試験がそろった版を公開できる。休止は公開カタログから外し、挑戦開始と回答受付を止める。[公開と休止の使い方](../docs/api.md#18-開発用の公開と休止)
+起動・認証・管理所属の準備は[永続側の共通手順](../docs/local-api.md)を参照する。
 
 ## 実装したルート
 
