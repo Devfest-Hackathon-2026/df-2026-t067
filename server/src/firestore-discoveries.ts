@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
 import { FieldPath, Timestamp } from 'firebase-admin/firestore'
-import type { DocumentData, Firestore } from 'firebase-admin/firestore'
+import type { DocumentData, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { Discovery, Page } from '../../src/shared/api/types'
-import { parseDiscovery } from '../../src/shared/api/validation'
+import { parseAfterClearContent, parseDiscovery } from '../../src/shared/api/validation'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import type { DiscoveryPhoto, DiscoveryQuery, DiscoveryReadRepository } from './discoveries'
 import { HttpError, invalidInput } from './errors'
-import { processingError, storedId, validAnswerUid, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
+import { answerTransaction, processingError, storedId, validAnswerUid, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
 import { getDiscoveryDeletion, requestDiscoveryDeletion } from './firestore-discovery-deletions'
 import { createScopedCursor, parseId, parseLimit, readScopedCursor } from './query'
 
@@ -44,8 +44,19 @@ export class FirestoreDiscoveryStore implements DiscoveryReadRepository {
   }
 
   async getOwned(uid: string, discoveryId: string): Promise<Discovery | null> {
-    const data = await this.readOwned(uid, discoveryId)
-    return data ? publicDiscovery(data, uid, discoveryId) : null
+    return answerTransaction(this.db, async (tx) => {
+      const data = await this.readOwned(uid, discoveryId, tx)
+      if (!data) return null
+      const record = publicDiscovery(data, uid, discoveryId)
+      if (data.afterClear !== undefined) return { ...record, afterClear: parseAfterClearContent(data.afterClear) }
+
+      // Records saved before afterClear was copied can still use their immutable version.
+      const version = await tx.get(this.db.collection('questVersions').doc(storedId(record.questId) + ':' + record.questVersion))
+      const afterClear = version.get('afterClear')
+      if (afterClear === undefined) return record
+      if (version.get('placeId') !== record.placeId) throw processingError()
+      return { ...record, afterClear: parseAfterClearContent(afterClear) }
+    }, true)
   }
 
   async getPhotoOwned(uid: string, discoveryId: string): Promise<DiscoveryPhoto | null> {
@@ -63,9 +74,10 @@ export class FirestoreDiscoveryStore implements DiscoveryReadRepository {
     return { bytes: photo.bytes, contentType: photo.mimeType }
   }
 
-  private async readOwned(uid: string, discoveryId: string): Promise<DocumentData | null> {
+  private async readOwned(uid: string, discoveryId: string, tx?: Transaction): Promise<DocumentData | null> {
     if (!validAnswerUid(uid) || typeof discoveryId !== 'string') invalidInput()
-    const data = (await this.db.collection('discoveries').doc(parseId(discoveryId)).get()).data()
+    const ref = this.db.collection('discoveries').doc(parseId(discoveryId))
+    const data = (await (tx ? tx.get(ref) : ref.get())).data()
     if (!data || data.uid !== uid) return null
     if (data.discoveryId !== discoveryId) throw processingError()
     return data

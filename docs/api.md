@@ -22,7 +22,7 @@
 | Challenge | challengeId, questId, version, createdAt |
 | CaptureMetadata | capturedAt, position: { latitude, longitude, accuracyMeters, measuredAt } |
 | AttemptResult | attemptId, state, outcome, nextAction, source, optionalDiscoveryId |
-| Discovery | discoveryId, placeId, questId, questVersion, firstClearedAt, placeName, descriptionSnapshot, ownerPhoto, revealedLocation |
+| Discovery | discoveryId, placeId, questId, questVersion, firstClearedAt, placeName, descriptionSnapshot, ownerPhoto, revealedLocation。本人詳細に任意の `afterClear` |
 | ManagedQuest | questId, orgId, draftRevision, publishedVersion, status, draft内容、確認状態 |
 
 `outcome`は完了前null。`source`はreal / mock（mockは独立した検証環境のみ）。写真URLは認可付き取得先または短命URL。PublicQuestにはplaceIdに紐付く内部情報、参考全景、撮影中心・半径、正解名を含めない。
@@ -176,6 +176,8 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 `ManagedQuestDraft.materials`はname/evidence・requiresBoat/requiresPaidFacility・price/photoNote/photoRights。旧6交通手段と旧materialsのaccess/hoursは廃止して拒否する。クリア後用のaccess/hours/promoComment/explanationは必須の`afterClear`へ分離し、管理APIで作成/更新/取得する。空文字は未完成下書きとして保存でき、条件の真偽値を文字列から補正しない。
 
 共有型はShootingConditions/AfterClearContent。管理プレビューの型もこれを参照する。PublicQuest/通常ヒント/未クリア用データへafterClearを追加せず、登録・本人記録・公開のAPIを混同しない。詳しいpayloadと旧clientからの注意は[接続手順](team-api-handoffs.md)を参照。
+
+永続APIでは初回クリア時に、挑戦した公開版の `afterClear` を本人記録へ保存する。`GET /me/discoveries/:id` は本人だけにこの案内を返す。以前の記録では、同じ問題と版の保存済みデータから補う。案内のない記録は既存の `descriptionSnapshot` で表示できる。[Cの詳細画面との接続](owner-discoveries.md#クリア後の案内)
 
 ## 14. 回答処理の内部接続
 

@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { createApiClient } from '../../src/shared/api/client'
+import { createDurableAnswerServer } from '../src/durable-answer-http'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from '../src/firestore-answer-intake'
 import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
+import { listenServer } from './helpers'
 
 const emulator = process.env.QUEST_FIRESTORE_TEST_HOST
 const policy = { maximum: 10, windowMs: 60_000 }
@@ -94,6 +97,54 @@ test('Firestore leases, resumes and atomically commits answers', {
     assert.equal(b.outcome, 'CORRECT')
     assert.notEqual(a.optionalDiscoveryId, b.optionalDiscoveryId)
     assert.equal((await fixture.records()).size, 2)
+  })
+
+  await t.test('only an owner can read after-clear information from the version they first cleared', async (test) => {
+    const fixture = await seedQuest()
+    const questId = fixture.quest.id
+    const afterClear = { access: '架空のアクセス案内', hours: '09:00〜17:00', promoComment: '', explanation: '非公開の解説' }
+    const version = db.collection('questVersions').doc(questId + ':1')
+    await version.update({ afterClear, descriptionSnapshot: afterClear.explanation })
+    const pending = await fixture.seedAnswer()
+    const result = await pending.commit()
+    assert.equal(result.outcome, 'CORRECT')
+    const discoveryId = result.optionalDiscoveryId!
+    const stored = db.collection('discoveries').doc(discoveryId)
+
+    const newVersion = db.collection('questVersions').doc(questId + ':2')
+    await newVersion.create({ ...(await version.get()).data(), afterClear: { ...afterClear, access: '次の版の案内' } })
+    await fixture.quest.update({ publishedVersion: 2, status: 'published' })
+    await db.collection('questPublic').doc(questId).create({ quest: { questId, version: 2, title: '公開タイトル',
+      clue: '公開問題文', areaId: 'demo-area', hintCount: 1, visitConditions: '架空の訪問条件' }, hints: ['公開ヒント'] })
+
+    const unexpected = () => { throw new Error('Record detail unexpectedly accessed a photo') }
+    const server = createDurableAnswerServer({ db, verifier: { verify: async (uid) => ({ uid }) },
+      challengePolicy: policy, answerPolicy: policy, acquireUpload: unexpected,
+      photos: { writeIncoming: unexpected, readRecord: unexpected, deleteRecord: unexpected } })
+    const { base } = await listenServer(test, server)
+    const client = (uid?: string) => createApiClient({ getIdToken: async () => uid ?? null, fetch: (path, init) => fetch(base + String(path), init) })
+    const owner = client('owner')
+    assert.deepEqual((await stored.get()).get('afterClear'), afterClear)
+    const detail = await owner.getDiscovery(discoveryId)
+    assert.deepEqual(detail.afterClear, afterClear)
+    assert.equal(detail.descriptionSnapshot, afterClear.explanation)
+    assert.equal(detail.questVersion, 1)
+    assert.equal((await owner.listDiscoveries()).items.find((row) => row.discoveryId === discoveryId)?.afterClear, undefined)
+    await assert.rejects(client('other').getDiscovery(discoveryId), { code: 'NOT_FOUND' })
+    await assert.rejects(owner.getDiscovery('not-cleared'), { code: 'NOT_FOUND' })
+    const anonymous = await fetch(base + '/api/v1/me/discoveries/' + discoveryId)
+    assert.equal(anonymous.status, 401)
+    await anonymous.body?.cancel()
+    assert.doesNotMatch(JSON.stringify(await client().getQuest(questId)), /afterClear|アクセス案内|次の版の案内|非公開の解説/)
+    assert.deepEqual(await client().getHint({ questId, expectedVersion: 2, index: 1 }),
+      { questId, version: 2, index: 1, text: '公開ヒント' })
+
+    await stored.update({ afterClear: FieldValue.delete() })
+    assert.deepEqual((await owner.getDiscovery(discoveryId)).afterClear, afterClear)
+    await version.update({ afterClear: FieldValue.delete() })
+    const legacy = await owner.getDiscovery(discoveryId)
+    assert.equal(legacy.afterClear, undefined)
+    assert.equal(legacy.descriptionSnapshot, detail.descriptionSnapshot)
   })
 
   await t.test('pause, changed version, stale lease and invalid private evidence cannot commit', async () => {

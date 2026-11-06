@@ -46,6 +46,8 @@ export type AttemptResult = AttemptBase & (
   | { state: 'COMPLETED'; outcome: 'CORRECT' | 'ALREADY_CLEARED'; optionalDiscoveryId: string }
   | { state: 'COMPLETED'; outcome: Exclude<AttemptOutcome, 'CORRECT' | 'ALREADY_CLEARED'>; optionalDiscoveryId?: never }
 )
+export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
+
 export interface Discovery {
   discoveryId: string
   placeId: string
@@ -56,6 +58,7 @@ export interface Discovery {
   descriptionSnapshot: string
   ownerPhoto: string
   revealedLocation: Position
+  afterClear?: AfterClearContent
 }
 export interface Page<T> { items: T[]; nextCursor: string | null }
 export const REPORT_CATEGORIES = ['PHOTO_UNAVAILABLE', 'MATCHING_PROBLEM', 'UNSAFE_GUIDANCE'] as const
