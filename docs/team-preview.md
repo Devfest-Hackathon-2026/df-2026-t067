@@ -9,14 +9,14 @@
 - 共有用のWebとAPIは別のCloud Runサービス `quest-team-preview` にまとめる。Firebase Hostingの静的プレビューとローカル環境は、それぞれの起動設定を使う。
 - Cloud RunのURLからログイン画面を開けるようにする。APIはFirebase IDトークンと、サーバーに設定した4人のUIDを照合する。編集と公開・休止の権限は、専用Firestoreに登録した自治体所属で確認する。
 - データは名前付きFirestore `quest-team-preview` と非公開の `<プロジェクトID>-quest-team-preview` バケットに分ける。Firestoreのクライアント読み書きはすべて拒否する。Storageは均一なバケットアクセスと公開アクセス防止を使う。サーバーはバケットのプロジェクト番号と非公開設定を起動時に検査する。
-- 候補は既存の開発用Google Cloudプロジェクトの東京リージョン。Cloud Runは最小0、最大1インスタンスから始める案とし、作成前にプロジェクト、リージョン、費用上限、停止担当を確認する。4人のうち誰を編集担当と公開担当にするかも確認する。公開・IAM・API有効化は [リポジトリの承認条件](decisions.md#3-要確認下書きモック作業を止めないが関係する実接続公開前に決める) に従う。
+- 候補は既存の開発用Google Cloudプロジェクトの東京リージョン。Cloud Runは最小0、最大1インスタンスから始める案とし、作成前にプロジェクト、リージョン、費用条件、停止担当を確認する。台数の設定に加え、Firestoreの操作と画像・イメージの保管も費用に含め、停止担当が利用額と削除を確認する。4人のうち誰を編集担当と公開担当にするかも確認する。公開・IAM・API有効化は [リポジトリの承認条件](decisions.md#3-要確認下書きモック作業を止めないが関係する実接続公開前に決める) に従う。
 
 ## 承認後の準備
 
-1. Firebaseの開発用Webアプリと同じプロジェクトに、名前付きFirestore、非公開バケット、コンテナの格納先を用意する。`firebase.team-preview.json` の対象DBを確認し、`firebase deploy --config firebase.team-preview.json --only firestore:rules --project <プロジェクトID>` でクライアント拒否ルールを適用する。
+1. 承認を得たAPIのうち未有効のものを有効にする。候補は Cloud Run（`run.googleapis.com`）、Firestore（`firestore.googleapis.com`）、Artifact Registry（`artifactregistry.googleapis.com`）、IAM（`iam.googleapis.com`）、Cloud Storage（`storage.googleapis.com`）。Firebaseの開発用Webアプリと同じプロジェクトに、名前付きFirestore、非公開バケット、コンテナの格納先を用意する。`firebase.team-preview.json` の対象DBを確認し、`firebase deploy --config firebase.team-preview.json --only firestore:rules --project <プロジェクトID>` でクライアント拒否ルールを適用する。
 2. Cloud Runには専用の実行サービスアカウントを割り当てる。必要な権限は、対象Firestoreの読み書き、対象バケットのメタデータとオブジェクトへのアクセス、Firebaseユーザーの有効状態の照会。ローカルの資格情報やサービスアカウント鍵をイメージへ入れない。
 3. Firebaseで4人のGoogleアカウントに対応するUIDを確認する。`QUEST_TEAM_UIDS` に4つをカンマ区切りで渡す。`FIREBASE_PROJECT_ID` と `QUEST_TEAM_PROJECT_NUMBER` には承認済みのプロジェクトを指定する。Cloud Runが供給する `PORT` で待ち受ける。UID一覧と資格情報はGitやIssueに記録しない。
-4. 下記の初期データを作成し、`Dockerfile.team-preview` から `linux/amd64` のイメージをビルドする。[Firebase設定表](firebase-auth.md#2-各開発者の設定)の6項目を同名の `--build-arg` で渡す。地図を使う場合は、公開先を許可した `VITE_GOOGLE_MAPS_API_KEY` も指定する。設定済みの共有ビルドだけを起動するため、サーバーはビルド時と起動時のFirebaseプロジェクトIDの一致を確認する。
+4. 下記の初期データを作成し、`Dockerfile.team-preview` から `linux/amd64` のイメージをビルドする。[Firebase設定表](firebase-auth.md#2-各開発者の設定)の6項目を同名の `--build-arg` で渡す。初回は `VITE_GOOGLE_MAPS_API_KEY` を空にして、地域と問題の選択欄で確認できる。地図も試す場合は、共有URLのホスト名を許可したキーを設定する。サーバーはビルド時と起動時のFirebaseプロジェクトIDの一致を確認する。
 5. イメージを承認済みのレジストリへ格納してCloud Runへ配置する。Cloud Runの未認証の呼び出しを許可し、ログイン画面を開けるようにする。データのAPIではFirebaseによる4人の認証を必須にする。URLのホスト名をFirebase Authenticationの承認済みドメインに追加する。`/health` が `dataMode: team-preview` を返し、招待済みアカウントで共有画面を開けることを確認する。
 
 初回の配置では、前節のサーバー設定3項目をGit管理外の `.env.team-preview.yaml` に保存し、承認された値をシェルに設定して実行する。[Cloud Runの配置コマンド](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
