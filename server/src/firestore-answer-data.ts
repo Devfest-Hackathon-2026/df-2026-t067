@@ -33,6 +33,13 @@ export async function readActiveChallenge(db: Firestore, tx: Transaction, uid: s
   return checkPublishedVersion(questId, version, quest.data(), versionDoc.data())
 }
 
+export async function assertChallengeCanStart(db: Firestore, tx: Transaction, questId: string, version: number): Promise<void> {
+  const [quest, versionDoc] = await tx.getAll(...versionDocuments(db, questId, version))
+  const publication = quest.data()
+  if (!publication || (publication.publishedVersion === null && publication.status !== 'paused')) throw notFound()
+  checkPublishedVersion(questId, version, publication, versionDoc.data())
+}
+
 function versionDocuments(db: Firestore, questId: string, version: number) {
   return [db.collection('quests').doc(questId), db.collection('questVersions').doc(`${questId}:${version}`)] as const
 }

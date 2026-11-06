@@ -6,8 +6,6 @@ import type { AdminPhotoTestOptions } from './admin-photo-tests-http'
 import type { FixtureDraftSuggester } from './demo-draft-suggestions'
 import { createDiscoveryHandler } from './discoveries-http'
 import type { DiscoveryRepository } from './discoveries'
-import { randomUUID } from 'node:crypto'
-import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ContractError, parsePage, parsePublicArea, parsePublicQuest, parseQuestHint, parseReportInput } from '../../src/shared/api/validation'
 import { assertDemoMode, assertNoAuthEmulator } from './config'
@@ -20,8 +18,9 @@ import { readIdempotencyKey } from './idempotency-key'
 import { DemoAnswerStore } from './answers'
 import { evaluateLocation } from './location'
 import type { LocationValidation } from './location'
-import { authUnavailable, HttpError, invalidInput, unauthenticated } from './errors'
+import { HttpError, invalidInput } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
+import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, validateQuery } from './query'
 import { DemoReportStore } from './reports'
 
@@ -39,25 +38,6 @@ export interface ServerOptions {
   challenges?: DemoChallengeStore
   answers?: DemoAnswerStore
   locationValidation?: LocationValidation | 'demo'
-}
-
-function bearerToken(request: IncomingMessage): string {
-  const count = request.rawHeaders.filter((_, index) => index % 2 === 0)
-    .filter((name) => name.toLowerCase() === 'authorization').length
-  const authorization = request.headers.authorization
-  if (count !== 1 || !authorization || authorization.length > 8192) throw unauthenticated()
-  const match = /^Bearer ([A-Za-z0-9._~-]+)$/i.exec(authorization)
-  if (!match) throw unauthenticated()
-  return match[1]
-}
-
-function requestTarget(request: IncomingMessage): { path: string; params: URLSearchParams } {
-  const raw = request.url ?? ''
-  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('#')) invalidInput()
-  try { decodeURIComponent(raw) } catch { invalidInput() }
-  const split = raw.indexOf('?')
-  const rawPath = split < 0 ? raw : raw.slice(0, split)
-  return { path: rawPath, params: new URLSearchParams(split < 0 ? '' : raw.slice(split + 1)) }
 }
 
 function positiveRouteNumber(value: string): number {
@@ -87,33 +67,7 @@ export function createServer(options: ServerOptions) {
     photoTest: options.adminPhotoTest, acquirePhotoTest: (uid) => answers.acquire(uid), suggestDraft: options.suggestDraft, reports,
     areaIds: new Set(areas.map((area) => area.areaId)), authenticate, send })
   const discoveryHandler = createDiscoveryHandler({ repository: options.discoveries, authenticate, send })
-  const server = createHttpServer({ maxHeaderSize: 16_384 }, (request, response) => {
-    // Keep POST bodies paused while authentication runs. Only bounded readers
-    // consume them; ignored/error bodies are drained after handling.
-    request.on('error', () => {})
-    const requestId = randomUUID()
-    response.setHeader('X-Request-Id', requestId)
-    response.setHeader('X-Quest-Data-Mode', 'demo')
-    response.setHeader('Cache-Control', 'private, no-store')
-    response.setHeader('X-Content-Type-Options', 'nosniff')
-    void handle(request, response).catch((error: unknown) => {
-      const failure = error instanceof HttpError ? error
-        : new HttpError(500, 'SYSTEM_ERROR', '処理を完了できませんでした。', true)
-      if (failure.status === 401) response.setHeader('WWW-Authenticate', 'Bearer')
-      if (failure.retryAfterSeconds !== undefined) response.setHeader('Retry-After', String(failure.retryAfterSeconds))
-      if (['POST', 'PATCH', 'PUT'].includes(request.method ?? '') && !request.readableEnded) {
-        response.shouldKeepAlive = false
-        response.setHeader('Connection', 'close')
-      }
-      send(response, failure.status, {
-        error: { code: failure.code, message: failure.message, requestId, retryable: failure.retryable },
-      })
-    }).finally(() => { request.resume() })
-  })
-  server.requestTimeout = 10_000
-  server.headersTimeout = 5_000
-  server.keepAliveTimeout = 1_000
-  return server
+  return createQuestHttpServer('demo', handle)
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const { path, params } = requestTarget(request)
@@ -241,16 +195,7 @@ export function createServer(options: ServerOptions) {
     }
   }
 
-  async function authenticate(request: IncomingMessage): Promise<string> {
-    if (!options.verifier) throw authUnavailable()
-    const identity = await options.verifier.verify(bearerToken(request))
-    if (typeof identity.uid !== 'string' || !identity.uid.trim() || identity.uid.length > 128) throw authUnavailable()
-    return identity.uid
+  function authenticate(request: IncomingMessage): Promise<string> {
+    return authenticateRequest(request, options.verifier)
   }
-}
-
-function send(response: ServerResponse, status: number, body: unknown): void {
-  if (response.destroyed || response.writableEnded) return
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
-  response.end(JSON.stringify(body))
 }

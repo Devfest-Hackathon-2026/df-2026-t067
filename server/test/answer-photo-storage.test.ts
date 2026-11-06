@@ -4,11 +4,15 @@ import test from 'node:test'
 import { Storage } from '@google-cloud/storage'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { createApiClient } from '../../src/shared/api/client'
 import { AnswerPhotoStorage } from '../src/answer-photo-storage'
+import { DemoAnswerStore } from '../src/answers'
+import { createDurableAnswerServer } from '../src/durable-answer-http'
 import { runDurableAnswer } from '../src/durable-answer-worker'
 import { HttpError } from '../src/errors'
-import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from '../src/firestore-answer-intake'
+import { getDurableAnswer } from '../src/firestore-answer-intake'
 import { preparePhoto } from '../src/photo-input'
+import { listenServer } from './helpers'
 import { otherSyntheticPng, syntheticPng } from './photo-fixtures'
 
 const emulator = process.env.QUEST_STORAGE_TEST_HOST
@@ -61,7 +65,7 @@ test('Cloud Storage photo generations stay immutable across retries', {
   assert.notEqual(newVersion.generation, first.generation)
   await assert.rejects(store.readIncoming(attemptId, digest, first), { code: 'SYSTEM_ERROR', retryable: false })
 
-  await t.test('the durable worker uses stored JPEGs, distinguishes failures and resumes without repeating a match', { skip: !firestoreEmulator }, async () => {
+  await t.test('HTTP intake and the durable worker keep JPEGs and results across retries', { skip: !firestoreEmulator }, async () => {
     assert(firestoreEmulator && /^127\.0\.0\.1:[1-9]\d{0,4}$/.test(firestoreEmulator) && Number(firestoreEmulator.split(':')[1]) <= 65535)
     process.env.FIRESTORE_EMULATOR_HOST = firestoreEmulator
     const db = getFirestore(app)
@@ -72,19 +76,45 @@ test('Cloud Storage photo generations stay immutable across retries', {
       db.collection('questVersions').doc(`${questId}:1`).create({ placeId, areaId: 'demo-area', placeName: '合成対象',
         descriptionSnapshot: '合成説明', revealedLocation: { latitude: 0, longitude: 0 } }),
     ])
-    async function submit(uid: string = randomUUID(), latitude = 0, accuracyMeters = 5) {
-      const challengeId = randomUUID()
-      await db.collection('challenges').doc(challengeId).create({ uid, questId, version: 1 })
-      const submission = { uid, challengeId, digest, idempotencyKey: 'first-answer' }
-      const policy = { maximum: 10, windowMs: 60_000 }
-      const upload = await prepareAnswerIntake(db, submission, policy)
-      assert(upload.kind === 'upload')
-      const incoming = await store.writeIncoming(upload.attemptId, digest, photo)
-      assert.equal(incoming.path, upload.objectPath)
+    const queued = new Map<string, { uid: string; attemptId: string; digest: string }>()
+    const uploadLimiter = new DemoAnswerStore()
+    let failEnqueue = false
+    const server = createDurableAnswerServer({ db, photos: store, verifier: { verify: async (token) => ({ uid: token }) },
+      challengePolicy: { maximum: 10, windowMs: 60_000 }, answerPolicy: { maximum: 10, windowMs: 60_000 },
+      acquireUpload: (uid) => uploadLimiter.acquire(uid), enqueue: async (input) => {
+        if (failEnqueue) { failEnqueue = false; throw new Error('代替ジョブ投入の障害') }
+        queued.set(input.attemptId, input)
+      } })
+    const { base } = await listenServer(t, server)
+    const wrongMethod = await fetch(base + '/api/v1/challenges')
+    assert.equal(wrongMethod.status, 405)
+    assert.equal(wrongMethod.headers.get('Allow'), 'POST')
+    const client = (uid: string) => createApiClient({ fetch: async (path, init) => {
+      const response = await fetch(base + String(path), init)
+      assert.equal(response.headers.get('X-Quest-Data-Mode'), 'real')
+      return response
+    }, getIdToken: async () => uid })
+    async function submit(uid: string = randomUUID(), latitude = 0, accuracyMeters = 5, interruptEnqueue = false) {
+      const api = client(uid)
+      const selection = { questId, expectedVersion: 1 }
+      const challenge = await api.createChallenge(selection)
+      assert.deepEqual(await api.createChallenge(selection), challenge)
       const capturedAt = new Date().toISOString()
-      await acceptDurableAnswer(db, { ...submission, generation: incoming.generation,
-        metadata: { capturedAt, position: { latitude, longitude: 0, accuracyMeters, measuredAt: capturedAt } } }, policy)
-      return { uid, attemptId: upload.attemptId, digest }
+      const input = { challengeId: challenge.challengeId, idempotencyKey: randomUUID(),
+        photo: new Blob([new Uint8Array(syntheticPng)], { type: 'image/png' }),
+        metadata: { capturedAt, position: { latitude, longitude: 0, accuracyMeters, measuredAt: capturedAt } } }
+      if (interruptEnqueue) {
+        failEnqueue = true
+        assert.equal((await api.getSession()).uid, uid)
+        await assert.rejects(client('other-owner').submitAnswer(input), { code: 'NOT_FOUND' })
+        await assert.rejects(api.submitAnswer(input), { code: 'SYSTEM_ERROR', retryable: true })
+      }
+      const receipt = await api.submitAnswer(input)
+      assert.equal(receipt.state, 'RECEIVED')
+      assert.deepEqual(await api.getAttempt(receipt.attemptId), receipt)
+      const identity = queued.get(receipt.attemptId)
+      assert(identity && identity.uid === uid)
+      return identity
     }
     let matcherCalls = 0, referenceCalls = 0
     const options = { db, photos: store, leaseDurationMs: 180_000, authorize: async () => true,
@@ -93,9 +123,11 @@ test('Cloud Storage photo generations stay immutable across retries', {
       loadReference: async () => { referenceCalls++; return { reference: other, features: ['合成の確認済み特徴'] } },
       matcher: async () => { matcherCalls++; return 'MATCH' },
     }
-    const identity = await submit()
+    const identity = await submit(undefined, 0, 5, true)
     const final = await runDurableAnswer(identity, options)
     assert(final.kind === 'completed' && final.result.outcome === 'CORRECT')
+    assert.deepEqual(await client(identity.uid).getAttempt(identity.attemptId), final.result)
+    await assert.rejects(client('other-owner').getAttempt(identity.attemptId), { code: 'NOT_FOUND' })
     assert.deepEqual(await getDurableAnswer(db, identity.uid, identity.attemptId), final.result)
     const snapshot = await db.collection('discoveries').doc(final.result.optionalDiscoveryId).get()
     assert.deepEqual((await store.readRecord(snapshot.get('photoObject'))).bytes, photo.bytes)
@@ -108,7 +140,7 @@ test('Cloud Storage photo generations stay immutable across retries', {
       const located = await submit(undefined, latitude, accuracy)
       const rejected = await runDurableAnswer(located, options)
       assert(rejected.kind === 'completed' && rejected.result.outcome === expected)
-      assert.deepEqual(await getDurableAnswer(db, located.uid, located.attemptId), rejected.result)
+      assert.deepEqual(await client(located.uid).getAttempt(located.attemptId), rejected.result)
     }
     assert.equal(referenceCalls, 1)
     assert.equal(matcherCalls, 1)
@@ -139,6 +171,8 @@ test('Cloud Storage photo generations stay immutable across retries', {
       await quest.update({ publishedVersion: null, status: 'paused' })
       return { reference: other, features: ['合成の確認済み特徴'] }
     } }), { code: 'QUEST_UNAVAILABLE' })
+    await assert.rejects(client(paused.uid).createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
+    await assert.rejects(client(paused.uid).getAttempt(paused.attemptId), { code: 'QUEST_UNAVAILABLE' })
     assert.equal(matcherCalls, 2)
     const discoveries = await db.collection('discoveries').where('placeId', '==', placeId).get()
     assert.equal(discoveries.size, 2)

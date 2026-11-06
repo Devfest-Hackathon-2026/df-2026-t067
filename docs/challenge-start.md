@@ -1,6 +1,6 @@
 # 挑戦開始APIの開発用実装
 
-`POST /api/v1/challenges`を追加した。既存のFirebase ID token検証と共通Challenge DTO/clientを使い、利用者と公開デモ問題・版をサーバーで結び付ける。[撮影画面](camera-preview.md)は`local-api`モードでこの開始APIの成功後に開く。写真・GPSの送信、回答・判定・クリア保存はまだ追加していない。
+`POST /api/v1/challenges`は既存のFirebase ID token検証と共通Challenge DTO/clientを使い、利用者と公開デモ問題・版をサーバーで結び付ける。[撮影画面](camera-preview.md)は`local-api`モードでこの開始APIの成功後に開き、写真と位置を開発用受付へ送れる。[回答受付](answer-intake.md)
 
 ## 入力と返却
 
@@ -59,5 +59,9 @@ const challenge = await api.createChallenge({
 `npm --prefix server run check`で、実HTTPを使う開始・再要求・同時要求・所有者分離・回数制限・容量制限・JSON境界・遅い本文・切断・再起動を確認する。正常系のID token検証境界は明示的な代替で、実GoogleアカウントのPOST正常系ではない。ブラウザと実Googleを使った既存のGET /session確認とは区別する。
 
 2026-11-05、実Googleログイン済みのChromeから同じローカルAPIへのPOST正常系を確認した。開始後の撮影画面と、終了後の開始済み表示を確認し、token・uid・実写真を検証資料へ残していない。
+
+## Firestoreの挑戦開始
+
+永続のHTTPでは、認証済みの本人・公開問題・版で挑戦を一意にする。現在公開中の版をFirestoreで検査し、本人別の開始回数と一緒に保存する。同じ組み合わせの再要求では初回の挑戦ID・作成時刻を返す。休止や改版の場合は旧版を開始できない。[永続HTTPの組み立て](answer-intake.md#永続httpの組み立て)
 
 実Firestore/Storage、挑戦の永続化、写真とGPSの送信、AI判定、クリア確定、組織認可は未実装または未検証。撮影時のGPS取得と写真との一時的な結合は[撮影画面](camera-preview.md#撮影時の位置情報)に実装し、実GPSは未検証。デモの本番起動・Auth Emulatorは引き続き拒否する。クラウド設定・API有効化・課金・デプロイは行わない。

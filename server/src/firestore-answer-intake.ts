@@ -1,20 +1,21 @@
 import { createHash } from 'node:crypto'
-import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { FieldValue } from 'firebase-admin/firestore'
 import type { Firestore, Transaction } from 'firebase-admin/firestore'
 import type { AttemptResult, CaptureMetadata } from '../../src/shared/api/types'
 import { ContractError, parseCaptureMetadata } from '../../src/shared/api/validation'
-import { HttpError, invalidInput } from './errors'
-import { answerTransaction, conflict, incomingAnswerPhotoPath, notFound, processingError, readActiveChallenge,
+import { invalidInput } from './errors'
+import { readAdmission, validateAdmissionPolicy } from './firestore-admission'
+import type { AdmissionPolicy } from './firestore-admission'
+import { answerTransaction, conflict, incomingAnswerPhotoPath, notFound, readActiveChallenge,
   readCurrentVersion, storedAnswerResult, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
 import { parseIdempotencyKey } from './idempotency-key'
 import { parseId } from './query'
 
 interface AnswerSubmission { uid: string; challengeId: string; idempotencyKey: string; digest: string }
-interface IntakePolicy { maximum: number; windowMs: number }
 interface AnswerUpload { attemptId: string; objectPath: string }
 type IntakePlan = ({ kind: 'upload' } & AnswerUpload) | { kind: 'replay'; result: AttemptResult }
 
-export async function prepareAnswerIntake(db: Firestore, submission: AnswerSubmission, policy: IntakePolicy): Promise<IntakePlan> {
+export async function prepareAnswerIntake(db: Firestore, submission: AnswerSubmission, policy: AdmissionPolicy): Promise<IntakePlan> {
   const target = uploadTarget(submission, policy)
   return answerTransaction(db, async (tx) => {
     const intake = await inspectIntake(db, tx, submission, target.attemptId, policy)
@@ -25,7 +26,7 @@ export async function prepareAnswerIntake(db: Firestore, submission: AnswerSubmi
 // The server must confirm the private normalized image at the upload target
 // before accepting the corresponding generation. Do not call Storage in the transaction.
 export async function acceptDurableAnswer(db: Firestore, input: AnswerSubmission & { metadata: CaptureMetadata; generation: string },
-  policy: IntakePolicy): Promise<AttemptResult> {
+  policy: AdmissionPolicy): Promise<AttemptResult> {
   const { uid, challengeId, digest, generation } = input
   const target = uploadTarget(input, policy)
   if (!validGeneration(generation)) invalidInput()
@@ -58,15 +59,14 @@ export async function getDurableAnswer(db: Firestore, uid: string, attemptId: st
   }, true)
 }
 
-function uploadTarget({ uid, challengeId, idempotencyKey, digest }: AnswerSubmission, policy: IntakePolicy): AnswerUpload {
-  if (!validAnswerUid(uid) || typeof challengeId !== 'string' || !validDigest(digest) ||
-    !Number.isSafeInteger(policy.maximum) || policy.maximum < 1 ||
-    !Number.isSafeInteger(policy.windowMs) || policy.windowMs < 1) invalidInput()
+function uploadTarget({ uid, challengeId, idempotencyKey, digest }: AnswerSubmission, policy: AdmissionPolicy): AnswerUpload {
+  if (!validAnswerUid(uid) || typeof challengeId !== 'string' || !validDigest(digest)) invalidInput()
+  validateAdmissionPolicy(policy)
   const attemptId = createHash('sha256').update(JSON.stringify([uid, parseId(challengeId), parseIdempotencyKey(idempotencyKey)])).digest('hex')
   return { attemptId, objectPath: incomingAnswerPhotoPath(attemptId, digest) }
 }
 
-async function inspectIntake(db: Firestore, tx: Transaction, input: AnswerSubmission, attemptId: string, policy: IntakePolicy) {
+async function inspectIntake(db: Firestore, tx: Transaction, input: AnswerSubmission, attemptId: string, policy: AdmissionPolicy) {
   const receipt = db.collection('attempts').doc(attemptId)
   const data = (await tx.get(receipt)).data()
   if (data) {
@@ -77,22 +77,6 @@ async function inspectIntake(db: Firestore, tx: Transaction, input: AnswerSubmis
     return { kind: 'replay' as const, result }
   }
   const current = await readActiveChallenge(db, tx, input.uid, input.challengeId)
-  const admission = await readAdmission(db, tx, input.uid, policy)
+  const admission = await readAdmission(db, tx, 'answerAdmission', input.uid, policy)
   return { kind: 'new' as const, current, admission, receipt }
-}
-
-async function readAdmission(db: Firestore, tx: Transaction, uid: string, policy: IntakePolicy) {
-  const ref = db.collection('answerAdmission').doc(createHash('sha256').update(uid).digest('hex'))
-  const snapshot = await tx.get(ref)
-  const data = snapshot.data()
-  if (!data) return { ref, windowStartedAt: snapshot.readTime, count: 0 }
-  const { windowStartedAt, count } = data
-  if (!(windowStartedAt instanceof Timestamp) || !Number.isSafeInteger(count) || count < 0) throw processingError()
-  const elapsed = snapshot.readTime.toMillis() - windowStartedAt.toMillis()
-  if (elapsed < 0) throw processingError(true)
-  if (elapsed >= policy.windowMs) return { ref, windowStartedAt: snapshot.readTime, count: 0 }
-  if (count >= policy.maximum) {
-    throw new HttpError(429, 'RATE_LIMITED', '時間をおいて再試行してください。', true, Math.ceil((policy.windowMs - elapsed) / 1000))
-  }
-  return { ref, windowStartedAt, count }
 }

@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { request } from 'node:http'
+import type { Server } from 'node:http'
 import type { TestContext } from 'node:test'
 import { createServer } from '../src/server'
 import type { ServerOptions } from '../src/server'
 
 export async function startServer(t: TestContext, options: Partial<ServerOptions> = {}) {
-  const server = createServer({ mode: 'demo', ...options })
+  return listenServer(t, createServer({ mode: 'demo', ...options }))
+}
+
+export async function listenServer(t: TestContext, server: Server) {
   assert.equal(server.listening, false)
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
