@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CameraPreview } from './CameraPreview'
+import { isCaptureLocationMapDebugEnabled } from './captureMapDebug'
 
 function position(coords: Partial<GeolocationCoordinates> = {}, timestamp = Date.now()) {
   return { coords: { latitude: 35, longitude: 135, accuracy: 12.4, altitude: null,
@@ -98,6 +99,7 @@ describe('local camera preview', () => {
   })
 
   it('shows a local photo, stops capture, and releases the URL on unmount', async () => {
+    vi.stubEnv('VITE_CAPTURE_LOCATION_MAP_DEBUG', 'true')
     const media = setup()
     const view = render(<CameraPreview onClose={media.onClose} />)
     await loadFrame(media.stream)
@@ -127,10 +129,29 @@ describe('local camera preview', () => {
     expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()
     act(() => media.getCurrentPosition.mock.calls[0][0](position()))
     expect(screen.getByRole('status')).toHaveTextContent('精度 約12m')
-    expect(screen.getByRole('button', { name: '撮影地を見る' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()
+  })
+
+  it('shows the map button only when explicitly enabled in development', async () => {
+    vi.stubEnv('VITE_CAPTURE_LOCATION_MAP_DEBUG', 'true')
+    const media = setup()
+    render(<CameraPreview onClose={media.onClose} />)
+    await loadFrame(media.stream)
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    expect(await screen.findByRole('button', { name: '撮影地を見る' })).toBeInTheDocument()
+  })
+
+  it.each([
+    [false, 'true', false],
+    [true, undefined, false],
+    [true, 'false', false],
+    [true, 'true', true],
+  ])('applies the debug setting safely (dev=%s, setting=%s)', (isDevelopment, setting, expected) => {
+    expect(isCaptureLocationMapDebugEnabled(isDevelopment, setting)).toBe(expected)
   })
 
   it('keeps the photo and GPS when closing the map, then discards them on retake', async () => {
+    vi.stubEnv('VITE_CAPTURE_LOCATION_MAP_DEBUG', 'true')
     const media = setup()
     const stopSecond = vi.fn()
     const second = { getTracks: () => [{ stop: stopSecond }] } as unknown as MediaStream
