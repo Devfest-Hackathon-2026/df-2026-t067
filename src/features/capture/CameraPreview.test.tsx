@@ -180,6 +180,52 @@ describe('local camera preview', () => {
     expect(media.revokeObjectURL).toHaveBeenLastCalledWith('blob:synthetic-photo-1')
   })
 
+  it('preserves a durable submission after rotation through pending, receipt and completion', async () => {
+    const media = setup()
+    const gps = position()
+    media.getCurrentPosition.mockImplementationOnce(success => success(gps))
+    let finish!: (value: Awaited<ReturnType<DemoAnswerContext['api']['submitAnswer']>>) => void
+    const submitAnswer = vi.fn<DemoAnswerContext['api']['submitAnswer']>(() => new Promise(resolve => { finish = resolve }))
+    const receipt = { source: 'real' as const, state: 'RECEIVED' as const, attemptId: 'durable-rotated', outcome: null, nextAction: 'WAIT' as const }
+    const getAttempt = vi.fn<DemoAnswerContext['api']['getAttempt']>().mockResolvedValue({ ...receipt,
+      state: 'COMPLETED', outcome: 'CORRECT', nextAction: 'OPEN_DISCOVERY', optionalDiscoveryId: 'saved-record' })
+    const answer: DemoAnswerContext = { api: { submitAnswer, getAttempt }, challengeId: 'durable-challenge',
+      dataMode: 'durable-local', onReloadQuest: vi.fn() }
+    render(<CameraPreview onClose={media.onClose} answer={answer} />)
+    await loadFrame(media.stream)
+    const captureStartedAt = Date.now()
+    await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const captureFinishedAt = Date.now()
+    await media.user.click(screen.getByRole('button', { name: '時計回りに回転' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '写真と位置をテスト送信' })).toBeEnabled())
+    await media.user.click(screen.getByRole('button', { name: '写真と位置をテスト送信' }))
+    const [input, call] = submitAnswer.mock.calls[0]
+    expect(input.photo).toBe(media.createObjectURL.mock.calls[1][0])
+    expect(input.metadata.position).toEqual({ latitude: 35, longitude: 135, accuracyMeters: 12.4,
+      measuredAt: new Date(gps.timestamp).toISOString() })
+    expect(Date.parse(input.metadata.capturedAt)).toBeGreaterThanOrEqual(captureStartedAt)
+    expect(Date.parse(input.metadata.capturedAt)).toBeLessThanOrEqual(captureFinishedAt)
+    const rotations = ['時計回りに回転', '反時計回りに回転'].map(name => screen.getByRole('button', { name }))
+    for (const button of rotations) {
+      expect(button).toBeDisabled()
+      await media.user.click(button)
+    }
+    expect(call?.signal?.aborted).toBe(false)
+    expect(screen.getByRole('button', { name: '受付を確認しています…' })).toBeDisabled()
+    await act(async () => finish(receipt))
+    expect(await screen.findByText('回答を受け付けました。判定結果を確認できます。')).toBeVisible()
+    for (const button of rotations) {
+      expect(button).toBeDisabled()
+      await media.user.click(button)
+    }
+    expect(media.createImageBitmap).toHaveBeenCalledOnce()
+    await media.user.click(screen.getByRole('button', { name: '判定結果を確認' }))
+    expect(await screen.findByText('テストでクリアしました。「自分の記録」で確認できます。')).toBeVisible()
+    expect(getAttempt).toHaveBeenCalledExactlyOnceWith(receipt.attemptId, { signal: expect.any(AbortSignal) })
+    expect(submitAnswer).toHaveBeenCalledOnce()
+    expect(call?.signal?.aborted).toBe(false)
+  })
+
   it('rotates counterclockwise when that button is selected', async () => {
     const media = setup()
     render(<CameraPreview onClose={media.onClose} />)
