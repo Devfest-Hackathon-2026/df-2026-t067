@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseCreateManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseCreateManagedQuest, parsePauseManagedQuest, parsePublishManagedQuest, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
 import { handlePhotoTest } from './admin-photo-tests-http'
 import { HttpError, invalidInput } from './errors'
+import type { FirestoreManagedPublication } from './firestore-admin-publication'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { send } from './http-server'
 import { readJsonObject } from './json-body'
@@ -11,10 +12,10 @@ import { paginate, parseId, validateQuery } from './query'
 type PhotoTestDependencies = Pick<Parameters<typeof handlePhotoTest>[2], 'assets' | 'options' | 'store' | 'acquire'>
 
 export function createDurableDraftHandler(store: FirestoreManagedDraftStore, authenticate: (request: IncomingMessage) => Promise<string>,
-  photoTest?: PhotoTestDependencies) {
+  photoTest?: PhotoTestDependencies, publication?: FirestoreManagedPublication) {
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const memberships = path === '/api/v1/me/memberships'
-    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test))?)?$/.exec(path)
+    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test|publish|pause))?)?$/.exec(path)
     if (!memberships && !quest) return false
 
     const action = quest?.[3]
@@ -64,6 +65,12 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
       } else if (action === 'submit-review') {
         const { expectedDraftRevision } = parseSubmitReview(body)
         send(response, 200, await store.submitReview(uid, orgId, questId, expectedDraftRevision))
+      } else if (action === 'publish' || action === 'pause') {
+        if (!publication) throw new HttpError(503, 'SYSTEM_ERROR', '公開・休止の処理が未接続です。')
+        const updated = action === 'publish'
+          ? await publication.publish(uid, orgId, questId, parsePublishManagedQuest(body))
+          : await publication.pause(uid, orgId, questId, parsePauseManagedQuest(body))
+        send(response, 200, updated)
       } else {
         send(response, 200, await store.update(uid, orgId, questId, parseUpdateManagedQuest(body)))
       }

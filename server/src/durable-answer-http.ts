@@ -12,6 +12,8 @@ import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import type { AdmissionPolicy } from './firestore-admission'
 import { FirestorePhotoTestStore } from './firestore-admin-photo-tests'
+import { FirestoreManagedPublication } from './firestore-admin-publication'
+import type { PublicationPhotos } from './firestore-admin-publication'
 import { processingError } from './firestore-answer-data'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './firestore-answer-intake'
 import type { AnswerIdentity } from './firestore-answer-processing'
@@ -34,6 +36,7 @@ interface DurableAnswerHttpOptions {
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
   photoTest?: AdminPhotoTestOptions
+  publication?: PublicationPhotos
   acquireUpload(uid: string): () => void
   enqueue?(input: AnswerIdentity): Promise<void>
 }
@@ -49,10 +52,12 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const photoTest = dataMode === 'durable-local' && drafts && assets && options.photoTest ? {
     store: new FirestorePhotoTestStore(options.db, drafts), assets, options: options.photoTest, acquire: options.acquireUpload,
   } : undefined
-  const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest)
+  const publicationPhotos = dataMode === 'durable-local' ? options.publication : undefined
+  const publication = drafts && publicationPhotos && new FirestoreManagedPublication(options.db, drafts, publicationPhotos)
+  const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication)
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
-    if (await handlePublicCatalog(options.db, request, response, path, params)) return
+    if (await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (await discoveryHandler(request, response, path, params)) return
     if (await draftHandler?.(request, response, path, params)) return
     const asset = assets && matchAssetRoute(path)
