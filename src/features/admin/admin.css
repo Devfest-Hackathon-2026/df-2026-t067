@@ -20,9 +20,12 @@
 .admin-read-list { display: grid; gap: 12px; padding-inline-start: 24px; overflow-wrap: anywhere; }
 .admin-read-list li > p { margin: 4px 0; }
 .admin-demo label { display: block; margin: 14px 0; font-weight: var(--ui-weight-strong); }
-.admin-demo input:not([type=checkbox]):not([type=file]), .admin-demo textarea { display: block; width: 100%; margin-top: 6px; padding: 10px 11px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: white; color: inherit; font: inherit; }
+.admin-demo input:not([type=checkbox]):not([type=file]):not([type=radio]), .admin-demo textarea, .admin-demo select { display: block; width: 100%; margin-top: 6px; padding: 10px 11px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: white; color: inherit; font: inherit; }
 .admin-demo input[type=file] { display: block; max-width: 100%; margin-top: 8px; font: inherit; }
 .admin-demo input[type=checkbox] { width: 18px; height: 18px; margin: 0 8px 0 0; accent-color: var(--ui-ink); vertical-align: middle; }
+.admin-demo input[type=radio] { width: 18px; height: 18px; margin: 0; accent-color: var(--ui-ink); }
+.admin-demo [role=radiogroup] { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.admin-demo [role=radiogroup] label { display: inline-flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
 .admin-demo :focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
 .admin-demo fieldset { margin: 18px 0; padding: 12px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); }
 .admin-demo legend { padding: 0 5px; font-weight: var(--ui-weight-strong); }
@@ -65,7 +68,7 @@
 .demo-notice { border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-soft); color: var(--ui-ink); padding: 16px; }
 .form-section, .traveler-card { background: var(--ui-surface); border: var(--ui-border-width) solid var(--ui-line); box-shadow: var(--ui-shadow); padding: 24px; }
 .admin-demo label { font-weight: var(--ui-weight-strong); }
-.admin-demo input:not([type=checkbox]):not([type=file]), .admin-demo textarea { min-height: 44px; background: var(--ui-surface); border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); color: var(--ui-ink); }
+.admin-demo input:not([type=checkbox]):not([type=file]):not([type=radio]), .admin-demo textarea, .admin-demo select { min-height: 44px; background: var(--ui-surface); border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); color: var(--ui-ink); }
 .admin-demo input[type=file] { font-size: 14px; }
 .admin-demo input::file-selector-button { margin-right: 12px; padding: 8px 12px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-tint); color: var(--ui-ink); font: inherit; font-weight: var(--ui-weight-control); cursor: pointer; }
 .admin-demo input[type=checkbox] { accent-color: var(--ui-ink); }
@@ -101,4 +104,4 @@
   .admin-demo button { max-width: 100%; }
 }
 
-.admin-demo input:not([type=checkbox]):not([type=file]), .admin-demo textarea, .admin-demo button, .admin-demo input::file-selector-button { border-color: var(--ui-control-line); }
+.admin-demo input:not([type=checkbox]):not([type=file]):not([type=radio]), .admin-demo textarea, .admin-demo select, .admin-demo button, .admin-demo input::file-selector-button { border-color: var(--ui-control-line); }

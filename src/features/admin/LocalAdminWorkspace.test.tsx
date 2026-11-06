@@ -20,6 +20,24 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { headers: {
 } })
 const page = (items: unknown[]) => json({ items, nextCursor: null })
 
+it('does not fall back to the memory API when the selected persistent API returns a different mode', async () => {
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {},
+    signInWithGoogle: async () => {}, signOut: async () => {}, getIdToken: async () => 'test-token',
+  }
+  const fetcher = vi.fn<typeof fetch>(async () => json({ uid: 'test-manager' }))
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} dataMode="durable-local" />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('ログインを確認できませんでした。')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('heading', { name: '所属する組織' })).not.toBeInTheDocument()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
 it('requires verified membership, cancels an old organization read, and shows reports only for a publisher', async () => {
   const user = userEvent.setup()
   let snapshot: AuthSnapshot = { status: 'signed-out', user: null }

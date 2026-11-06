@@ -31,7 +31,7 @@ function ChallengePreview({ content, areaLabel }: { content: ChallengePreviewCon
       <ShootingConditionIndicators conditions={content} />
     </header>
     <p>{shown(content.question)}</p>
-    <section aria-labelledby="preview-area-heading"><h4 id="preview-area-heading">公開探索エリア</h4><p>{areaLabel ?? '青葉みらい市の行政区域（デモ用の架空エリア）'}</p></section>
+    <section aria-labelledby="preview-area-heading"><h4 id="preview-area-heading">公開探索エリア</h4><p>{areaLabel ?? '青葉みらい市の行政区域（架空エリア）'}</p></section>
     <section aria-labelledby="preview-conditions-heading"><h4 id="preview-conditions-heading">挑戦前の条件</h4>
       <dl><dt>料金</dt><dd>{shown(content.price)}</dd><dt>撮影時の注意</dt><dd>{shown(content.photoNote)}</dd></dl>
     </section>
@@ -53,7 +53,7 @@ export default function TravelerPreview({ challengeContent, afterClearContent, m
     <p className="demo-notice" role="note">管理用プレビュー・表示確認のみ。実際の旅行者画面、写真判定、公開には未接続です。</p>
     <div className="preview-mode" role="group" aria-label="表示する内容">
       <button type="button" aria-pressed={mode === 'challenge'} onClick={() => onModeChange('challenge')}>挑戦前の問題</button>
-      <button type="button" aria-pressed={mode === 'after-clear'} onClick={() => onModeChange('after-clear')}>クリア後の解説（デモ）</button>
+      <button type="button" aria-pressed={mode === 'after-clear'} onClick={() => onModeChange('after-clear')}>クリア後の解説</button>
     </div>
     {mode === 'challenge' ? <ChallengePreview content={challengeContent} areaLabel={areaLabel} /> : <ClearExplanationPreview content={afterClearContent} />}
     <button type="button" onClick={onEdit}>A04編集へ戻る</button>
