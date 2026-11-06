@@ -4,7 +4,7 @@ import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'fir
 import type { AttemptResult } from '../../src/shared/api/types'
 import { parseDiscovery } from '../../src/shared/api/validation'
 import { invalidInput } from './errors'
-import { answerTransaction, conflict, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion, recordAnswerPhotoPath,
+import { answerTransaction, conflict, discoveryKeyId, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion, recordAnswerPhotoPath,
   storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
 import { parseId } from './query'
 
@@ -117,7 +117,8 @@ export async function completeKnownDiscovery(db: Firestore, input: LeasedAnswer)
     requireLiveLease(receipt, data, input.leaseId)
     const current = await readCurrentVersion(db, tx, data, input.uid)
     if (workStep(data, current, true) !== 'verify') throw processingError(true)
-    const { discovery, existing } = await readDiscovery(db, tx, input.uid, current.placeId)
+    const { discovery, existing, deletedAt } = await readDiscovery(db, tx, input.uid, current.placeId)
+    if (submittedBeforeDeletion(data, deletedAt)) return finishDeletedAnswer(tx, receipt)
     if (!existing) return null
     return finishAttempt(tx, receipt, { attemptId: input.attemptId, state: 'COMPLETED', source: 'real',
       outcome: 'ALREADY_CLEARED', optionalDiscoveryId: discovery.id, nextAction: 'VIEW_DISCOVERY' })
@@ -135,8 +136,9 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
     const { questId, version, placeId, snapshot } = current
     assertMatchCheckpoint(data, current)
     const generation = preparedGeneration(data)
-    const { discovery, existing } = await readDiscovery(db, tx, uid, placeId)
-    const discoveryId = discovery.id
+    const { key, discovery, existing, deletedAt } = await readDiscovery(db, tx, uid, placeId)
+    if (submittedBeforeDeletion(data, deletedAt)) return finishDeletedAnswer(tx, receipt)
+    const discoveryId = existing ? discovery.id : createHash('sha256').update(JSON.stringify([uid, placeId, attemptId])).digest('hex')
     if (!existing) {
       const areaId = storedId(snapshot.areaId)
       if (typeof snapshot.placeName !== 'string' || !snapshot.placeName.trim() || snapshot.placeName.length > 200 ||
@@ -146,10 +148,11 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
         descriptionSnapshot: snapshot.descriptionSnapshot, revealedLocation: snapshot.revealedLocation,
         ownerPhoto: `/api/v1/me/discoveries/${discoveryId}/photo`, firstClearedAt: receipt.readTime.toDate().toISOString(),
       })
-      tx.create(discovery, {
+      tx.create(db.collection('discoveries').doc(discoveryId), {
         ...record, uid, areaId, firstClearedAt: FieldValue.serverTimestamp(),
         photoObject: { path: recordAnswerPhotoPath(attemptId), generation },
       })
+      tx.set(key, { discoveryId })
     }
     return finishAttempt(tx, receipt, { attemptId, state: 'COMPLETED', outcome: existing ? 'ALREADY_CLEARED' : 'CORRECT',
       optionalDiscoveryId: discoveryId, source: 'real', nextAction: 'VIEW_DISCOVERY' })
@@ -157,13 +160,26 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
 }
 
 async function readDiscovery(db: Firestore, tx: Transaction, uid: string, placeId: string) {
-  const discoveryId = createHash('sha256').update(JSON.stringify([uid, placeId])).digest('hex')
+  const key = db.collection('discoveryKeys').doc(discoveryKeyId(uid, placeId))
+  const mapping = (await tx.get(key)).data()
+  if (mapping && mapping.discoveryId === undefined && !(mapping.deletedAt instanceof Timestamp)) throw processingError()
+  const discoveryId = mapping?.discoveryId === undefined ? key.id : storedId(mapping.discoveryId)
   const discovery = db.collection('discoveries').doc(discoveryId)
   const existing = (await tx.get(discovery)).data()
+  if (mapping?.discoveryId !== undefined && !existing) throw processingError()
+  if (mapping?.deletedAt instanceof Timestamp && existing) throw processingError()
   if (existing && (existing.uid !== uid || existing.placeId !== placeId || existing.discoveryId !== discoveryId ||
     !(existing.firstClearedAt instanceof Timestamp) || !validGeneration(existing.photoObject?.generation) ||
     !validRecordPhotoPath(existing.photoObject.path))) throw processingError()
-  return { discovery, existing }
+  return { key, discovery, existing, deletedAt: mapping?.deletedAt instanceof Timestamp ? mapping.deletedAt : undefined }
+}
+
+function submittedBeforeDeletion(data: DocumentData, deletedAt?: Timestamp): boolean {
+  return deletedAt !== undefined && (!(data.receivedAt instanceof Timestamp) || data.receivedAt.toMillis() <= deletedAt.toMillis())
+}
+
+function finishDeletedAnswer(tx: Transaction, receipt: DocumentSnapshot): AttemptResult {
+  return finishAttempt(tx, receipt, { attemptId: receipt.id, state: 'COMPLETED', source: 'real', outcome: 'SYSTEM_ERROR', nextAction: 'RETAKE' })
 }
 
 function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult): AttemptResult {

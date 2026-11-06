@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { Storage } from '@google-cloud/storage'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
@@ -12,6 +12,7 @@ import { runDueAnswerJobs } from '../src/durable-answer-jobs'
 import { runDurableAnswer } from '../src/durable-answer-worker'
 import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
+import { runDueDiscoveryDeletions } from '../src/firestore-discovery-deletions'
 import { preparePhoto } from '../src/photo-input'
 import { listenServer } from './helpers'
 import { otherSyntheticPng, syntheticPng } from './photo-fixtures'
@@ -79,8 +80,13 @@ test('Cloud Storage photo generations stay immutable across retries', {
     ])
     const queued = new Map<string, { uid: string; attemptId: string; digest: string }>()
     const uploadLimiter = new DemoAnswerStore()
-    let failEnqueue = false
-    const server = createDurableAnswerServer({ db, photos: store, verifier: { verify: async (token) => ({ uid: token }) },
+    let failEnqueue = false, failDeletion = false
+    const photos = { writeIncoming: store.writeIncoming.bind(store), readRecord: store.readRecord.bind(store),
+      deleteRecord: async (reference: Parameters<AnswerPhotoStorage['deleteRecord']>[0]) => {
+        if (failDeletion) { failDeletion = false; throw new HttpError(503, 'SYSTEM_ERROR', '代替削除障害', true) }
+        return store.deleteRecord(reference)
+      } }
+    const server = createDurableAnswerServer({ db, photos, verifier: { verify: async (token) => ({ uid: token }) },
       challengePolicy: { maximum: 10, windowMs: 60_000 }, answerPolicy: { maximum: 10, windowMs: 60_000 },
       acquireUpload: (uid) => uploadLimiter.acquire(uid), enqueue: async (input) => {
         if (failEnqueue) { failEnqueue = false; throw new Error('代替ジョブ投入の障害') }
@@ -160,6 +166,7 @@ test('Cloud Storage photo generations stay immutable across retries', {
     assert.equal((await owner.getDiscovery(tiedId)).ownerPhoto, `/api/v1/me/discoveries/${tiedId}/photo`)
     await assert.rejects(owner.listDiscoveries({ areaId: 'different-area', cursor: page.nextCursor }), { code: 'INVALID_INPUT' })
     await assert.rejects(client('other-owner').listDiscoveries({ areaId: 'demo-area', cursor: page.nextCursor }), { code: 'INVALID_INPUT' })
+    await db.collection('discoveries').doc(tiedId).delete()
     assert.deepEqual(await runDurableAnswer(identity, options), { kind: 'completed', result: final })
     const repeatVisit = await runDurableAnswer(await submit(identity.uid), options)
     assert(repeatVisit.kind === 'completed' && repeatVisit.result.outcome === 'ALREADY_CLEARED')
@@ -230,5 +237,44 @@ test('Cloud Storage photo generations stay immutable across retries', {
     assert.equal(matcherCalls, 2)
     const discoveries = await db.collection('discoveries').where('placeId', '==', placeId).get()
     assert.equal(discoveries.size, 2)
+
+    await quest.update({ publishedVersion: 1, status: 'published' })
+    const stale = await submit(identity.uid)
+    await assert.rejects(client('other-owner').deleteDiscovery(discovery.discoveryId), { code: 'NOT_FOUND' })
+    failDeletion = true
+    const deletion = await owner.deleteDiscovery(discovery.discoveryId)
+    assert.deepEqual(await owner.getDeletion(deletion.deletionId), { ...deletion, state: 'failed', retryable: true })
+    await assert.rejects(client('other-owner').getDeletion(deletion.deletionId), { code: 'NOT_FOUND' })
+    assert.deepEqual((await owner.listDiscoveries()).items, [])
+    await assert.rejects(owner.getDiscoveryPhoto(discovery.discoveryId), { code: 'NOT_FOUND' })
+    const oldPhoto = snapshot.get('photoObject')
+    assert.deepEqual((await store.readRecord(oldPhoto)).bytes, photo.bytes)
+    assert.equal(await runDueDiscoveryDeletions(db, photos, { maximumJobs: 10, retryDelayMs: 60_000 }), 1)
+    assert.deepEqual(await owner.getDeletion(deletion.deletionId), { ...deletion, state: 'completed', retryable: false })
+    await assert.rejects(store.readRecord(oldPhoto), { code: 'SYSTEM_ERROR', retryable: false })
+    await store.deleteRecord(oldPhoto)
+
+    const suppressed = await runDurableAnswer(stale, options)
+    assert(suppressed.kind === 'completed' && suppressed.result.outcome === 'SYSTEM_ERROR')
+    assert.deepEqual((await owner.listDiscoveries()).items, [])
+    assert.equal(matcherCalls, 2)
+    const replacement = await runDurableAnswer(await submit(identity.uid), options)
+    assert(replacement.kind === 'completed' && replacement.result.outcome === 'CORRECT')
+    assert.notEqual(replacement.result.optionalDiscoveryId, discovery.discoveryId)
+    assert.deepEqual(await owner.deleteDiscovery(discovery.discoveryId), deletion)
+    assert.deepEqual(Buffer.from(await (await owner.getDiscoveryPhoto(replacement.result.optionalDiscoveryId)).arrayBuffer()), photo.bytes)
+
+    // Pre-existing durable records used the uniqueness hash as their public ID.
+    const legacyUid = randomUUID(), legacyPlace = randomUUID(), legacyAttempt = randomUUID()
+    const legacyId = createHash('sha256').update(JSON.stringify([legacyUid, legacyPlace])).digest('hex')
+    const legacyIncoming = await store.writeIncoming(legacyAttempt, digest, photo)
+    const legacyPhoto = await store.writeRecord(legacyAttempt, digest, legacyIncoming)
+    await db.collection('discoveries').doc(legacyId).create({ ...snapshot.data(), uid: legacyUid, placeId: legacyPlace,
+      discoveryId: legacyId, photoObject: legacyPhoto })
+    const legacyOwner = client(legacyUid)
+    assert.equal((await legacyOwner.getDiscovery(legacyId)).discoveryId, legacyId)
+    const legacyDeletion = await legacyOwner.deleteDiscovery(legacyId)
+    assert.equal((await legacyOwner.getDeletion(legacyDeletion.deletionId)).state, 'completed')
+    await assert.rejects(store.readRecord(legacyPhoto), { code: 'SYSTEM_ERROR', retryable: false })
   })
 })

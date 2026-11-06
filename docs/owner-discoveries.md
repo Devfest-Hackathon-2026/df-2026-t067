@@ -101,4 +101,10 @@ FR-08/14、AT-10/11/12/19/21/22/24の一部を対象に、実ローカルHTTPと
 
 ローカルのFirestoreエミュレーターとGCS代替環境で、回答で作られた記録、日時が同じ記録のページング、他人・未ログインの拒否、休止後の本人閲覧を確認する。本番の `discoveries` 一覧には `uid` と `firstClearedAt` 降順、地域別では `uid`・`areaId` と `firstClearedAt` 降順に対応する複合インデックスが必要。本番でのインデックス作成と検証は残件。[Firestoreインデックス](https://firebase.google.com/docs/firestore/query-data/index-overview)
 
-永続HTTPの削除と削除状況は未接続で503を返す。通常の開発起動では従来のメモリー上の削除を使う。[永続HTTPの組み立て](answer-intake.md#永続httpの組み立て)
+## 永続HTTPの削除と再開
+
+本人のDELETEで、Firestore上の記録と有効な記録IDの参照を外し、同じトランザクションで削除受付を保存する。受付時点から一覧・詳細・写真には出さない。同じ記録へのDELETEは、後で本人が新しい記録を作った場合も元の削除IDを返す。削除時刻以前に受け付けた未確定回答は記録を復活させない。
+
+非公開の記録JPEGは保存した世代を指定して削除する。成功または対象世代が既に存在しないことを確認してから、削除状態を `completed` にして画像参照を外す。一時障害後は同じ受付を再試行でき、`runDueDiscoveryDeletions` からも回収できる。削除状況は同じ本人だけが照会できる。
+
+ローカルのFirestore・GCS代替環境と合成JPEGで検証する。本番のバケット設定・ソフト削除から物理削除までの期間、受付時の一時画像の清掃、削除回収の定期実行、アカウント削除は残件。通常の開発起動では従来のメモリー上の削除を使う。[Cloud Storageの世代指定削除](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete)・[永続HTTPの組み立て](answer-intake.md#永続httpの組み立て)

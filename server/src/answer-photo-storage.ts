@@ -42,6 +42,21 @@ export class AnswerPhotoStorage {
     return this.read(reference)
   }
 
+  async deleteRecord(reference: PhotoReference): Promise<void> {
+    if (!validRecordPhotoPath(reference?.path) || !readableGeneration(reference.generation)) invalidInput()
+    const { path, generation } = reference
+    return storageOperation(async () => {
+      const file = this.bucket.file(path, { generation })
+      try { await file.delete({ ifGenerationMatch: generation, ignoreNotFound: true }) }
+      catch (error) {
+        if (statusCode(error) !== 412) throw error
+        try { await file.getMetadata() }
+        catch (lookupError) { if (statusCode(lookupError) === 404) return; throw lookupError }
+        throw error
+      }
+    })
+  }
+
   private async writeOnce(path: string, bytes: Buffer): Promise<PhotoReference> {
     // Copy before IO so the bytes and their checksum cannot drift apart.
     const data = Buffer.from(bytes)
