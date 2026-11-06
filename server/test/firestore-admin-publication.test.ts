@@ -7,10 +7,14 @@ import test from 'node:test'
 import type { ManagedQuestDraft } from '../../src/shared/api/admin'
 import { createApiClient } from '../../src/shared/api/client'
 import { AnswerPhotoStorage } from '../src/answer-photo-storage'
+import type { PhotoReference } from '../src/answer-photo-storage'
 import { createFixturePhotoMatcher, durableFixtureFeatures, otherSyntheticPng, syntheticPng } from '../src/demo-photo-test'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
+import { cleanupFinishedAnswerPhotos } from '../src/durable-answer-photo-cleanup'
+import { runDurableAnswer } from '../src/durable-answer-worker'
 import { FirestoreManagedDraftStore } from '../src/firestore-managed-drafts'
 import { FirestoreOrgAssetStore } from '../src/firestore-org-assets'
+import { createPublishedAnswerMaterialLoader } from '../src/published-answer-material'
 import { listenServer } from './helpers'
 
 const firestore = process.env.QUEST_FIRESTORE_TEST_HOST
@@ -156,4 +160,36 @@ test('durable publishing freezes the tested version and pausing stops all public
   await assert.rejects(traveler.submitAnswer({ challengeId: started.challengeId, photo: image(syntheticPng), idempotencyKey: 'old-version',
     metadata: { capturedAt, position: { latitude: 0.125, longitude: 0.25, accuracyMeters: 1, measuredAt: capturedAt } } }), { code: 'QUEST_CHANGED' })
   assert.equal((await v1.get()).get('descriptionSnapshot'), draft.afterClear.explanation)
+
+  const current = await traveler.createChallenge({ questId, expectedVersion: 2 })
+  const recordedAt = new Date().toISOString()
+  const receipt = await traveler.submitAnswer({ challengeId: current.challengeId, photo: image(syntheticPng), idempotencyKey: 'pause-during-save',
+    metadata: { capturedAt: recordedAt, position: { latitude: 0.125, longitude: 0.25, accuracyMeters: 1, measuredAt: recordedAt } } })
+  const attempt = db.collection('attempts').doc(receipt.attemptId)
+  const accepted = await attempt.get()
+  const digest = accepted.get('digest')
+  const incoming = accepted.get('sourcePhoto')
+  let staged: PhotoReference | undefined
+  const result = await runDurableAnswer({ uid: 'traveler', attemptId: receipt.attemptId, digest }, {
+    db, matcher, authorize: async (uid) => uid === 'traveler', leaseDurationMs: 180_000,
+    ...createPublishedAnswerMaterialLoader(db, photos, {
+      maxAccuracyMeters: 30, maxAgeMs: 60_000, maxFutureSkewMs: 5000, maxCaptureMeasurementGapMs: 10_000,
+    }),
+    photos: {
+      readIncoming: photos.readIncoming.bind(photos),
+      async writeRecord(...args) {
+        staged = await photos.writeRecord(...args)
+        await publisher.pauseManagedQuest(orgId, questId, { expectedPublishedVersion: 2, reason: '保存中の休止' })
+        return staged
+      },
+    },
+  })
+  assert(result.kind === 'completed' && result.result.outcome === 'QUEST_UNAVAILABLE')
+  assert.deepEqual(await traveler.getAttempt(receipt.attemptId), result.result)
+  assert.deepEqual((await traveler.listDiscoveries()).items, [])
+  assert(staged)
+  assert.deepEqual((await attempt.get()).get('unusedRecordPhoto'), staged)
+  assert.equal(await cleanupFinishedAnswerPhotos(db, photos, receipt.attemptId), true)
+  await assert.rejects(photos.readIncoming(receipt.attemptId, digest, incoming), { code: 'SYSTEM_ERROR' })
+  await assert.rejects(photos.readRecord(staged), { code: 'SYSTEM_ERROR' })
 })
