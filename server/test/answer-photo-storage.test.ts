@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import test from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { Storage } from '@google-cloud/storage'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
@@ -10,6 +11,7 @@ import { DemoAnswerStore } from '../src/answers'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
 import { runDueAnswerJobs } from '../src/durable-answer-jobs'
 import { cleanupFinishedAnswerPhotos, runDueAnswerPhotoCleanup } from '../src/durable-answer-photo-cleanup'
+import { createDurableAnswerRuntime } from '../src/durable-answer-runtime'
 import { runDurableAnswer } from '../src/durable-answer-worker'
 import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
@@ -322,5 +324,98 @@ test('Cloud Storage photo generations stay immutable across retries', {
       result: { attemptId: legacyAttempt, state: 'COMPLETED', outcome: 'OUTSIDE_AREA', source: 'real', nextAction: 'MOVE_TO_AREA' } })
     assert.equal(await cleanupFinishedAnswerPhotos(db, store, legacyAttempt), true)
     await assert.rejects(store.readIncoming(legacyAttempt, digest, legacyIncoming), { code: 'SYSTEM_ERROR' })
+  })
+
+  await t.test('listening runtime recovers queued work and drains the current answer before stopping', { skip: !firestoreEmulator }, async (runtimeTest) => {
+    const runtimeApp = initializeApp({ projectId: 'demo-t067-runtime-test' }, 'runtime-' + randomUUID())
+    const db = getFirestore(runtimeApp)
+    const questId = 'synthetic-quest'
+    await Promise.all([
+      db.collection('quests').doc(questId).create({ publishedVersion: 1, status: 'published' }),
+      db.collection('questVersions').doc(questId + ':1').create({ placeId: 'synthetic-place', areaId: 'demo-area',
+        placeName: '合成対象', descriptionSnapshot: '合成説明', revealedLocation: { latitude: 0, longitude: 0 } }),
+    ])
+    let entered!: () => void, release!: () => void
+    const matching = new Promise<void>((resolve) => { entered = resolve })
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0, deletions = 0
+    const photos = {
+      writeIncoming: store.writeIncoming.bind(store), readIncoming: store.readIncoming.bind(store),
+      writeRecord: store.writeRecord.bind(store), readRecord: store.readRecord.bind(store),
+      deleteIncoming: store.deleteIncoming.bind(store),
+      async deleteRecord(ref: Parameters<AnswerPhotoStorage['deleteRecord']>[0]) {
+        if (++deletions === 1) throw new HttpError(503, 'SYSTEM_ERROR', '代替削除障害', true)
+        await store.deleteRecord(ref)
+      },
+    }
+    const failures: string[] = []
+    const runtime = createDurableAnswerRuntime({
+      db, photos, verifier: { verify: async (token) => ({ uid: token }) },
+      challengePolicy: { maximum: 10, windowMs: 60_000 }, answerPolicy: { maximum: 10, windowMs: 60_000 },
+      acquireUpload: () => () => {},
+      worker: {
+        leaseDurationMs: 180_000, authorize: async () => true,
+        locationPolicy: async () => ({ zones: [{ latitude: 0, longitude: 0, radiusMeters: 100 }],
+          maxAccuracyMeters: 30, maxAgeMs: 60_000, maxFutureSkewMs: 5000, maxCaptureMeasurementGapMs: 10_000 }),
+        loadReference: async () => ({ reference: other, features: ['合成の確認済み特徴'] }),
+        matcher: async () => {
+          if (++calls === 2) { entered(); await held }
+          return 'MATCH'
+        },
+      },
+      maintenance: { intervalMs: 25, maximumJobs: 10, retryDelayMs: 25, onFailure: (pass) => { failures.push(pass) } },
+    })
+    const { base } = await listenServer(runtimeTest, runtime.server)
+    runtimeTest.after(async () => {
+      release()
+      await runtime.stopMaintenance()
+      await deleteApp(runtimeApp)
+    })
+    const apiFor = (uid: string) => createApiClient({ fetch: (path, init) => fetch(base + String(path), init),
+      getIdToken: async () => uid })
+    async function submit(api: ReturnType<typeof apiFor>) {
+      const challenge = await api.createChallenge({ questId, expectedVersion: 1 })
+      const capturedAt = new Date().toISOString()
+      return api.submitAnswer({ challengeId: challenge.challengeId, idempotencyKey: randomUUID(),
+        photo: new Blob([new Uint8Array(syntheticPng)], { type: 'image/png' }),
+        metadata: { capturedAt, position: { latitude: 0, longitude: 0, accuracyMeters: 5, measuredAt: capturedAt } } })
+    }
+    async function until<T>(read: () => Promise<T | undefined>): Promise<T> {
+      const deadline = Date.now() + 5000
+      do {
+        const value = await read()
+        if (value !== undefined) return value
+        await delay(25)
+      } while (Date.now() < deadline)
+      throw new Error('Scheduled operation did not complete')
+    }
+    const api = apiFor(randomUUID())
+    const receipt = await submit(api)
+    assert.equal(receipt.state, 'RECEIVED')
+    const attempt = db.collection('attempts').doc(receipt.attemptId)
+    const final = await until(async () => {
+      const result = await api.getAttempt(receipt.attemptId)
+      if (result.state === 'COMPLETED' && (await attempt.get()).get('sourcePhoto') === undefined) return result
+    })
+    assert(final.outcome === 'CORRECT')
+    assert.deepEqual(Buffer.from(await (await api.getDiscoveryPhoto(final.optionalDiscoveryId)).arrayBuffer()), photo.bytes)
+    const deletion = await api.deleteDiscovery(final.optionalDiscoveryId)
+    await until(async () => (await api.getDeletion(deletion.deletionId)).state === 'completed' ? true : undefined)
+    assert(deletions >= 2)
+    await assert.rejects(api.getDiscovery(final.optionalDiscoveryId), { code: 'NOT_FOUND' })
+
+    const second = apiFor(randomUUID()), third = apiFor(randomUUID())
+    const active = await submit(second)
+    await matching
+    const waiting = await submit(third)
+    await delay(100)
+    assert.equal((await third.getAttempt(waiting.attemptId)).state, 'RECEIVED')
+    const stopped = runtime.stopMaintenance()
+    release()
+    await stopped
+    assert.equal((await second.getAttempt(active.attemptId)).outcome, 'CORRECT')
+    assert.equal((await third.getAttempt(waiting.attemptId)).state, 'RECEIVED')
+    assert.equal(calls, 2)
+    assert.deepEqual(failures, [])
   })
 })

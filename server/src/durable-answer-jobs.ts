@@ -10,15 +10,16 @@ interface JobSweepOptions {
   worker: Omit<Parameters<typeof runDurableAnswer>[1], 'retryVerification'>
   maximumJobs: number
   retryDelayMs: number
+  signal?: AbortSignal
 }
 
 // One bounded pass. New receipts and post-match stages carry the schedule in
 // Firestore, so this does not depend on an HTTP enqueue succeeding.
-export async function runDueAnswerJobs({ worker, maximumJobs, retryDelayMs }: JobSweepOptions) {
+export async function runDueAnswerJobs({ worker, maximumJobs, retryDelayMs, signal }: JobSweepOptions) {
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 256 ||
     !Number.isSafeInteger(retryDelayMs) || retryDelayMs < 1) invalidInput()
   const report = { examined: 0, completed: 0, deferred: 0, discarded: 0 }
-  if (worker.signal?.aborted) return report
+  if (signal?.aborted || worker.signal?.aborted) return report
   let due
   try {
     due = await worker.db.collection('attempts').where('nextWorkAt', '<=', Timestamp.now()).orderBy('nextWorkAt')
@@ -26,7 +27,8 @@ export async function runDueAnswerJobs({ worker, maximumJobs, retryDelayMs }: Jo
   } catch { throw processingError(true) }
 
   for (const job of due.docs) {
-    if (worker.signal?.aborted) break
+    // Shutdown stops claiming jobs, but lets an active verification save its checkpoint.
+    if (signal?.aborted || worker.signal?.aborted) break
     report.examined++
     const identity = jobIdentity(job)
     if (!identity) {

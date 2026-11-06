@@ -6,17 +6,36 @@ import type { FirebaseBoundary } from '../src/firebase-auth'
 import { HttpError } from '../src/errors'
 import { expectError, startServer } from './helpers'
 
-function boundary(verifyIdToken: ReturnType<FirebaseBoundary['getAuth']>['verifyIdToken']) {
+function boundary(verifyIdToken: ReturnType<FirebaseBoundary['getAuth']>['verifyIdToken'],
+  getUser: ReturnType<FirebaseBoundary['getAuth']>['getUser'] = async () => ({ disabled: false })) {
   const initializations: { options: AppOptions; name: string }[] = []
   const app = {} as App
   let deletions = 0
   const sdk: FirebaseBoundary = {
     initializeApp(options, name) { initializations.push({ options, name }); return app },
-    getAuth(value) { assert.equal(value, app); return { verifyIdToken } },
+    getAuth(value) { assert.equal(value, app); return { verifyIdToken, getUser } },
     async deleteApp(value) { assert.equal(value, app); deletions++ },
   }
   return { sdk, initializations, deletions: () => deletions }
 }
+
+test('durable auth requests revocation checks and rejects missing or disabled queued owners', async () => {
+  const fake = boundary(async (_token, checkRevoked) => {
+    assert.equal(checkRevoked, true)
+    return { uid: 'active' }
+  }, async (uid) => {
+    if (uid === 'missing') throw Object.assign(new Error(), { code: 'auth/user-not-found' })
+    if (uid === 'unavailable') throw new Error('private SDK detail')
+    return { disabled: uid === 'disabled' }
+  })
+  const verifier = createFirebaseVerifier('demo-project', fake.sdk, true)
+  assert.deepEqual(await verifier.verify('signed-boundary-input'), { uid: 'active' })
+  assert.equal(await verifier.isActiveUser('active'), true)
+  assert.equal(await verifier.isActiveUser('disabled'), false)
+  assert.equal(await verifier.isActiveUser('missing'), false)
+  await assert.rejects(verifier.isActiveUser('unavailable'), { code: 'AUTH_UNAVAILABLE' })
+  await verifier.close()
+})
 
 test('real adapter delegates to Firebase verifyIdToken with explicit project and returns only verified uid', async () => {
   const calls: [string, boolean][] = []

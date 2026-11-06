@@ -1,4 +1,4 @@
-export interface ServerConfig {
+interface DemoServerConfig {
   mode: 'demo'
   port: number
   firebaseProjectId?: string
@@ -12,10 +12,23 @@ export interface ServerConfig {
   demoReports?: true
 }
 
+export interface DurableLocalConfig {
+  mode: 'durable-local'
+  port: number
+  firebaseProjectId: string
+  storageEndpoint: string
+}
+
+type ServerConfig = DemoServerConfig | DurableLocalConfig
+
 export function assertDemoMode(mode: unknown, nodeEnv: string | undefined): asserts mode is 'demo' {
-  if (mode !== 'demo') throw new Error('QUEST_DATA_MODE=demo must be explicitly selected; no real data adapter exists.')
+  if (mode !== 'demo') throw new Error('QUEST_DATA_MODE must be explicitly selected as demo or durable-local.')
+  assertLocalEnvironment(nodeEnv)
+}
+
+function assertLocalEnvironment(nodeEnv: string | undefined): void {
   if ((nodeEnv !== undefined && nodeEnv !== 'development' && nodeEnv !== 'test') || process.env.NODE_ENV === 'production') {
-    throw new Error('Demo data is restricted to development/test; production startup is not supported.')
+    throw new Error('Local data is restricted to development/test; production startup is not supported.')
   }
 }
 
@@ -32,12 +45,15 @@ export function assertProjectId(projectId: string): void {
 }
 
 export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
-  assertDemoMode(env.QUEST_DATA_MODE, env.NODE_ENV)
+  const mode = env.QUEST_DATA_MODE
+  if (mode === 'durable-local') assertLocalEnvironment(env.NODE_ENV)
+  else assertDemoMode(mode, env.NODE_ENV)
   assertNoAuthEmulator(env)
   const portText = env.PORT ?? '8787'
   const port = Number(portText)
   if (!/^[1-9]\d{0,4}$/.test(portText) || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.')
-  const config: ServerConfig = { mode: env.QUEST_DATA_MODE, port }
+  if (mode === 'durable-local') return readDurableLocalConfig(env, port)
+  const config: DemoServerConfig = { mode, port }
   if (env.QUEST_ADMIN_ASSETS_MODE !== undefined && env.QUEST_ADMIN_ASSETS_MODE !== 'off') {
     if (env.QUEST_ADMIN_ASSETS_MODE !== 'memory') throw new Error('QUEST_ADMIN_ASSETS_MODE must be off or memory.')
     config.demoAdminAssets = true
@@ -85,4 +101,26 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
     config.firebaseProjectId = env.FIREBASE_PROJECT_ID
   }
   return config
+}
+
+function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLocalConfig {
+  const firebaseProjectId = env.FIREBASE_PROJECT_ID
+  if (!firebaseProjectId) throw new Error('FIREBASE_PROJECT_ID is required for durable-local.')
+  assertProjectId(firebaseProjectId)
+  if (!isLoopbackHost(env.FIRESTORE_EMULATOR_HOST)) {
+    throw new Error('FIRESTORE_EMULATOR_HOST must be 127.0.0.1 with an explicit port.')
+  }
+  const storageEndpoint = env.QUEST_DURABLE_STORAGE_ENDPOINT
+  if (!storageEndpoint?.startsWith('http://') || !isLoopbackHost(storageEndpoint.slice('http://'.length))) {
+    throw new Error('QUEST_DURABLE_STORAGE_ENDPOINT must be http://127.0.0.1 with an explicit port.')
+  }
+  if (env.STORAGE_EMULATOR_HOST !== undefined || env.FIREBASE_STORAGE_EMULATOR_HOST !== undefined) {
+    throw new Error('Unset STORAGE_EMULATOR_HOST and FIREBASE_STORAGE_EMULATOR_HOST for durable-local.')
+  }
+  return { mode: 'durable-local', port, firebaseProjectId, storageEndpoint }
+}
+
+function isLoopbackHost(host: string | undefined): boolean {
+  const port = /^127\.0\.0\.1:([1-9]\d{0,4})$/.exec(host ?? '')?.[1]
+  return port !== undefined && Number(port) <= 65535
 }

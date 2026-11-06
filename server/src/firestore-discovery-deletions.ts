@@ -46,13 +46,15 @@ export async function getDiscoveryDeletion(db: Firestore, uid: string, deletionI
 }
 
 export async function runDueDiscoveryDeletions(db: Firestore, photos: DeletionPhotos,
-  { maximumJobs, retryDelayMs }: { maximumJobs: number; retryDelayMs: number }): Promise<number> {
+  { maximumJobs, retryDelayMs, signal }: { maximumJobs: number; retryDelayMs: number; signal?: AbortSignal }): Promise<number> {
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 256 ||
     !Number.isSafeInteger(retryDelayMs) || retryDelayMs < 1) invalidInput()
+  if (signal?.aborted) return 0
   const due = await db.collection('discoveryDeletions').where('nextDeleteAt', '<=', Timestamp.now())
     .orderBy('nextDeleteAt').limit(maximumJobs).select('state').get()
   let completed = 0
   for (const job of due.docs) {
+    if (signal?.aborted) break
     if (await completeDeletion(db, photos, job.ref, retryDelayMs)) completed++
   }
   return completed
