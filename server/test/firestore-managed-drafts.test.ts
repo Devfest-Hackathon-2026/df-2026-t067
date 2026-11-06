@@ -79,7 +79,49 @@ test('durable managed drafts isolate organizations and use one revision for text
   assert(!JSON.stringify(await editor.getManagedQuest(orgId, questId)).includes('latitude'))
   assert.deepEqual((await editor.listQuests()).items, [])
   await assert.rejects(editor.getQuest(questId), { code: 'NOT_FOUND' })
+
+  await t.test('review submission persists only for the checked revision', async () => {
+    const initial = await editor.createManagedQuest(orgId, draft)
+    const incomplete = await colleague.submitManagedQuestReview(orgId, initial.questId, initial.draftRevision)
+    assert.equal(incomplete.quest.status, 'draft')
+    assert.deepEqual(incomplete.missing, [
+      'materials.evidence', 'materials.photoRights', 'referenceAssetId', 'shootingAreas',
+      'content.question', 'content.hints', 'content.verifiedFeatures',
+    ])
+
+    const updated = await editor.updateManagedQuest(orgId, initial.questId, {
+      expectedDraftRevision: initial.draftRevision,
+      draft: { ...draft, referenceAssetId: 'reference', hintAssetId: 'hint',
+        materials: { ...draft.materials, evidence: '架空の根拠', photoRights: '撮影者の許可あり' },
+        content: { ...draft.content, question: 'どの建物？', hints: ['一つ目', '二つ目', '三つ目'], verifiedFeatures: '赤い屋根\n丸い窓' } },
+    })
+    const { draftRevision: currentRevision } = await editor.updateShootingAreas(orgId, initial.questId, {
+      expectedDraftRevision: updated.draftRevision, zones,
+    })
+    await assert.rejects(second('other').submitManagedQuestReview(orgId, initial.questId, currentRevision), { code: 'FORBIDDEN' })
+    await assert.rejects(colleague.submitManagedQuestReview(orgId, initial.questId, updated.draftRevision), { code: 'DRAFT_CONFLICT' })
+
+    const pending = await editor.submitManagedQuestReview(orgId, initial.questId, currentRevision)
+    assert.equal(pending.quest.status, 'review_pending')
+    assert.equal(pending.quest.draftRevision, currentRevision)
+    assert.deepEqual(pending.missing, [])
+    assert.deepEqual(await colleague.getManagedQuest(orgId, initial.questId), pending.quest)
+    assert.deepEqual(await colleague.submitManagedQuestReview(orgId, initial.questId, currentRevision), pending)
+    await assert.rejects(editor.getQuest(initial.questId), { code: 'NOT_FOUND' })
+
+    const next = await editor.updateShootingAreas(orgId, initial.questId, { expectedDraftRevision: currentRevision, zones })
+    await assert.rejects(colleague.submitManagedQuestReview(orgId, initial.questId, currentRevision), { code: 'DRAFT_CONFLICT' })
+    assert.equal((await colleague.getManagedQuest(orgId, initial.questId)).status, 'draft')
+    assert.equal((await colleague.submitManagedQuestReview(orgId, initial.questId, next.draftRevision)).quest.status, 'review_pending')
+    await db.collection('orgAssets').doc('hint').delete()
+    const missingHint = await colleague.submitManagedQuestReview(orgId, initial.questId, next.draftRevision)
+    assert.deepEqual(missingHint.missing, ['hintAssetId'])
+    assert.equal(missingHint.quest.status, 'draft')
+    assert.deepEqual(await editor.getManagedQuest(orgId, initial.questId), missingHint.quest)
+  })
+
   await member('editor', orgId).update({ active: false })
+  await assert.rejects(editor.submitManagedQuestReview(orgId, questId, configured.draftRevision), { code: 'FORBIDDEN' })
   await assert.rejects(editor.updateManagedQuest(orgId, questId, { expectedDraftRevision: configured.draftRevision, draft: created.draft }), { code: 'FORBIDDEN' })
   assert.equal((await colleague.getManagedQuest(orgId, questId)).draftRevision, configured.draftRevision)
 })
