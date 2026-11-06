@@ -4,11 +4,12 @@ import { createDurableAnswerServer } from './durable-answer-http'
 import { runDueAnswerJobs } from './durable-answer-jobs'
 import { runDueAnswerPhotoCleanup } from './durable-answer-photo-cleanup'
 import type { runDurableAnswer } from './durable-answer-worker'
+import { createIntakePhotoCleanup } from './durable-intake-photo-cleanup'
 import { runDueDiscoveryDeletions } from './firestore-discovery-deletions'
 
 type HttpOptions = Parameters<typeof createDurableAnswerServer>[0]
 type WorkerOptions = Parameters<typeof runDurableAnswer>[1]
-type MaintenancePass = 'answers' | 'discovery-deletions' | 'answer-photo-cleanup'
+type MaintenancePass = 'answers' | 'discovery-deletions' | 'answer-photo-cleanup' | 'intake-photo-cleanup'
 
 interface RuntimeOptions extends Omit<HttpOptions, 'photos' | 'enqueue'> {
   photos: Pick<AnswerPhotoStorage, 'writeIncoming' | 'readIncoming' | 'writeRecord' | 'readRecord' | 'deleteRecord' | 'deleteIncoming'>
@@ -17,6 +18,7 @@ interface RuntimeOptions extends Omit<HttpOptions, 'photos' | 'enqueue'> {
     intervalMs: number
     maximumJobs: number
     retryDelayMs: number
+    intakePhotos?: Parameters<typeof createIntakePhotoCleanup>[1]
     onFailure?(pass: MaintenancePass): void
   }
 }
@@ -34,17 +36,18 @@ export function createDurableAnswerRuntime({ worker, maintenance, ...http }: Run
   const { signal } = stop
   const sweep = { maximumJobs, retryDelayMs, signal }
   let running = Promise.resolve()
-  const passes: Record<MaintenancePass, () => Promise<unknown>> = {
+  const passes: Record<MaintenancePass, (() => Promise<unknown>) | undefined> = {
     answers: () => runDueAnswerJobs({ ...sweep, worker: { ...worker, db, photos } }),
     'discovery-deletions': () => runDueDiscoveryDeletions(db, photos, sweep),
     'answer-photo-cleanup': () => runDueAnswerPhotoCleanup(db, photos, sweep),
+    'intake-photo-cleanup': maintenance.intakePhotos && createIntakePhotoCleanup(db, maintenance.intakePhotos, maximumJobs, signal),
   }
 
   async function maintain(): Promise<void> {
     while (!signal.aborted) {
       for (const name of Object.keys(passes) as MaintenancePass[]) {
         if (signal.aborted) return
-        try { await passes[name]() }
+        try { await passes[name]?.() }
         catch {
           // Report only the pass name and let the remaining passes continue.
           try { onFailure?.(name) } catch { /* Observer failures cannot stop recovery. */ }

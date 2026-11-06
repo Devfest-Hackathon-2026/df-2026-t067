@@ -88,6 +88,10 @@ export function incomingAnswerPhotoPath(attemptId: string, digest: string): stri
   return `answer-photos/${attemptId}/incoming-${digest}.jpg`
 }
 
+export function sealedIntakePhoto(db: Firestore, attemptId: string) {
+  return db.collection('sealedIntakePhotos').doc(attemptId)
+}
+
 export function recordAnswerPhotoPath(attemptId: string): string {
   return `answer-photos/${attemptId}/record.jpg`
 }
