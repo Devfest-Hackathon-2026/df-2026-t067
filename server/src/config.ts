@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path'
+
 interface DemoServerConfig {
   mode: 'demo'
   port: number
@@ -17,6 +19,7 @@ export interface DurableLocalConfig {
   port: number
   firebaseProjectId: string
   storageEndpoint: string
+  vertexTrialLedger?: string
 }
 
 type ServerConfig = DemoServerConfig | DurableLocalConfig
@@ -53,6 +56,9 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const port = Number(portText)
   if (!/^[1-9]\d{0,4}$/.test(portText) || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.')
   if (mode === 'durable-local') return readDurableLocalConfig(env, port)
+  if (env.QUEST_DURABLE_PHOTO_MATCHER !== undefined) {
+    throw new Error('QUEST_DURABLE_PHOTO_MATCHER requires QUEST_DATA_MODE=durable-local.')
+  }
   const config: DemoServerConfig = { mode, port }
   if (env.QUEST_ADMIN_ASSETS_MODE !== undefined && env.QUEST_ADMIN_ASSETS_MODE !== 'off') {
     if (env.QUEST_ADMIN_ASSETS_MODE !== 'memory') throw new Error('QUEST_ADMIN_ASSETS_MODE must be off or memory.')
@@ -117,7 +123,16 @@ function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLo
   if (env.STORAGE_EMULATOR_HOST !== undefined || env.FIREBASE_STORAGE_EMULATOR_HOST !== undefined) {
     throw new Error('Unset STORAGE_EMULATOR_HOST and FIREBASE_STORAGE_EMULATOR_HOST for durable-local.')
   }
-  return { mode: 'durable-local', port, firebaseProjectId, storageEndpoint }
+  const config: DurableLocalConfig = { mode: 'durable-local', port, firebaseProjectId, storageEndpoint }
+  const matcher = env.QUEST_DURABLE_PHOTO_MATCHER
+  if (matcher === undefined || matcher === 'fixtures') return config
+  if (matcher !== 'vertex-trial') throw new Error('QUEST_DURABLE_PHOTO_MATCHER must be fixtures or vertex-trial.')
+  if (env.NODE_ENV !== 'development') throw new Error('The Vertex trial requires NODE_ENV=development.')
+  const file = env.QUEST_VERTEX_TRIAL_LEDGER
+  if (!file || !isAbsolute(file) || file.length > 4000 || Array.from(file).some((char) => char.charCodeAt(0) < 32)) {
+    throw new Error('QUEST_VERTEX_TRIAL_LEDGER must be the absolute path to the shared trial ledger.')
+  }
+  return { ...config, vertexTrialLedger: file }
 }
 
 function isLoopbackHost(host: string | undefined): boolean {

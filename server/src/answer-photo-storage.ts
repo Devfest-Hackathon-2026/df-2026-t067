@@ -21,10 +21,16 @@ interface ObjectMetadata {
 export class AnswerPhotoStorage {
   constructor(private readonly bucket: Bucket) {}
 
+  async writeReference(orgId: string, assetId: string, photo: PreparedPhoto): Promise<PhotoReference> {
+    return this.writePrepared(referencePath(orgId, assetId), photo)
+  }
+
+  async readReference(orgId: string, assetId: string, generation: string): Promise<PhotoInput> {
+    return this.read({ path: referencePath(orgId, assetId), generation })
+  }
+
   async writeIncoming(attemptId: string, digest: string, photo: PreparedPhoto): Promise<PhotoReference> {
-    const path = incomingPath(attemptId, digest)
-    if (photo?.mimeType !== 'image/jpeg' || !validJpeg(photo.bytes)) invalidInput()
-    return this.writeOnce(path, photo.bytes)
+    return this.writePrepared(incomingPath(attemptId, digest), photo)
   }
 
   async readIncoming(attemptId: string, digest: string, reference: PhotoReference): Promise<PhotoInput> {
@@ -88,6 +94,11 @@ export class AnswerPhotoStorage {
     })
   }
 
+  private async writePrepared(path: string, photo: PreparedPhoto): Promise<PhotoReference> {
+    if (photo?.mimeType !== 'image/jpeg' || !validJpeg(photo.bytes)) invalidInput()
+    return this.writeOnce(path, photo.bytes)
+  }
+
   private async read({ path, generation }: PhotoReference): Promise<PhotoInput> {
     if (!readableGeneration(generation)) invalidInput()
     return storageOperation(async () => {
@@ -108,6 +119,10 @@ export class AnswerPhotoStorage {
       return { bytes, mimeType: 'image/jpeg' }
     })
   }
+}
+
+function referencePath(orgId: string, assetId: string): string {
+  return `reference-photos/${parseId(orgId)}/${parseId(assetId)}.jpg`
 }
 
 function incomingPath(attemptId: string, digest: string): string {

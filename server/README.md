@@ -57,6 +57,8 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 
 公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントは公開版の本文だけを返す。管理操作、報告、ヒント画像の配信は `demo` モードで確認できる。[永続公開カタログ](../docs/api.md#永続公開カタログ)
 
+永続回答の参考画像は専用バケットへ保存し、公開版に固定した世代をworkerが読み取る。既定は合成フィクスチャの判定を使う。Vertexを試す場合は `NODE_ENV=development` で `QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` と既存の `QUEST_VERTEX_TRIAL_LEDGER` を指定する。[永続回答からのVertex試験](../docs/vertex-trial.md#永続回答から試す)
+
 ## 実装したルート
 
 基底は`/api/v1`。公開DTOと実行時検証は[共通型](../src/shared/api/types.ts)・[検証](../src/shared/api/validation.ts)を直接再利用する。競合するDTOや結果コードは定義しない。
@@ -144,11 +146,11 @@ GPSを試すときは`QUEST_LOCATION_MODE=demo`をAPIに指定する。未指定
 
 serverだけにsharp 0.35.5を固定し、JPEG/PNG/WebPの破損・多フレーム・画素上限を検査する。向きを画素へ反映し、縮小・sRGB/白背景・JPEG再圧縮でEXIF等を保持しない。`npm --prefix server ci --ignore-scripts`の既存手順で事前配布バイナリを導入する。
 
-内部のcomparePhotosとVertex向け要求/応答の部品を用意した。実通信transport・ADC・回数制限は下記CLIに限定し、HTTP回答workerは未接続。matcherなしは503で、MATCHもCORRECTではない。画像は保存せず、現在のHTTP受付から写真照合や課金APIへ進めない。[制限・結果・残件](../docs/photo-match.md)を参照する。
+内部のcomparePhotosで参考写真と回答写真を照合する。永続回答workerが位置と公開版を確認して呼び出し、記録を保存してからCORRECTを返す。Vertexへの通信は下記CLIと明示した合成試験モードで使う。[制限・結果・残件](../docs/photo-match.md)
 
 ## Vertexのローカル画像試験
 
-`npm run build`後、`npm run vertex:trial -- init`で台帳を明示初期化し、`match` / `mismatch` / `uncertain`で合成画像だけを送信できる。`NODE_ENV=development`と絶対パスの`QUEST_VERTEX_TRIAL_LEDGER`、ローカルADCが必要。既使用分・上限・再起動時の扱い・実行例は[試験手順](../docs/vertex-trial.md#ローカルの画像試験)を参照する。台帳を複製・再作成して回数を戻さない。通常のHTTPサーバーからは呼ばない。
+`npm run build`後、`npm run vertex:trial -- init`で台帳を明示初期化し、`match` / `mismatch` / `uncertain`で合成画像だけを送信できる。`NODE_ENV=development`と絶対パスの`QUEST_VERTEX_TRIAL_LEDGER`、ローカルADCが必要。既存の台帳は初期化せず、永続回答の試験にも同じパスを使う。[試験手順](../docs/vertex-trial.md#ローカルの画像試験)
 
 
 ## Webとの接続

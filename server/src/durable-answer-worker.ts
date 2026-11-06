@@ -12,7 +12,7 @@ import type { PhotoInput } from './photo-input'
 import { comparePhotos, photoSystemError } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 
-interface VerificationVersion { questId: string; version: number; placeId: string }
+export interface VerificationVersion { questId: string; version: number; placeId: string }
 interface WorkerOptions extends ClaimOptions {
   db: Firestore
   photos: Pick<AnswerPhotoStorage, 'readIncoming' | 'writeRecord'>

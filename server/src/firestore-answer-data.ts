@@ -53,6 +53,12 @@ export async function assertChallengeCanStart(db: Firestore, tx: Transaction, qu
   checkPublishedVersion(questId, version, publication, versionDoc.data())
 }
 
+export async function readPublishedAnswerVersion(db: Firestore, tx: Transaction, questId: string, version: number) {
+  const [quest, versionDoc] = await tx.getAll(...versionDocuments(db, storedId(questId), storedVersion(version)))
+  const publication = quest.data()
+  return { ...checkPublishedVersion(questId, version, publication, versionDoc.data()), orgId: publication?.orgId }
+}
+
 function versionDocuments(db: Firestore, questId: string, version: number) {
   return [db.collection('quests').doc(questId), db.collection('questVersions').doc(`${questId}:${version}`)] as const
 }

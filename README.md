@@ -74,7 +74,7 @@ npm run dev:api
 
 回答画像をデコードしてEXIFを除去する処理と、写真照合を呼び出す処理も用意しています。[画像検証と写真照合](docs/photo-match.md)
 
-通常起動の回答処理とは別に、合成画像専用CLIを使えます。CLIではVertexへの実通信と、再起動しても維持される回数制限を試せます。[Vertex試験](docs/vertex-trial.md)
+Vertexへの通信と回数制限は、合成画像専用CLIと永続APIの試験モードで使えます。永続APIは公開版に固定した非公開の参考画像を読み、合成フィクスチャの画像と特徴だけをVertexへ送ります。[Vertex試験](docs/vertex-trial.md)
 
 Webとサーバーは別々に検証します。ルートのテスト対象は`src/`、サーバーは`server/test/`です。
 
