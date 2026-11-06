@@ -185,3 +185,73 @@ it.each(['demo', 'durable-local'] as const)('uses the selected %s API mode and d
     expect(screen.getByRole('link', { name: /未認証・未接続の架空フォーム/ })).toHaveAttribute('href', '/admin-demo')
   } finally { vi.unstubAllGlobals() }
 })
+
+
+it('publishes and pauses through durable session, membership and common HTTP contracts', async () => {
+  const user = userEvent.setup()
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'durable-publisher', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {}, signInWithGoogle: async () => {},
+    signOut: async () => {}, getIdToken: async () => 'publisher-token',
+  }
+  let current = { ...quest, source: 'real', status: 'draft', publishedVersion: null } as ManagedQuest
+  let trials = 0
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = String(input)
+    let body: unknown
+    if (path === '/api/v1/session') body = { uid: snapshot.user.uid }
+    else if (path.startsWith('/api/v1/me/memberships?')) body = { items: [{
+      orgId: quest.orgId, areaId: quest.areaId, label: '永続の公開自治体', role: 'publisher',
+    }], nextCursor: null }
+    else if (path.endsWith('/test')) {
+      trials++
+      body = { orgId: quest.orgId, questId: quest.questId, draftRevision: 2,
+        source: 'mock', testId: trials === 1 ? 'match-test' : 'other-test', outcome: trials === 1 ? 'MATCH' : 'WRONG_TARGET' }
+    } else if (path.endsWith('/submit-review')) {
+      current = { ...current, status: 'review_pending' }; body = { quest: current, missing: [] }
+    } else if (path.endsWith('/publish')) {
+      current = { ...current, status: 'published', publishedVersion: 1 }; body = current
+    } else if (path.endsWith('/pause')) {
+      current = { ...current, status: 'paused', publishedVersion: null, draftRevision: 3 }; body = current
+    } else if (path.startsWith('/api/v1/orgs/' + quest.orgId + '/quests?')) body = { items: [current], nextCursor: null }
+    else throw new Error('Unexpected publication request: ' + path)
+    return new Response(JSON.stringify(body), { headers: {
+      'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'durable-local',
+    } })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} dataMode="durable-local" />)
+    await user.click(await screen.findByRole('button', { name: /永続の公開自治体/ }))
+    await user.click(await screen.findByRole('button', { name: '試験と公開確認' }))
+    const publish = screen.getByRole('button', { name: 'この版を開発用に公開' })
+    expect(publish).toBeDisabled()
+    await user.type(screen.getByLabelText('試験写真の利用権'), '自作の合成画像')
+    for (const [name, message] of [['match', '一致試験を確認しました。'], ['other', '別対象の試験を確認しました。']]) {
+      await user.upload(screen.getByLabelText('試験写真'), new File([name], name + '.png', { type: 'image/png' }))
+      await user.click(screen.getByRole('button', { name: '写真試験を送信' }))
+      expect(await screen.findByText(message)).toBeVisible()
+      expect(publish).toBeDisabled()
+    }
+    await user.click(screen.getByRole('button', { name: 'この版の確認を依頼' }))
+    expect(await screen.findByText('この下書きは確認待ちです。')).toBeVisible()
+    expect(publish).toBeDisabled()
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    await user.click(publish)
+    expect(await screen.findByText('開発用に公開しました。')).toBeVisible()
+    await user.click(await screen.findByRole('button', { name: '公開を休止' }))
+    await user.type(screen.getByLabelText('休止理由'), '合成試験終了')
+    await user.click(screen.getByRole('button', { name: 'この公開版を休止する' }))
+    expect(await screen.findByText('開発用の公開を休止しました。')).toBeVisible()
+    expect(await screen.findByText(/休止中・下書き版 3/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: '公開を休止' })).not.toBeInTheDocument()
+    const writes = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(writes.map(([path]) => String(path).split('/').at(-1))).toEqual(['test', 'test', 'submit-review', 'publish', 'pause'])
+    expect(JSON.parse(String(writes[3][1]?.body))).toMatchObject({ expectedDraftRevision: 2,
+      matchTestId: 'match-test', mismatchTestId: 'other-test',
+      confirmations: { fictionalData: true, visitConditions: true, photoRights: true, shootingArea: true, testCases: true } })
+    expect(JSON.parse(String(writes[4][1]?.body))).toEqual({ expectedPublishedVersion: 1, reason: '合成試験終了' })
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/session')
+    for (const [, init] of fetcher.mock.calls) expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer publisher-token')
+  } finally { vi.unstubAllGlobals() }
+})
