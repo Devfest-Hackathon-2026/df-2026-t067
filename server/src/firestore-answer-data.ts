@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { Timestamp } from 'firebase-admin/firestore'
-import type { DocumentData, Firestore, Transaction } from 'firebase-admin/firestore'
+import { GrpcStatus, Timestamp } from 'firebase-admin/firestore'
+import type { DocumentData, DocumentSnapshot, Firestore, Transaction, UpdateData } from 'firebase-admin/firestore'
 import { ContractError, parseAttemptResult, parseCaptureMetadata } from '../../src/shared/api/validation'
 import { HttpError } from './errors'
 import { parseId } from './query'
@@ -11,6 +11,18 @@ export async function answerTransaction<T>(db: Firestore, work: (tx: Transaction
   } catch (error) {
     if (error instanceof HttpError) throw error
     throw processingError(!(error instanceof ContractError))
+  }
+}
+
+export async function updateAnswerSnapshot(snapshot: DocumentSnapshot, update: UpdateData<DocumentData>): Promise<boolean> {
+  if (!snapshot.updateTime) return false
+  try {
+    await snapshot.ref.update(update, { lastUpdateTime: snapshot.updateTime })
+    return true
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && 'code' in error &&
+      (error.code === GrpcStatus.FAILED_PRECONDITION || error.code === GrpcStatus.NOT_FOUND)) return false
+    throw processingError(true)
   }
 }
 

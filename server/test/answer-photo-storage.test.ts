@@ -9,9 +9,11 @@ import { AnswerPhotoStorage } from '../src/answer-photo-storage'
 import { DemoAnswerStore } from '../src/answers'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
 import { runDueAnswerJobs } from '../src/durable-answer-jobs'
+import { cleanupFinishedAnswerPhotos, runDueAnswerPhotoCleanup } from '../src/durable-answer-photo-cleanup'
 import { runDurableAnswer } from '../src/durable-answer-worker'
 import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
+import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
 import { runDueDiscoveryDeletions } from '../src/firestore-discovery-deletions'
 import { preparePhoto } from '../src/photo-input'
 import { listenServer } from './helpers'
@@ -276,5 +278,49 @@ test('Cloud Storage photo generations stay immutable across retries', {
     const legacyDeletion = await legacyOwner.deleteDiscovery(legacyId)
     assert.equal((await legacyOwner.getDeletion(legacyDeletion.deletionId)).state, 'completed')
     await assert.rejects(store.readRecord(legacyPhoto), { code: 'SYSTEM_ERROR', retryable: false })
+
+    const pending = await submit()
+    const pendingSource = (await db.collection('attempts').doc(pending.attemptId).get()).get('sourcePhoto')
+    const duplicateOwner = randomUUID()
+    async function stageAnswer() {
+      const input = await submit(duplicateOwner)
+      const work = await claimAnswerWork(db, input, { leaseDurationMs: 180_000 })
+      assert(work.kind === 'claimed' && work.step === 'verify')
+      const lease = { ...input, leaseId: work.leaseId }
+      await recordAnswerMatch(db, lease, { placeId, version: 1, location: 'WITHIN_AREA', photo: 'MATCH' })
+      const incoming = work.source.photoObject
+      const record = await store.writeRecord(input.attemptId, input.digest, incoming)
+      await recordAnswerPhoto(db, lease, record.generation)
+      return { input, lease, incoming, record }
+    }
+    const winner = await stageAnswer(), loser = await stageAnswer()
+    assert.equal((await commitVerifiedAnswer(db, winner.lease)).outcome, 'CORRECT')
+    assert.equal((await commitVerifiedAnswer(db, loser.lease)).outcome, 'ALREADY_CLEARED')
+    const cleanupOptions = { maximumJobs: 100, retryDelayMs: 60_000 }
+    const partial = { deleteIncoming: store.deleteIncoming.bind(store), deleteRecord: async (ref: typeof loser.record) => {
+      if (ref.path === loser.record.path) throw new HttpError(503, 'SYSTEM_ERROR', '代替清掃障害', true)
+      await store.deleteRecord(ref)
+    } }
+    assert.equal((await runDueAnswerPhotoCleanup(db, partial, cleanupOptions)).retrying, 1)
+    const loserReceipt = db.collection('attempts').doc(loser.input.attemptId)
+    const deferredCleanup = await loserReceipt.get()
+    assert(deferredCleanup.get('nextPhotoCleanupAt').toMillis() > Date.now())
+    assert.deepEqual(deferredCleanup.get('unusedRecordPhoto'), loser.record)
+    await assert.rejects(store.readIncoming(loser.input.attemptId, loser.input.digest, loser.incoming), { code: 'SYSTEM_ERROR' })
+    assert.deepEqual((await store.readRecord(loser.record)).bytes, photo.bytes)
+    await assert.rejects(store.readIncoming(winner.input.attemptId, winner.input.digest, winner.incoming), { code: 'SYSTEM_ERROR' })
+    assert.deepEqual((await store.readRecord(winner.record)).bytes, photo.bytes)
+    assert.deepEqual((await store.readIncoming(pending.attemptId, pending.digest, pendingSource)).bytes, photo.bytes)
+    await loserReceipt.update({ nextPhotoCleanupAt: Timestamp.fromMillis(0) })
+    assert.equal((await runDueAnswerPhotoCleanup(db, store, cleanupOptions)).completed, 1)
+    assert.equal((await loserReceipt.get()).get('unusedRecordPhoto'), undefined)
+    assert.equal((await loserReceipt.get()).get('sourcePhoto'), undefined)
+    await assert.rejects(store.readRecord(loser.record), { code: 'SYSTEM_ERROR', retryable: false })
+    assert.equal((await client(duplicateOwner).getAttempt(loser.input.attemptId)).outcome, 'ALREADY_CLEARED')
+
+    await db.collection('attempts').doc(legacyAttempt).create({ uid: legacyUid, digest, state: 'COMPLETED', sourcePhoto: legacyIncoming,
+      result: { attemptId: legacyAttempt, state: 'COMPLETED', outcome: 'OUTSIDE_AREA', source: 'real', nextAction: 'MOVE_TO_AREA' } })
+    assert.equal(await cleanupFinishedAnswerPhotos(db, store, legacyAttempt), true)
+    await assert.rejects(store.readIncoming(legacyAttempt, digest, legacyIncoming), { code: 'SYSTEM_ERROR' })
   })
 })

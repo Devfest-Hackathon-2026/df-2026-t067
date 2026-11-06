@@ -6,7 +6,7 @@ import { conflict, incomingAnswerPhotoPath, recordAnswerPhotoPath, validDigest, 
 import type { PhotoInput, PreparedPhoto } from './photo-input'
 import { parseId } from './query'
 
-interface PhotoReference { path: string; generation: string }
+export interface PhotoReference { path: string; generation: string }
 type Bucket = ReturnType<Storage['bucket']>
 interface ObjectMetadata {
   generation?: unknown
@@ -43,7 +43,17 @@ export class AnswerPhotoStorage {
   }
 
   async deleteRecord(reference: PhotoReference): Promise<void> {
-    if (!validRecordPhotoPath(reference?.path) || !readableGeneration(reference.generation)) invalidInput()
+    if (!validRecordPhotoPath(reference?.path)) invalidInput()
+    return this.deleteGeneration(reference)
+  }
+
+  async deleteIncoming(attemptId: string, digest: string, reference: PhotoReference): Promise<void> {
+    if (reference?.path !== incomingPath(attemptId, digest)) invalidInput()
+    return this.deleteGeneration(reference)
+  }
+
+  private async deleteGeneration(reference: PhotoReference): Promise<void> {
+    if (!readableGeneration(reference.generation)) invalidInput()
     const { path, generation } = reference
     return storageOperation(async () => {
       const file = this.bucket.file(path, { generation })

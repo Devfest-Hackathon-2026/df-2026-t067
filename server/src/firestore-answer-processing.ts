@@ -183,9 +183,15 @@ function finishDeletedAnswer(tx: Transaction, receipt: DocumentSnapshot): Attemp
 }
 
 function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult): AttemptResult {
+  const data = receipt.data()
+  const generation: unknown = data?.checkpoint?.generation
+  const unusedRecordPhoto = result.outcome !== 'CORRECT' && validGeneration(generation)
+    ? { path: recordAnswerPhotoPath(receipt.id), generation } : undefined
   tx.update(receipt.ref, {
     state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete(), capture: FieldValue.delete(),
     nextWorkAt: FieldValue.delete(),
+    ...(unusedRecordPhoto ? { unusedRecordPhoto } : {}),
+    ...(data?.sourcePhoto !== undefined || unusedRecordPhoto ? { nextPhotoCleanupAt: FieldValue.serverTimestamp() } : {}),
   })
   return result
 }

@@ -107,4 +107,4 @@ FR-08/14、AT-10/11/12/19/21/22/24の一部を対象に、実ローカルHTTPと
 
 非公開の記録JPEGは保存した世代を指定して削除する。成功または対象世代が既に存在しないことを確認してから、削除状態を `completed` にして画像参照を外す。一時障害後は同じ受付を再試行でき、`runDueDiscoveryDeletions` からも回収できる。削除状況は同じ本人だけが照会できる。
 
-ローカルのFirestore・GCS代替環境と合成JPEGで検証する。本番のバケット設定・ソフト削除から物理削除までの期間、受付時の一時画像の清掃、削除回収の定期実行、アカウント削除は残件。通常の開発起動では従来のメモリー上の削除を使う。[Cloud Storageの世代指定削除](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete)・[永続HTTPの組み立て](answer-intake.md#永続httpの組み立て)
+ローカルのFirestore・GCS代替環境と合成JPEGで検証する。本番のバケット設定・ソフト削除から物理削除までの期間、削除回収の定期実行、アカウント削除は残件。確定済み回答の受付JPEGは別の清掃処理で扱う。通常の開発起動では従来のメモリー上の削除を使う。[Cloud Storageの世代指定削除](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete)・[一時画像の清掃](answer-processing.md#確定済み回答の一時画像清掃)
