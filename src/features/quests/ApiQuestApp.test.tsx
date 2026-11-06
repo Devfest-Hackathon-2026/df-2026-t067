@@ -3,7 +3,7 @@ import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicArea, PublicQuest } from '../../shared/api/types'
-import type { AuthClient } from '../auth/authTypes'
+import type { AuthClient, AuthSnapshot } from '../auth/authTypes'
 import { ApiQuestApp } from './ApiQuestApp'
 import { ApiError } from '../../shared/api/client'
 
@@ -771,3 +771,62 @@ describe('APIから問題を表示', () => {
   })
 })
 
+
+
+it('keeps the durable selected quest through login, verified session and challenge handoff to camera', async () => {
+  const user = userEvent.setup()
+  let snapshot: AuthSnapshot = { status: 'signed-out', user: null }
+  const listeners = new Set<() => void>()
+  const auth: AuthClient = {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    signInWithGoogle: vi.fn(async () => {
+      snapshot = { status: 'signed-in', user: { uid: 'durable-traveler', displayName: null } }
+      listeners.forEach((listener) => listener())
+    }),
+    signOut: async () => {}, getIdToken: async () => 'traveler-token',
+  }
+  const stop = vi.fn()
+  const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream
+  const getUserMedia = vi.fn(async () => stream)
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = String(input)
+    let body: unknown
+    if (path.startsWith('/api/v1/areas?')) body = page(areas.map((item) => ({ ...item, publicGeometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } })))
+    else if (path.startsWith('/api/v1/quests?')) body = page([first])
+    else if (path === '/api/v1/quests/' + first.questId) body = first
+    else if (path === '/api/v1/session') body = { uid: 'durable-traveler' }
+    else if (path === '/api/v1/challenges') body = {
+      challengeId: 'durable-challenge', questId: first.questId, version: first.version, createdAt: '2026-11-06T00:00:00Z',
+    }
+    else if (path.startsWith('/api/v1/me/discoveries?')) body = page([])
+    else throw new Error('Unexpected traveler request: ' + path)
+    return new Response(JSON.stringify(body), { status: path === '/api/v1/challenges' ? 201 : 200, headers: {
+      'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'durable-local',
+    } })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  render(<ApiQuestApp authClient={auth} dataMode="durable-local" />)
+  expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+  expect(getUserMedia).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+  expect(auth.signInWithGoogle).toHaveBeenCalledOnce()
+  expect(await screen.findByRole('button', { name: '挑戦を始める' })).toBeEnabled()
+  expect(getUserMedia).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '挑戦を始める' }))
+  await waitFor(() => expect(screen.getByLabelText('カメラ映像')).toHaveProperty('srcObject', stream))
+  expect(screen.getByText('挑戦を開始しました。写真と位置を確認してからテスト送信できます。')).toBeVisible()
+  const start = fetcher.mock.calls.find(([path]) => path === '/api/v1/challenges')!
+  expect(JSON.parse(String(start[1]?.body))).toEqual({ questId: first.questId, expectedVersion: first.version })
+  expect(new Headers(start[1]?.headers).get('Authorization')).toBe('Bearer traveler-token')
+  expect(fetcher.mock.calls.findIndex(([path]) => path === '/api/v1/session')).toBeLessThan(fetcher.mock.calls.indexOf(start))
+  await user.click(screen.getByRole('button', { name: '撮影を終了' }))
+  expect(stop).toHaveBeenCalledOnce()
+  await user.click(within(screen.getByRole('navigation', { name: '主要ナビゲーション' })).getByRole('button', { name: '自分の記録' }))
+  expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+  const recordRead = fetcher.mock.calls.find(([path]) => String(path).startsWith('/api/v1/me/discoveries?'))!
+  expect(new Headers(recordRead[1]?.headers).get('Authorization')).toBe('Bearer traveler-token')
+})
