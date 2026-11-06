@@ -15,6 +15,7 @@ import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-
 import { FirestoreDiscoveryStore } from './firestore-discoveries'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
+import { handlePublicCatalog } from './public-catalog-http'
 import { parseId, validateQuery } from './query'
 
 interface DurableAnswerHttpOptions {
@@ -36,6 +37,7 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const dataMode = options.dataMode ?? 'real'
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
+    if (await handlePublicCatalog(options.db, request, response, path, params)) return
     if (await discoveryHandler(request, response, path, params)) return
     const session = path === '/api/v1/session'
     const start = path === '/api/v1/challenges'

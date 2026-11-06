@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
-import type { ApiClient, Challenge, PublicQuest } from '../../shared/api'
+import type { ApiClient, Challenge, LocalApiDataMode, PublicQuest } from '../../shared/api'
 import { CameraPreview } from './CameraPreview'
 
 type StartState = { status: 'idle' | 'starting' }
@@ -25,8 +25,8 @@ function failure(cause: unknown): Extract<StartState, { status: 'error' }> {
 
 // The parent keys this component by verified user, selected quest/version and
 // navigation revision. Leaving any of them disposes the operation and camera.
-export function ChallengeCapture({ api, quest, onReloadQuest }: {
-  api: ApiClient; quest: PublicQuest; onReloadQuest: () => void
+export function ChallengeCapture({ api, quest, onReloadQuest, dataMode = 'demo' }: {
+  api: ApiClient; quest: PublicQuest; onReloadQuest: () => void; dataMode?: LocalApiDataMode
 }) {
   const [state, setState] = useState<StartState>({ status: 'idle' })
   const [cameraOpen, setCameraOpen] = useState(false)
@@ -86,9 +86,10 @@ export function ChallengeCapture({ api, quest, onReloadQuest }: {
       {state.status === 'starting' ? '挑戦を開始しています…' : cameraOpen ? '撮影中' : state.status === 'ready' ? '撮影を再開' : '挑戦を始める'}
     </button>
     <p id="challenge-note" className="unavailable-note" role="status">
-      {state.status === 'ready' ? '挑戦を開始しました。写真と位置を確認してからデモ送信できます。'
+      {state.status === 'ready' ? (dataMode === 'durable-local' ? '挑戦を開始しました。写真と位置を確認してからテスト送信できます。'
+        : '挑戦を開始しました。写真と位置を確認してからデモ送信できます。')
         : state.status === 'starting' ? 'サーバーで挑戦の開始を確認しています…'
-          : 'ログインを確認しました。デモの回答受付を試せます。'}
+          : dataMode === 'durable-local' ? 'ログインを確認しました。合成素材で回答と判定を試せます。' : 'ログインを確認しました。デモの回答受付を試せます。'}
     </p>
     {state.status === 'starting' && <button type="button" className="retry-button" onClick={() => { abort(); setState({ status: 'idle' }) }}>開始をキャンセル</button>}
     {state.status === 'error' && <div className="auth-feedback">
@@ -96,6 +97,6 @@ export function ChallengeCapture({ api, quest, onReloadQuest }: {
       {state.reload && <button type="button" className="retry-button" onClick={onReloadQuest}>問題を読み直す</button>}
     </div>}
     {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera}
-      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest }} />}
+      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest, dataMode }} />}
   </>
 }

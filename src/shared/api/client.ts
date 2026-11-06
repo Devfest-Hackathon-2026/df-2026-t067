@@ -44,11 +44,13 @@ export class ApiError extends Error {
   }
 }
 
+export type LocalApiDataMode = 'demo' | 'durable-local'
+
 export interface ApiClientOptions {
   fetch?: typeof globalThis.fetch
   getIdToken?: () => Promise<string | null>
   basePath?: string
-  expectedDataMode?: 'demo'
+  expectedDataMode?: LocalApiDataMode
 }
 export interface CallOptions { signal?: AbortSignal }
 export interface ListQuery { areaId?: string; cursor?: string; limit?: number }

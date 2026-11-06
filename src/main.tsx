@@ -12,8 +12,9 @@ if (import.meta.env.DEV && window.location.pathname === '/admin-local') {
     root.render(<StrictMode><AdminDemo /></StrictMode>)
   })
 } else if (import.meta.env.DEV) {
+  const dataMode = import.meta.env.VITE_QUEST_DATA_SOURCE === 'durable-local' ? 'durable-local' : 'demo'
   void import('./features/quests/ApiQuestApp').then(({ ApiQuestApp: App }) => {
-    root.render(<StrictMode><App /></StrictMode>)
+    root.render(<StrictMode><App dataMode={dataMode} /></StrictMode>)
   })
 } else {
   // Hosting has no local API server. Preserve its existing offline preview.

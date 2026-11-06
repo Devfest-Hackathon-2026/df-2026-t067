@@ -223,3 +223,11 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 - 開発用の自組織`publisher`は`listManagedReports(orgId, {cursor, limit})`で新着順に確認できる。各行は受付ID、組織、問題IDと版、分類、本文、サーバー受付日時、`source`を持つ。報告者のUIDや再送キーは返さない。既定の架空問題A/Bは`demo-org`、Cは`demo-org-b`に割り当てる。管理APIで公開した問題は公開時の所有組織へ送る。
 
 報告受付と休止は独立した操作。報告を見た公開担当者が必要に応じて休止を行う。実運営の対応権限と実データの保持方針はO-04/O-07に残す。
+
+## 永続公開カタログ
+
+`durable-local` の `GET /api/v1/areas`、`GET /api/v1/quests`、詳細と通常ヒントは匿名で利用できる。既存のPublicArea・PublicQuest・QuestHintと、地域絞り込み・bbox・zoom・カーソルの契約を使う。Webも同じモードを明示し、APIの応答ヘッダーを確認する。
+
+`areas/{areaId}` は地域名、公開代表点とGeoJSON文字列の `publicGeometryJson` を持つ。公開問題の件数は表示できる問題から数える。`questPublic/{questId}` は公開用の `quest` と通常ヒントの配列 `hints` を持つ。同じ読取りトランザクションで `quests/{questId}` の公開版を確認する。下書き編集中でも公開版は読める。休止中、公開版がない場合、公開用文書の版が一致しない場合は一覧と件数から外し、直接取得も404を返す。公開中のヒントを古い版で要求すると409 `QUEST_CHANGED` を返す。
+
+公開APIは非公開の `questVersions` を読まず、共通DTOで検証した公開項目だけを返す。ローカルモードは地域と公開用文書をそれぞれ256件まで読み、上限を超えた場合は503を返す。実環境の公開・休止を書き込む処理、ヒント画像の配信、本番での一覧取得は後続で接続する。[Webと永続APIの起動](local-api.md#モードを選ぶ)

@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { AnswerPhotoStorage } from './answer-photo-storage'
 import { DemoAnswerStore } from './answers'
 import type { DurableLocalConfig } from './config'
+import { createDemoData } from './demo-data'
 import { createDemoLocationValidation } from './demo-location'
 import { createFixturePhotoMatcher, syntheticPng } from './demo-photo-test'
 import { createDurableAnswerRuntime } from './durable-answer-runtime'
@@ -30,13 +31,25 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     if (!(await bucket.exists())[0]) throw new Error('Local bucket missing.')
     const quest = db.collection('quests').doc(questId)
     const published = db.collection('questVersions').doc(questId + ':' + version)
+    const catalog = createDemoData()
+    const publicQuest = catalog.quests.find((item) => item.questId === questId && item.version === version)
+    const publicArea = catalog.areas.find((item) => item.areaId === publicQuest?.areaId)
+    if (!publicQuest || !publicArea) throw new Error('Local catalog fixture missing.')
+    const area = db.collection('areas').doc(publicArea.areaId)
+    const projection = db.collection('questPublic').doc(questId)
     await db.runTransaction(async (tx) => {
-      const [current, snapshot] = await tx.getAll(quest, published)
-      if (current.exists && snapshot.get('placeId') === placeId) return
-      if (current.exists || snapshot.exists) throw new Error('Local fixture is inconsistent.')
-      tx.create(quest, { publishedVersion: version, status: 'published' })
-      tx.create(published, { placeId, areaId: 'demo-area', placeName: '架空の対象',
-        descriptionSnapshot: '永続APIの確認用に作った架空の記録です。', revealedLocation: { latitude: 0, longitude: 0 } })
+      const [current, snapshot, areaDoc, publicDoc] = await tx.getAll(quest, published, area, projection)
+      if (current.exists !== snapshot.exists || (snapshot.exists && snapshot.get('placeId') !== placeId)) {
+        throw new Error('Local fixture is inconsistent.')
+      }
+      if (!current.exists) {
+        tx.create(quest, { publishedVersion: version, status: 'published' })
+        tx.create(published, { placeId, areaId: publicArea.areaId, placeName: '架空の対象',
+          descriptionSnapshot: '永続APIの確認用に作った架空の記録です。', revealedLocation: { latitude: 0, longitude: 0 } })
+      }
+      if (!areaDoc.exists) tx.create(area, { label: publicArea.label, marker: publicArea.marker,
+        publicGeometryJson: JSON.stringify(publicArea.publicGeometry) })
+      if (!publicDoc.exists) tx.create(projection, { quest: publicQuest, hints: catalog.hints.get(questId) ?? [] })
     })
     const location = createDemoLocationValidation().policyFor(questId, version)
     if (!location) throw new Error('Local capture zone missing.')

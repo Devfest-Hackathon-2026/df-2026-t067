@@ -42,6 +42,52 @@ function signedOutAuth(): AuthClient {
 }
 
 describe('APIから問題を表示', () => {
+  it('uses the durable catalog anonymously and the same data mode for authenticated challenge and records', async () => {
+    const user = userEvent.setup()
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [] }))
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia } }))
+    const snapshot = { status: 'signed-in' as const, user: { uid: 'test-owner', displayName: null } }
+    const authClient = { ...signedOutAuth(), getSnapshot: () => snapshot, getIdToken: async () => 'test-token' }
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input)
+      const data = path.startsWith('/api/v1/areas?') || path.startsWith('/api/v1/me/discoveries?') ? page([])
+        : path.startsWith('/api/v1/quests?') ? page([first])
+          : path === '/api/v1/session' ? { uid: snapshot.user.uid }
+            : path === '/api/v1/challenges' ? { challengeId: 'durable-challenge', questId: first.questId,
+              version: first.version, createdAt: '2026-11-06T00:00:00.000Z' }
+              : first
+      return new Response(JSON.stringify(data), { status: path === '/api/v1/challenges' ? 201 : 200,
+        headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'durable-local' } })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(<ApiQuestApp dataMode="durable-local" authClient={authClient} />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(screen.getByText('永続API・ローカル')).toBeVisible()
+    const catalogCalls = fetcher.mock.calls.filter(([path]) => String(path).includes('/api/v1/quests'))
+    expect(catalogCalls).toHaveLength(2)
+    expect(catalogCalls.every(([, init]) => !new Headers(init?.headers).has('Authorization'))).toBe(true)
+    expect(getUserMedia).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    await user.click(await screen.findByRole('button', { name: '挑戦を始める' }))
+    const start = fetcher.mock.calls.find(([path]) => path === '/api/v1/challenges')?.[1]
+    expect(new Headers(start?.headers).get('Authorization')).toBe('Bearer test-token')
+    expect(JSON.parse(String(start?.body))).toEqual({ questId: first.questId, expectedVersion: first.version })
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    await user.click(within(screen.getByRole('navigation', { name: '主要ナビゲーション' })).getByRole('button', { name: '自分の記録' }))
+    expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
+    const read = fetcher.mock.calls.find(([path]) => String(path).startsWith('/api/v1/me/discoveries?'))
+    expect(new Headers(read?.[1]?.headers).get('Authorization')).toBe('Bearer test-token')
+  })
+
+  it('rejects a demo server when the Web app selected the durable catalog', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(page([])), {
+      headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': 'demo' },
+    })))
+    render(<ApiQuestApp dataMode="durable-local" authClient={signedOutAuth()} />)
+    expect(await screen.findByRole('heading', { name: '公開問題を取得できませんでした' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '公開問題はありません' })).not.toBeInTheDocument()
+  })
+
   it.each(['empty', 'error'] as const)('keeps owner records available when the public catalog is %s', async (state) => {
     const user = userEvent.setup()
     const api = apiFixture()
