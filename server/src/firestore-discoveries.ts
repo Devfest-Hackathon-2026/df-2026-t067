@@ -7,12 +7,21 @@ import type { AnswerPhotoStorage } from './answer-photo-storage'
 import type { DiscoveryPhoto, DiscoveryQuery, DiscoveryReadRepository } from './discoveries'
 import { HttpError, invalidInput } from './errors'
 import { processingError, storedId, validAnswerUid, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
+import { getDiscoveryDeletion, requestDiscoveryDeletion } from './firestore-discovery-deletions'
 import { createScopedCursor, parseId, parseLimit, readScopedCursor } from './query'
 
-export class FirestoreDiscoveryReader implements DiscoveryReadRepository {
+export class FirestoreDiscoveryStore implements DiscoveryReadRepository {
   readonly storageMode = 'firestore' as const
 
-  constructor(private readonly db: Firestore, private readonly photos: Pick<AnswerPhotoStorage, 'readRecord'>) {}
+  constructor(private readonly db: Firestore, private readonly photos: Pick<AnswerPhotoStorage, 'readRecord' | 'deleteRecord'>) {}
+
+  deleteOwned(uid: string, discoveryId: string) {
+    return requestDiscoveryDeletion(this.db, this.photos, uid, discoveryId)
+  }
+
+  getDeletionOwned(uid: string, deletionId: string) {
+    return getDiscoveryDeletion(this.db, uid, deletionId)
+  }
 
   async listOwned(uid: string, { areaId, limit: requestedLimit, cursor }: DiscoveryQuery): Promise<Page<Discovery>> {
     if (!validAnswerUid(uid) || (areaId !== undefined && typeof areaId !== 'string')) invalidInput()

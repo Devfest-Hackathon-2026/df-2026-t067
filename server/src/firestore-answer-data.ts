@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Timestamp } from 'firebase-admin/firestore'
 import type { DocumentData, Firestore, Transaction } from 'firebase-admin/firestore'
 import { ContractError, parseAttemptResult, parseCaptureMetadata } from '../../src/shared/api/validation'
@@ -67,6 +68,10 @@ export function incomingAnswerPhotoPath(attemptId: string, digest: string): stri
 
 export function recordAnswerPhotoPath(attemptId: string): string {
   return `answer-photos/${attemptId}/record.jpg`
+}
+
+export function discoveryKeyId(uid: string, placeId: string): string {
+  return createHash('sha256').update(JSON.stringify([uid, placeId])).digest('hex')
 }
 
 export function validRecordPhotoPath(value: unknown): value is string {

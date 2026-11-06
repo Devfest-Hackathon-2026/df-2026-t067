@@ -12,14 +12,14 @@ import { processingError } from './firestore-answer-data'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './firestore-answer-intake'
 import type { AnswerIdentity } from './firestore-answer-processing'
 import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-challenges'
-import { FirestoreDiscoveryReader } from './firestore-discoveries'
+import { FirestoreDiscoveryStore } from './firestore-discoveries'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
 import { parseId, validateQuery } from './query'
 
 interface DurableAnswerHttpOptions {
   db: Firestore
-  photos: Pick<AnswerPhotoStorage, 'writeIncoming' | 'readRecord'>
+  photos: Pick<AnswerPhotoStorage, 'writeIncoming' | 'readRecord' | 'deleteRecord'>
   verifier: IdTokenVerifier
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
@@ -32,7 +32,7 @@ interface DurableAnswerHttpOptions {
 export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
   const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
-  const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryReader(options.db, options.photos), authenticate, send })
+  const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
   return createQuestHttpServer('real', async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await discoveryHandler(request, response, path, params)) return
