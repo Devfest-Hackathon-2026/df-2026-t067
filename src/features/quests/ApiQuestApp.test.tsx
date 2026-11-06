@@ -388,6 +388,63 @@ describe('APIから問題を表示', () => {
     expect(screen.getByRole('combobox', { name: '公開APIの問題を選択' })).toBeDisabled()
   })
 
+  it('更新で選択中の問題が消えたら、代替詳細の取得完了後に通知する', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    let resolveFallback!: (value: PublicQuest) => void
+    api.listQuests.mockResolvedValueOnce(page([first, second])).mockResolvedValueOnce(page([second]))
+    api.getQuest.mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise((resolve) => { resolveFallback = resolve }))
+    render(<ApiQuestApp api={api} />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    await waitFor(() => expect(resolveFallback).toBeDefined())
+    expect(screen.getByRole('button', { name: '公開情報を更新中…' })).toBeDisabled()
+    expect(screen.getByText('地域・問題一覧・選択中の詳細を取り直しています。')).toBeVisible()
+    expect(screen.queryByText(/公開一覧からなくなった/)).not.toBeInTheDocument()
+    await act(async () => resolveFallback(second))
+    expect(await screen.findByText(/公開一覧からなくなったため、別の問題を表示しています/)).toBeVisible()
+    expect(screen.getByRole('heading', { name: second.title })).toBeVisible()
+  })
+
+  it('初回自動選択では更新通知を出さない', async () => {
+    const api = apiFixture()
+    render(<ApiQuestApp api={api} />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    expect(screen.queryByText(/問題が更新されました|公開一覧からなくなった/)).not.toBeInTheDocument()
+  })
+
+  it('再試行を始めると前回の更新通知を消し、失敗時にも成功通知を残さない', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    const newer = { ...first, version: first.version + 1 }
+    api.listQuests.mockResolvedValueOnce(page([first])).mockResolvedValueOnce(page([newer])).mockRejectedValueOnce(new Error('offline'))
+    api.getQuest.mockResolvedValueOnce(first).mockResolvedValueOnce(newer)
+    render(<ApiQuestApp api={api} />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByText('問題が更新されました。詳細を開いて内容をご確認ください。')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('サーバーとの通信を確認')
+    expect(screen.queryByText(/問題が更新されました/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '再試行' }))
+    expect(await screen.findByRole('heading', { name: newer.title })).toBeVisible()
+    expect(screen.queryByText(/問題が更新されました/)).not.toBeInTheDocument()
+  })
+
+  it('手動で問題を選ぶと更新通知を消す', async () => {
+    const user = userEvent.setup()
+    const api = apiFixture()
+    const newer = { ...first, version: first.version + 1 }
+    api.listQuests.mockResolvedValueOnce(page([first, second])).mockResolvedValueOnce(page([newer, second]))
+    api.getQuest.mockResolvedValueOnce(first).mockResolvedValueOnce(newer).mockResolvedValueOnce(second)
+    render(<ApiQuestApp api={api} />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByText('問題が更新されました。詳細を開いて内容をご確認ください。')).toBeVisible()
+    await user.selectOptions(screen.getByRole('combobox', { name: '公開APIの問題を選択' }), second.questId)
+    expect(screen.queryByText(/問題が更新されました/)).not.toBeInTheDocument()
+  })
+
   it('手動更新失敗後は再試行できる', async () => {
     const user = userEvent.setup()
     const api = apiFixture()

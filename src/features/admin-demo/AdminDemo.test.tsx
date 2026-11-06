@@ -22,6 +22,11 @@ function image(name = 'reference.png', size = 100, type = 'image/png') {
   return new File([new Uint8Array(size)], name, { type })
 }
 
+async function pasteText(user: ReturnType<typeof userEvent.setup>, label: string, value: string) {
+  await user.click(screen.getByLabelText(label))
+  await user.paste(value)
+}
+
 it('saves a local draft with its reference, then updates the saved revision and preserves a conflicting edit', async () => {
   const user = userEvent.setup()
   const uploadOrgAsset = vi.fn().mockResolvedValue({ assetId: 'demo-reference' })
@@ -293,13 +298,13 @@ describe('A03 admin demo', () => {
     await user.type(screen.getByLabelText('対象とする根拠'), '管理者の確認メモ')
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
     await user.click(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' }))
-    await user.type(screen.getByLabelText('アクセス補足'), '駅から10分')
-    await user.type(screen.getByLabelText('利用できる時間'), '日中')
-    await user.type(screen.getByLabelText('自治体のアピールコメント'), '地元の魅力')
-    await user.type(screen.getByLabelText('解説'), '歴史の紹介')
-    await user.type(screen.getByLabelText('料金'), '無料')
-    await user.type(screen.getByLabelText('撮影時の注意'), '通路を空ける')
-    await user.type(screen.getByLabelText('写真の出典と利用権'), 'チーム撮影')
+    await pasteText(user, 'アクセス補足', '駅から10分')
+    await pasteText(user, '利用できる時間', '日中')
+    await pasteText(user, '自治体のアピールコメント', '地元の魅力')
+    await pasteText(user, '解説', '歴史の紹介')
+    await pasteText(user, '料金', '無料')
+    await pasteText(user, '撮影時の注意', '通路を空ける')
+    await pasteText(user, '写真の出典と利用権', 'チーム撮影')
     await user.upload(screen.getByLabelText(/参考写真/), image())
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
     expect(screen.getByRole('heading', { name: 'A04 下書き・編集（AI未接続）' })).toHaveFocus()
@@ -393,16 +398,16 @@ describe('A03 admin demo', () => {
   it('shows only the traveler allowlist and excludes private A03/A04 details and the reference photo', async () => {
     const user = userEvent.setup()
     render(<AdminDemo />)
-    await user.type(screen.getByLabelText('対象名'), 'PRIVATE_TARGET_91')
-    await user.type(screen.getByLabelText('対象とする根拠'), 'PRIVATE_EVIDENCE_91')
-    await user.type(screen.getByLabelText('写真の出典と利用権'), 'PRIVATE_RIGHTS_91')
+    await pasteText(user, '対象名', 'PRIVATE_TARGET_91')
+    await pasteText(user, '対象とする根拠', 'PRIVATE_EVIDENCE_91')
+    await pasteText(user, '写真の出典と利用権', 'PRIVATE_RIGHTS_91')
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
-    await user.type(screen.getByLabelText('アクセス補足'), 'PUBLIC_ACCESS_91')
-    await user.type(screen.getByLabelText('利用できる時間'), 'PUBLIC_HOURS_91')
-    await user.type(screen.getByLabelText('自治体のアピールコメント'), 'PUBLIC_PROMO_91')
-    await user.type(screen.getByLabelText('解説'), 'PUBLIC_EXPLANATION_91')
-    await user.type(screen.getByLabelText('料金'), 'PUBLIC_PRICE_91')
-    await user.type(screen.getByLabelText('撮影時の注意'), 'PUBLIC_CAUTION_91')
+    await pasteText(user, 'アクセス補足', 'PUBLIC_ACCESS_91')
+    await pasteText(user, '利用できる時間', 'PUBLIC_HOURS_91')
+    await pasteText(user, '自治体のアピールコメント', 'PUBLIC_PROMO_91')
+    await pasteText(user, '解説', 'PUBLIC_EXPLANATION_91')
+    await pasteText(user, '料金', 'PUBLIC_PRICE_91')
+    await pasteText(user, '撮影時の注意', 'PUBLIC_CAUTION_91')
     await user.upload(screen.getByLabelText(/参考写真/), image('PRIVATE_FILENAME_91.png'))
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
     const privateMemo = 'PRIVATE_DRAFT_MEMO_91'
