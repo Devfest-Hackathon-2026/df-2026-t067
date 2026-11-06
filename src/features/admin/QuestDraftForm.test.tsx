@@ -82,7 +82,10 @@ it('blocks a second create when the response is lost and preserves the entered d
   expect(back).toHaveBeenCalledOnce()
 })
 
-it('loads a candidate for the saved version and waits for explicit adoption and save', async () => {
+it.each([
+  ['mock', '合成素材の固定候補です。'],
+  ['real', 'Vertex AIの候補です。根拠を確認してから採用してください。'],
+] as const)('loads a %s candidate for the saved version and waits for explicit adoption and save', async (source, notice) => {
   const user = userEvent.setup()
   const initial: ManagedQuest = {
     orgId: 'demo-org', questId: 'demo-quest', areaId: 'demo-area', draftRevision: 3, publishedVersion: null,
@@ -97,7 +100,7 @@ it('loads a candidate for the saved version and waits for explicit adoption and 
   const candidate = { ...initial.draft.content, title: '合成素材の候補', question: '架空の問題文', hints: ['1', '2', '3'],
     verifiedFeatures: '架空の特徴' }
   const generateManagedQuestDraft = vi.fn().mockResolvedValue({ orgId: initial.orgId, questId: initial.questId,
-    draftRevision: 3, source: 'mock', content: candidate })
+    draftRevision: 3, source, content: candidate })
   const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 4 })
   const api = { ...createApiClient(), generateManagedQuestDraft, updateManagedQuest }
   render(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
@@ -105,6 +108,7 @@ it('loads a candidate for the saved version and waits for explicit adoption and 
   await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
   await user.click(screen.getByRole('button', { name: '保存済み版の候補を取得' }))
   expect(await screen.findByText(candidate.title)).toBeVisible()
+  expect(screen.getByText(notice)).toBeVisible()
   expect(screen.getByLabelText('問題タイトル')).toHaveValue('手入力の題名')
   expect(generateManagedQuestDraft).toHaveBeenCalledExactlyOnceWith(initial.orgId, initial.questId, 3, { signal: expect.any(AbortSignal) })
   await user.type(screen.getByLabelText('問題タイトル'), '・追記')

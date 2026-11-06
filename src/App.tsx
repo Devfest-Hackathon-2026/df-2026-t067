@@ -18,7 +18,8 @@ import { readDataSource, useQuestConnection, useServerIdentity } from './feature
 import { AuthError, createFirebaseAuthClient } from './features/auth/firebaseAuth'
 import './App.css'
 
-function connectionNotice(auth: AuthSnapshot): { title: string; description: string } {
+function connectionNotice(auth: AuthSnapshot, durableLocal: boolean): { title: string; description: string } {
+  const previewNote = durableLocal ? '' : '写真判定・記録保存は準備中です。'
   switch (auth.status) {
     case 'unconfigured':
       return { title: 'ログイン準備中', description: '問題はログインなしで閲覧できます。ログイン機能は準備中です。' }
@@ -27,9 +28,9 @@ function connectionNotice(auth: AuthSnapshot): { title: string; description: str
     case 'checking':
       return { title: 'ログイン状態を確認中', description: '問題はそのまま閲覧できます。しばらくお待ちください。' }
     case 'signed-out':
-      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。写真判定・記録保存は準備中です。' }
+      return { title: 'ゲストで閲覧中', description: '問題はログインなしで閲覧できます。' + previewNote }
     case 'signed-in':
-      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。写真判定・記録保存は準備中です。' }
+      return { title: 'Googleログイン済み', description: (auth.user.displayName ?? 'Googleアカウント') + 'でログインしています。' + previewNote }
   }
 }
 
@@ -117,7 +118,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const selectedQuest = useRef(quest)
   const openRef = useRef(isQuestOpen)
   const visiblePending = pending?.client === authClient ? pending.kind : null
-  const notice = connectionNotice(auth)
+  const notice = connectionNotice(auth, durableLocal)
 
   useLayoutEffect(() => {
     if (selectedQuest.current?.questId !== quest?.questId || selectedQuest.current?.version !== quest?.version) {

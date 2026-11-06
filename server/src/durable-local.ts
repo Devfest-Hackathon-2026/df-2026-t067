@@ -15,6 +15,7 @@ import { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { FirestoreOrgAssetStore } from './firestore-org-assets'
 import { preparePhoto } from './photo-input'
 import { createPublishedAnswerMaterialLoader } from './published-answer-material'
+import { createVertexTrialDraftSuggester } from './vertex-draft-trial'
 import { createVertexTrialTransport } from './vertex-transport'
 
 const projectId = 'demo-t067-durable-local'
@@ -77,21 +78,26 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const material = createPublishedAnswerMaterialLoader(db, photos, locationLimits)
     const ledger = config.vertexTrialLedger
     const matcher = ledger ? await createSyntheticVertexTrialMatcher(createVertexTrialTransport(ledger)) : await createFixturePhotoMatcher()
+    const draftLedger = config.vertexDraftTrialLedger
+    const suggestDraft = draftLedger ? await createVertexTrialDraftSuggester(createVertexTrialTransport(draftLedger))
+      : { source: 'mock' as const, suggest: await createFixtureDraftSuggester() }
     const uploadLimiter = new DemoAnswerStore()
     const policy = { maximum: 10, windowMs: 60_000 }
     const runtime = createDurableAnswerRuntime({
       db, photos, verifier, dataMode: config.mode,
       assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
-      suggestDraft: await createFixtureDraftSuggester(),
+      suggestDraft,
       photoTest: { matcher, source: ledger ? 'real' : 'mock', timeoutMs: ledger ? 30_000 : undefined },
       publication: photos,
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),
       worker: { ...material, leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher, matchTimeoutMs: ledger ? 30_000 : undefined },
       maintenance: { intervalMs: 1000, maximumJobs: 8, retryDelayMs: 5000,
-        intakePhotos: { storage: photos, minimumAgeMs: 300_000, intervalMs: 60_000 },
+        orphanPhotos: { storage: photos, minimumAgeMs: 300_000, intervalMs: 60_000 },
         onFailure: (pass) => { console.error('Durable local maintenance failed: ' + pass) } },
     })
-    return { ...runtime, close, label: ledger ? 'DURABLE LOCAL, synthetic Vertex trial' : 'DURABLE LOCAL, synthetic fixture matcher' }
+    const photoLabel = ledger ? 'synthetic Vertex trial' : 'synthetic fixture matcher'
+    const draftLabel = draftLedger ? 'synthetic Vertex trial' : 'synthetic fixture'
+    return { ...runtime, close, label: 'DURABLE LOCAL, ' + photoLabel + '; draft ' + draftLabel }
   } catch {
     await close().catch(() => {})
     throw new Error('Durable local startup failed. Check the loopback emulators, bucket and local fixture.')
