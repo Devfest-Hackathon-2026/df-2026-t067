@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 type Request = { controller: AbortController; deadline?: ReturnType<typeof setTimeout> }
 
-export function useRequestAction() {
+export function useRequestAction(timeoutMs = 10_000) {
   const active = useRef<Request | null>(null)
   const abort = useCallback(() => {
     const request = active.current
@@ -20,7 +20,7 @@ export function useRequestAction() {
       if (!isCurrent()) return
       abort()
       onTimeout()
-    }, 10_000)
+    }, timeoutMs)
     return {
       signal: request.controller.signal,
       isCurrent,

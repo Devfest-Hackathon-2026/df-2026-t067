@@ -3,7 +3,7 @@ import { preparePhoto } from './photo-input'
 import { photoSystemError } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 import { createVertexPhotoMatcher } from './vertex-match'
-import type { VertexTransport } from './vertex-match'
+import type { VertexTransport } from './vertex-transport'
 import { prepareVertexTrialFixture, vertexTrialCases, vertexTrialFeatures } from './vertex-trial-fixtures'
 
 export async function createSyntheticVertexTrialMatcher(transport: VertexTransport): Promise<PhotoMatcher> {

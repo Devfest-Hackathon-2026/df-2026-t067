@@ -148,11 +148,15 @@ describe('local camera preview', () => {
 
   it('rotates the encoded photo in quarter turns and keeps GPS and capture time', async () => {
     const media = setup()
-    const submitAnswer = vi.fn(async (_input: { photo: Blob }) => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-1' }))
+    const gps = position()
+    media.getCurrentPosition.mockImplementationOnce((success) => success(gps))
+    const submitAnswer = vi.fn(async (_input: Parameters<DemoAnswerContext['api']['submitAnswer']>[0]) => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-1' }))
     const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
     const view = render(<CameraPreview onClose={media.onClose} answer={answer} />)
     await loadFrame(media.stream)
+    const captureStartedAt = Date.now()
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
+    const captureFinishedAt = Date.now()
     const capturedMetadata = screen.getByText(/撮影地を写真に紐づけました/).textContent
     await media.user.click(screen.getByRole('button', { name: '右に90度回転' }))
     await waitFor(() => expect(media.createObjectURL).toHaveBeenCalledTimes(2))
@@ -166,7 +170,11 @@ describe('local camera preview', () => {
     expect(screen.getByRole('button', { name: '左に90度回転' })).toBeEnabled()
     await media.user.click(screen.getByRole('button', { name: '写真と位置をデモ送信' }))
     await waitFor(() => expect(submitAnswer).toHaveBeenCalledOnce())
-    expect(submitAnswer.mock.calls[0][0].photo).toBe(media.createObjectURL.mock.calls[1][0])
+    const { photo, metadata } = submitAnswer.mock.calls[0][0]
+    expect(photo).toBe(media.createObjectURL.mock.calls[1][0])
+    expect(metadata.position).toEqual({ latitude: 35, longitude: 135, accuracyMeters: 12.4, measuredAt: new Date(gps.timestamp).toISOString() })
+    expect(Date.parse(metadata.capturedAt)).toBeGreaterThanOrEqual(captureStartedAt)
+    expect(Date.parse(metadata.capturedAt)).toBeLessThanOrEqual(captureFinishedAt)
     view.unmount()
     expect(media.revokeObjectURL).toHaveBeenCalledTimes(2)
     expect(media.revokeObjectURL).toHaveBeenLastCalledWith('blob:synthetic-photo-1')
@@ -174,8 +182,10 @@ describe('local camera preview', () => {
 
   it('locks rotation as soon as a developer submission starts and preserves its receipt', async () => {
     const media = setup()
-    const submitAnswer = vi.fn(async () => ({ source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-locked' }))
-    const answer = { api: { submitAnswer, getAttempt: vi.fn() }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
+    const receipt = { source: 'mock' as const, state: 'RECEIVED' as const, attemptId: 'attempt-locked' }
+    const submitAnswer = vi.fn(async () => receipt)
+    const getAttempt = vi.fn(async () => receipt)
+    const answer = { api: { submitAnswer, getAttempt }, challengeId: 'challenge-1', onReloadQuest: vi.fn() } as unknown as DemoAnswerContext
     render(<CameraPreview onClose={media.onClose} answer={answer} />)
     await loadFrame(media.stream)
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
@@ -183,7 +193,8 @@ describe('local camera preview', () => {
     expect(screen.getByRole('button', { name: '左に90度回転' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '右に90度回転' })).toBeDisabled()
     expect(await screen.findByText('デモ受付済みです。写真判定と記録保存は未接続です。')).toBeVisible()
-    expect(screen.getByRole('button', { name: '受付状態を確認' })).toBeEnabled()
+    await media.user.click(screen.getByRole('button', { name: '受付状態を確認' }))
+    expect(getAttempt).toHaveBeenCalledExactlyOnceWith('attempt-locked', { signal: expect.any(AbortSignal) })
     expect(submitAnswer).toHaveBeenCalledOnce()
   })
 

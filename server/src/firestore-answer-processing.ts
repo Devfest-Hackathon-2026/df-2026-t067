@@ -3,7 +3,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { AttemptResult } from '../../src/shared/api/types'
 import { parseDiscovery } from '../../src/shared/api/validation'
-import { invalidInput } from './errors'
+import { HttpError, invalidInput } from './errors'
 import { answerTransaction, conflict, discoveryKeyId, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion, recordAnswerPhotoPath,
   storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
 import { parseId } from './query'
@@ -160,6 +160,57 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
   })
 }
 
+type InvalidatedSettlement = Extract<AnswerClaim, { kind: 'busy' | 'completed' }>
+
+function isPublicationFailure(error: unknown): error is HttpError & { code: 'QUEST_UNAVAILABLE' | 'QUEST_CHANGED' } {
+  return error instanceof HttpError && (error.code === 'QUEST_UNAVAILABLE' || error.code === 'QUEST_CHANGED')
+}
+
+// Record a terminal result separately from the transaction that rejected the
+// stale publication. The generation may have arrived just before that check.
+export async function settleInvalidatedAnswer(db: Firestore, input: AnswerIdentity, failure: unknown,
+  leaseId?: string, writtenGeneration?: string): Promise<InvalidatedSettlement> {
+  const publicationFailure = isPublicationFailure(failure)
+  if (!publicationFailure && writtenGeneration === undefined) throw failure
+  if (writtenGeneration !== undefined && (!leaseId || !validGeneration(writtenGeneration))) throw processingError()
+  return withOwnedAnswer<InvalidatedSettlement>(db, input, async (tx, receipt, data) => {
+    if (data.state === 'COMPLETED') {
+      const result = storedAnswerResult(data, input.attemptId)
+      // A recovery pass can finish a paused answer after the writer's lease
+      // expires, before that writer receives Storage's upload result.
+      if (writtenGeneration && (result.outcome === 'QUEST_UNAVAILABLE' || result.outcome === 'QUEST_CHANGED')) {
+        const path = recordAnswerPhotoPath(receipt.id)
+        const previous = data.unusedRecordPhoto
+        if (previous !== undefined && (previous?.path !== path || previous?.generation !== writtenGeneration)) throw processingError()
+        if (previous === undefined) tx.update(receipt.ref, {
+          unusedRecordPhoto: { path, generation: writtenGeneration }, nextPhotoCleanupAt: FieldValue.serverTimestamp(),
+        })
+      } else if (!publicationFailure) throw failure
+      return { kind: 'completed', result }
+    }
+
+    const currentLease = readLease(data)
+    if (leaseId !== undefined ? currentLease?.id !== leaseId
+      : currentLease && currentLease.expiresAt.toMillis() > receipt.readTime.toMillis()) {
+      if (!publicationFailure) throw failure
+      return { kind: 'busy' }
+    }
+
+    let outcome: 'QUEST_UNAVAILABLE' | 'QUEST_CHANGED' | undefined
+    try { await readCurrentVersion(db, tx, data, input.uid) }
+    catch (error) {
+      if (!isPublicationFailure(error)) throw error
+      outcome = error.code
+    }
+    if (!outcome) throw failure
+    if (writtenGeneration && data.checkpoint?.generation !== undefined && data.checkpoint.generation !== writtenGeneration) throw processingError()
+    const result = finishAttempt(tx, receipt, {
+      attemptId: input.attemptId, state: 'COMPLETED', source: 'real', outcome, nextAction: 'RELOAD_QUEST',
+    }, writtenGeneration)
+    return { kind: 'completed', result }
+  })
+}
+
 async function readDiscovery(db: Firestore, tx: Transaction, uid: string, placeId: string) {
   const key = db.collection('discoveryKeys').doc(discoveryKeyId(uid, placeId))
   const mapping = (await tx.get(key)).data()
@@ -183,9 +234,9 @@ function finishDeletedAnswer(tx: Transaction, receipt: DocumentSnapshot): Attemp
   return finishAttempt(tx, receipt, { attemptId: receipt.id, state: 'COMPLETED', source: 'real', outcome: 'SYSTEM_ERROR', nextAction: 'RETAKE' })
 }
 
-function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult): AttemptResult {
+function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult, writtenGeneration?: string): AttemptResult {
   const data = receipt.data()
-  const generation: unknown = data?.checkpoint?.generation
+  const generation: unknown = writtenGeneration ?? data?.checkpoint?.generation
   const unusedRecordPhoto = result.outcome !== 'CORRECT' && validGeneration(generation)
     ? { path: recordAnswerPhotoPath(receipt.id), generation } : undefined
   tx.update(receipt.ref, {

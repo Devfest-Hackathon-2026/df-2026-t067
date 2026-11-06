@@ -20,6 +20,7 @@ export interface DurableLocalConfig {
   firebaseProjectId: string
   storageEndpoint: string
   vertexTrialLedger?: string
+  vertexDraftTrialLedger?: string
 }
 
 type ServerConfig = DemoServerConfig | DurableLocalConfig
@@ -58,6 +59,9 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
   if (mode === 'durable-local') return readDurableLocalConfig(env, port)
   if (env.QUEST_DURABLE_PHOTO_MATCHER !== undefined) {
     throw new Error('QUEST_DURABLE_PHOTO_MATCHER requires QUEST_DATA_MODE=durable-local.')
+  }
+  if (env.QUEST_DURABLE_DRAFT_GENERATOR !== undefined) {
+    throw new Error('QUEST_DURABLE_DRAFT_GENERATOR requires QUEST_DATA_MODE=durable-local.')
   }
   const config: DemoServerConfig = { mode, port }
   if (env.QUEST_ADMIN_ASSETS_MODE !== undefined && env.QUEST_ADMIN_ASSETS_MODE !== 'off') {
@@ -124,15 +128,19 @@ function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLo
     throw new Error('Unset STORAGE_EMULATOR_HOST and FIREBASE_STORAGE_EMULATOR_HOST for durable-local.')
   }
   const config: DurableLocalConfig = { mode: 'durable-local', port, firebaseProjectId, storageEndpoint }
-  const matcher = env.QUEST_DURABLE_PHOTO_MATCHER
-  if (matcher === undefined || matcher === 'fixtures') return config
-  if (matcher !== 'vertex-trial') throw new Error('QUEST_DURABLE_PHOTO_MATCHER must be fixtures or vertex-trial.')
+  const matcher = env.QUEST_DURABLE_PHOTO_MATCHER ?? 'fixtures'
+  const generator = env.QUEST_DURABLE_DRAFT_GENERATOR ?? 'fixtures'
+  if (matcher !== 'fixtures' && matcher !== 'vertex-trial') throw new Error('QUEST_DURABLE_PHOTO_MATCHER must be fixtures or vertex-trial.')
+  if (generator !== 'fixtures' && generator !== 'vertex-trial') throw new Error('QUEST_DURABLE_DRAFT_GENERATOR must be fixtures or vertex-trial.')
+  if (matcher === 'fixtures' && generator === 'fixtures') return config
   if (env.NODE_ENV !== 'development') throw new Error('The Vertex trial requires NODE_ENV=development.')
   const file = env.QUEST_VERTEX_TRIAL_LEDGER
   if (!file || !isAbsolute(file) || file.length > 4000 || Array.from(file).some((char) => char.charCodeAt(0) < 32)) {
     throw new Error('QUEST_VERTEX_TRIAL_LEDGER must be the absolute path to the shared trial ledger.')
   }
-  return { ...config, vertexTrialLedger: file }
+  if (matcher === 'vertex-trial') config.vertexTrialLedger = file
+  if (generator === 'vertex-trial') config.vertexDraftTrialLedger = file
+  return config
 }
 
 function isLoopbackHost(host: string | undefined): boolean {

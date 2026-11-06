@@ -2,34 +2,37 @@
 
 A05から使うPOST `/api/v1/orgs/:orgId/quests/:questId/test`と、共通clientのtestManagedQuestを追加した。保存済みの参考写真と確認済みの特徴を使って試験写真を照合し、結果を試験対象のdraftRevisionに結び付ける。FR-11/12、AT-09/15/16/21/22の一部を実装した。
 
-既定では照合が未接続なので503を返す。開発サーバーで設定を有効にすると、以下の合成素材でA05からA07まで試せる。実際のVertexへの接続は別の作業として、既存の試験条件と回数台帳を使い、承認を得て進める。
+`durable-local` の通常起動では合成素材を照合する。メモリーデモでは、合成素材用の設定を有効にしないと503を返す。Vertexの実送信は、既存の試験条件と回数台帳を使い、承認を得て進める。
+
+## 合成素材を生成する
+
+APIの起動でサーバーをビルドした後、別ターミナルでリポジトリのルートから実行する。永続モードとメモリーデモで同じ合成PNGを使う。
+
+```sh
+fixture_dir=$(mktemp -d /tmp/quest-fixtures.XXXXXX)
+node - "$fixture_dir" <<'NODE'
+const { writeFileSync } = require('node:fs')
+const { join } = require('node:path')
+const { syntheticPng, otherSyntheticPng } = require('./server/dist/server/src/demo-photo-test.js')
+const directory = process.argv[2]
+writeFileSync(join(directory, 'match.png'), syntheticPng)
+writeFileSync(join(directory, 'other-target.png'), otherSyntheticPng)
+console.log(directory)
+NODE
+```
 
 ## 合成素材で公開・休止を試す
 
 1. 開発用の自組織に`publisher`の所属を設定する。[所属設定](team-api-handoffs.md#開発用の所属を設定する)
 2. リポジトリのルートから `QUEST_DATA_MODE=demo QUEST_ADMIN_ASSETS_MODE=memory QUEST_ADMIN_PHOTO_TEST_MODE=fixtures NODE_ENV=development npm run dev:api` で起動する。起動ログに `admin photo test fixtures` が出る。
-3. 別ターミナルで次を実行し、生成したPNGを使う。ビルド済みのサーバーと同じ合成素材を出力する。
-
-   ```sh
-   fixture_dir=$(mktemp -d /tmp/quest-fixtures.XXXXXX)
-   node - "$fixture_dir" <<'NODE'
-   const { writeFileSync } = require('node:fs')
-   const { join } = require('node:path')
-   const { syntheticPng, otherSyntheticPng } = require('./server/dist/server/src/demo-photo-test.js')
-   const directory = process.argv[2]
-   writeFileSync(join(directory, 'match.png'), syntheticPng)
-   writeFileSync(join(directory, 'other-target.png'), otherSyntheticPng)
-   console.log(directory)
-   NODE
-   ```
-
+3. [合成素材を生成する](#合成素材を生成する)。
 4. `match.png`を参考素材として下書きに登録する。撮影範囲・確認済み特徴・公開用本文などを保存し、同じ版で`match.png`を一致試験、`other-target.png`を別対象試験に使う。試験ごとに別のキーを付け、返された試験IDで確認依頼後に公開する。[公開・休止の入力](api.md#18-開発用の公開と休止)
 
 照合は正規化後の合成画像とバイト比較し、指定外の画像は再試行不可の503を返す。結果は`source:mock`。この設定で外部のAIを呼ばず、試験素材と公開状態は再起動で消える。
 
 ## 永続の写真試験をローカルで試す
 
-[`durable-local` の所属と下書き](team-api-handoffs.md#永続の所属下書きをローカルで試す)を設定し、上と同じ合成画像を使う。`expectedDataMode: 'durable-local'` のクライアントで参考画像を登録し、下書きの確認済み特徴に `合成の確認済み特徴` を設定する。保存した版を指定して `testManagedQuest` を呼ぶ。
+[`durable-local` の所属と下書き](team-api-handoffs.md#永続の所属下書きをローカルで試す)を設定し、[合成素材を生成する](#合成素材を生成する)。`match.png` を参考画像として登録し、下書きの確認済み特徴に `合成の確認済み特徴` を入力して保存する。「試験と公開確認」で同じ版に対して `match.png` で一致、`other-target.png` で別対象を確認する。APIから試す場合は、`expectedDataMode: 'durable-local'` のクライアントで保存した版を指定して `testManagedQuest` を呼ぶ。
 
 通常のローカル起動では合成素材の判定を `source:mock` で返す。Vertex試験設定を明示した場合は、指定の合成素材と特徴だけを既存の回数制限を通して照合し、`source:real` で返す。赤い塔を使う手順は [永続回答で使う合成画像](vertex-trial.md#永続回答から試す) を参照する。
 

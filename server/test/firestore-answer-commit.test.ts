@@ -5,8 +5,9 @@ import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { createApiClient } from '../../src/shared/api/client'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
+import { HttpError } from '../src/errors'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from '../src/firestore-answer-intake'
-import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto } from '../src/firestore-answer-processing'
+import { claimAnswerWork, commitVerifiedAnswer, recordAnswerMatch, recordAnswerPhoto, settleInvalidatedAnswer } from '../src/firestore-answer-processing'
 import { listenServer } from './helpers'
 
 const emulator = process.env.QUEST_FIRESTORE_TEST_HOST
@@ -58,6 +59,27 @@ test('Firestore leases, resumes and atomically commits answers', {
     const records = () => db.collection('discoveries').where('placeId', '==', placeId).get()
     return { quest, placeId, seedAnswer, seedChallenge, records }
   }
+
+  await t.test('an obsolete receipt waits for its live lease and accepts a late unused photo generation for cleanup', async () => {
+    const fixture = await seedQuest()
+    const pending = await fixture.seedAnswer()
+    await pending.receipt.update({ state: 'IMAGE_EVALUATED', 'checkpoint.generation': FieldValue.delete() })
+    await fixture.quest.update({ publishedVersion: 2 })
+    const changed = new HttpError(409, 'QUEST_CHANGED', '合成の改版')
+    assert.deepEqual(await settleInvalidatedAnswer(db, pending.input, changed), { kind: 'busy' })
+    assert.equal((await pending.receipt.get()).get('state'), 'IMAGE_EVALUATED')
+    await pending.receipt.update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
+    const settled = await settleInvalidatedAnswer(db, pending.input, changed)
+    assert(settled.kind === 'completed' && settled.result.outcome === 'QUEST_CHANGED')
+    assert.equal((await pending.receipt.get()).get('unusedRecordPhoto'), undefined)
+
+    const lostLease = new HttpError(503, 'SYSTEM_ERROR', '合成のリース切れ', true)
+    assert.deepEqual(await settleInvalidatedAnswer(db, pending.input, lostLease, pending.input.leaseId, '1234'), settled)
+    const receipt = await pending.receipt.get()
+    assert.deepEqual(receipt.get('unusedRecordPhoto'), { path: `answer-photos/${pending.input.attemptId}/record.jpg`, generation: '1234' })
+    assert(receipt.get('nextPhotoCleanupAt') instanceof Timestamp)
+    assert.equal((await fixture.records()).size, 0)
+  })
 
   await t.test('concurrent answers for the same owner and place share one initial photo and time', async () => {
     const fixture = await seedQuest()

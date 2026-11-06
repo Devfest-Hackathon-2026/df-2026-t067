@@ -1,8 +1,21 @@
-import type { VertexTransport } from './vertex-match'
 import { GoogleAuth } from 'google-auth-library'
 import { photoSystemError } from './photo-match'
 import { withTrialSlot } from './vertex-trial-ledger'
 import { HttpError } from './errors'
+
+export interface VertexGenerateRequest {
+  systemInstruction: { parts: Array<{ text: string }> }
+  contents: Array<{ role: 'user'; parts: Array<{ text: string } | { inlineData: { mimeType: 'image/jpeg'; data: string } }> }>
+  generationConfig: {
+    responseMimeType: 'application/json'
+    responseSchema: Record<string, unknown>
+    temperature: number
+    maxOutputTokens: number
+    candidateCount: number
+  }
+}
+
+export type VertexTransport = (request: VertexGenerateRequest, call: { signal: AbortSignal }) => Promise<unknown>
 
 export const trialEndpoint = 'https://aiplatform.googleapis.com/v1/projects/tour-513804/locations/global/publishers/google/models/gemini-3.8-flash:generateContent'
 export interface TransportOptions { getAccessToken?: () => Promise<string | null | undefined>; http?: typeof fetch; timeoutMs?: number }

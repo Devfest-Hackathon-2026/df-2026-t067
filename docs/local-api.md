@@ -4,6 +4,8 @@
 
 ## 永続側の準備
 
+合成データでの実Firestoreと非公開バケットの検証手順は[クラウド保存試験](cloud-storage-trial.md)に分けて記載する。
+
 1. `npm ci` と `npm --prefix server ci --ignore-scripts` で依存を導入する。
 2. [Firebase認証](firebase-auth.md)を設定する。ブラウザとサーバーの `FIREBASE_PROJECT_ID` は同じプロジェクトを使う。実設定は `.env.local` に置き、コミットしない。サーバーには既存の開発用ADCによるアカウント照会権限も必要。新規の課金・IAM・API有効化はこの手順では行わない。
 3. クライアントアクセスを拒否するFirestoreエミュレーターと `fake-gcs-server` 1.56.1をループバックで起動する。以下はそれぞれ8688番・9688番で起動済みの場合。このリポジトリに保存環境の一括起動スクリプトはない。[保存境界と検証](answer-processing.md#非公開jpegの保存)を参照し、再起動後も残す場合は保存環境のデータ保持を設定する。
@@ -26,7 +28,7 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 
 `GET /health` は `dataMode: durable-local` を返す。起動時に架空の地域と問題 `demo-quest` の版 `1` を用意する。別のターミナルで `VITE_QUEST_DATA_SOURCE=durable-local npm run dev` を実行すると、未ログインで一覧・詳細・通常ヒントを開ける。テストの回答には合成画像と架空の座標を使う。認証を代替した自動テストは、受付後に回答判定・記録保存・一時画像清掃・削除の再試行まで通す。[Webの接続手順](local-api.md#画面を起動して確認する)・[永続APIと定期回収](answer-processing.md#httpと定期回収の起動)
 
-公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントとヒント画像は現在の公開版から取得できる。報告は `demo` モードで確認できる。[永続公開カタログ](api.md#永続公開カタログ)
+公開カタログは `areas` と `questPublic` を読み、`quests` の公開状態と版が一致する問題を返す。通常ヒントとヒント画像は現在の公開版から取得できる。旅行者の問題報告はローカルのFirestoreに保存する。[永続公開カタログ](api.md#永続公開カタログ)
 
 永続回答の参考画像は専用バケットへ保存し、公開版に固定した世代をworkerが読み取る。既定は合成フィクスチャの判定を使う。Vertexを試す場合は `NODE_ENV=development` で `QUEST_DURABLE_PHOTO_MATCHER=vertex-trial` と既存の `QUEST_VERTEX_TRIAL_LEDGER` を指定する。[永続回答からのVertex試験](vertex-trial.md#永続回答から試す)
 
@@ -46,9 +48,23 @@ VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 
 [旅行者画面](http://localhost:5173/)では、問題選択 → 詳細・ヒント → Googleログイン → 写真と位置の送信までを画面で確認する。判定結果の表示と「自分の記録」を開けることも画面で確認できる。地図は[Maps設定](google-maps.md)が必要。実カメラと端末の現在地ではクリアや本人記録の保存までは進まない。合成データでクリアから保存までを再現する手順は[合成データでクリアと本人記録を確認する](#合成データでクリアと本人記録を確認する)。
 
-[自治体画面](http://localhost:5173/admin-local)では所属確認 → 下書き・素材保存 → 撮影範囲保存 → 同じ版の合成試験 → 確認依頼 → 公開の順に操作する。`/admin-local` は旅行者画面と同じ `VITE_QUEST_DATA_SOURCE=durable-local` を使い、永続APIのモード応答を受け付ける。[画面の詳細](admin-demo.md#開発用の所属問題報告を閲覧する)。報告のメモリ機能や固定下書き候補の設定は永続側の必須手順ではない。
+[自治体画面](http://localhost:5173/admin-local)も `VITE_QUEST_DATA_SOURCE=durable-local` で起動する。初回の設定と操作は[自治体画面をローカルで検証する](#自治体画面をローカルで検証する)を参照。
 
 Viteは `/api` を `127.0.0.1:8787` に転送する。APIが失敗しても成功モックへ切り替えない。終了は各ターミナルでCtrl+C。PowerShellでは `NAME=value` の代わりに `$env:NAME = 'value'` で各変数を設定してからコマンドを実行する。
+
+## 自治体画面をローカルで検証する
+
+審査と開発の基準は `durable-local`。[共有用のHosting](https://tour-513804.web.app/)は静的プレビューで、自治体画面をAPIにつないで操作するには上記のローカル起動が必要。
+
+1. **Googleログインを準備する。** チームのFirebase管理者に、使用する開発用Webアプリの設定の入手先を確認する。[設定表](firebase-auth.md#2-各開発者の設定)の `VITE_FIREBASE_*` を自分の `.env.local` に入れ、API用の `FIREBASE_PROJECT_ID` を `VITE_FIREBASE_PROJECT_ID` とそろえる。APIにはユーザー照会が許可された開発用ADCを使う。資格情報や `.env.local` は共有リポジトリやIssueに載せない。
+2. **APIと所属を確認する。** 上記の手順で起動し、`http://127.0.0.1:8787/health` が `dataMode: durable-local` を返すことを確認する。[所属の登録手順](admin-assets.md#永続素材をローカルで試す)を使い、検証環境の管理者が、使うFirebaseアカウントのUIDと架空の組織をFirestoreエミュレーターでひも付ける。下書き編集には `editor`、公開・休止まで試す場合には `publisher` を使う。所属は検証に使うエミュレーターごとに登録する。
+3. **合成素材で操作する。** [自治体画面](http://localhost:5173/admin-local)でGoogleログインし、所属の問題一覧を開く。下書きと参考素材を保存し、撮影範囲を設定する。[永続の写真試験](admin-photo-tests.md#永続の写真試験をローカルで試す)に沿い、同じ版で一致・別対象を確認する。確認依頼の後、公開担当者がローカルで公開し、旅行者画面に出ることと、休止後に一覧から外れることを確認する。
+
+| 画面の状況 | 確認すること |
+|---|---|
+| 「Googleログインの設定を確認してください。」 | Web側のFirebase設定と `localhost` の承認状態を確認する。`.env.local` を変更したら開発サーバーを再起動する。 |
+| 「ログインを確認できませんでした。」 | `/health` のモードと、Web・APIのFirebaseプロジェクトID、APIで使う開発用ADCのユーザー照会権限を確認する。設定を直したらAPIと画面を再起動し、ログインを確認し直す。 |
+| 「利用できる所属がありません。」 | 検証に使うFirestoreエミュレーターに、ログインしたアカウントのUIDで有効な所属があるか確認する。 |
 
 ## 合成データでクリアと本人記録を確認する
 
