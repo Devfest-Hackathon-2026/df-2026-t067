@@ -4,8 +4,10 @@ import type { CaptureMetadata } from '../../shared/api/types'
 import { DemoAnswerSubmission } from './DemoAnswerSubmission'
 import type { DemoAnswerContext } from './DemoAnswerSubmission'
 import { CaptureLocationMap } from './CaptureLocationMap'
+import { isCaptureLocationMapDebugEnabled } from './captureMapDebug'
 
 export function CameraPreview({ onClose, answer }: { onClose: () => void; answer?: DemoAnswerContext }) {
+  const showCaptureLocationMapDebug = isCaptureLocationMapDebugEnabled(import.meta.env.DEV, import.meta.env.VITE_CAPTURE_LOCATION_MAP_DEBUG)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const photoRef = useRef<string | null>(null)
@@ -188,7 +190,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       {phase === 'capturing' && <p role="status" className="camera-status">写真を作成しています…</p>}
       {locating && <p role="status" className="camera-status">撮影地を取得しています…</p>}
       {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
-      {photoUrl && metadata && <div className="camera-map-reference">
+      {showCaptureLocationMapDebug && photoUrl && metadata && <div className="camera-map-reference">
         <button type="button" className="secondary-button" aria-expanded={showLocationMap}
           onClick={() => setShowLocationMap((visible) => !visible)}>{showLocationMap ? '地図を閉じる' : '撮影地を見る'}</button>
         <p className="sample-note">地図を表示すると撮影地の座標がGoogle Mapsに送信されます。</p>
