@@ -1,6 +1,8 @@
 # ローカルAPI（架空デモ専用）
 
-Node **26.7.0** / npm **11.19.0**。架空デモでは公開データ、Firebase ID token検証、挑戦開始、写真と位置の受付、管理操作と本人記録を確認できる。別のローカルモードで、FirestoreとGCSの代替環境を使った回答処理も試せる。[画面と追加設定](../README.md#現在の状態)
+Node **26.7.0** / npm **11.19.0**を使う。架空デモでは公開データの閲覧、Firebase ID tokenの検証、挑戦開始、写真と位置の受付を確認できる。管理操作と本人記録もローカルで試せる。
+
+回答処理を試す場合は、FirestoreとGCSの代替環境を使う別のローカルモードで起動する。[画面と追加設定](../README.md#現在の状態)
 
 リポジトリのルートから実行する。
 
@@ -9,9 +11,11 @@ npm --prefix server ci --ignore-scripts
 QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
-`http://127.0.0.1:8787/health` と `http://127.0.0.1:8787/api/v1/quests` を開く。終了はCtrl+C。`PORT`で1〜65535の整数を指定できる。実行ファイルはIPv4ループバック`127.0.0.1`だけにbindする。`SIGINT`/`SIGTERM`で受付を停止し、接続は最大5秒で閉じ、Firebaseアプリも解放する。
+`http://127.0.0.1:8787/health` と `http://127.0.0.1:8787/api/v1/quests` を開いて動作を確認する。終了するにはCtrl+Cを押す。
 
-`dev:api` はビルド後にルートの `.env.local` を読み込んで起動する。変更時は再実行する。ビルド済みで必要な環境変数をシェルから渡す場合は `npm --prefix server start` でも起動できる。`src/server.ts` の `createServer` は未listenのNode HTTP Serverを返す。`src/main.ts` もimport時には起動しない。
+`PORT`には1〜65535の整数を指定できる。サーバーはIPv4ループバックの`127.0.0.1`だけで待ち受ける。`SIGINT`/`SIGTERM`を受けると、新しい接続の受付を止め、接続を最大5秒で閉じる。Firebaseアプリも解放する。
+
+`dev:api` はビルド後にルートの `.env.local` を読み込んで起動する。設定を変更したら再実行する。ビルド済みで、必要な環境変数をシェルから渡す場合は `npm --prefix server start` でも起動できる。`src/server.ts` の `createServer` は、まだ待ち受けを始めていないNode HTTP Serverを返す。`src/main.ts` もimport時には起動しない。
 
 ## デモと起動設定
 
@@ -30,7 +34,9 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 {"status":"ok","dataMode":"demo","fictionalData":true,"auth":"unconfigured"}
 ```
 
-プロジェクトIDを設定した場合の`auth`は`configured`。これは設定の有無だけを示し、実トークン検証やネットワークの健全性を保証しない。デモデータは「架空」と表示する2地域・3問題。座標は合成した公開領域の形状だけで、実在スポットの座標、正解レコード、照合写真、回答は含まない。
+プロジェクトIDを設定すると、`auth`は`configured`になる。この値で確認できるのは設定の有無だけ。実トークンを検証できることやネットワークの状態は、別に確認する必要がある。
+
+デモデータは「架空」と表示する2地域・3問題。座標は合成した公開領域の形状だけを表す。実在スポットの座標、正解レコード、照合写真、回答は含まない。
 
 ## 永続APIをローカルで起動する
 
@@ -84,7 +90,7 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 
 ## Firebase ID token検証
 
-公開デモの閲覧にFirebase設定は不要。プロジェクトIDが未設定の`/session`は、tokenの有無にかかわらず503。設定時だけ`Authorization: Bearer <Firebase ID token>`を受け付け、欠落・不正形式・重複ヘッダーは401。tokenはURLへ入れない。ログにヘッダー、token、body、SDK例外を記録しない。
+公開デモはFirebaseを設定せずに閲覧できる。プロジェクトIDが未設定の場合、`/session`はtokenの有無にかかわらず503を返す。設定した場合は`Authorization: Bearer <Firebase ID token>`を受け付ける。ヘッダーがない場合、不正な形式の場合、重複している場合は401を返す。tokenはURLへ入れない。ログにヘッダー、token、body、SDK例外を記録しない。
 
 `firebase-admin/app`の`initializeApp({projectId})`で専用アプリを遅延作成し、`firebase-admin/auth`の`getAuth(app).verifyIdToken(token, false)`へ委譲する。SDKが署名・issuer・audience・有効期限を検査し、その結果のuidだけを返す。手書きJWT検証やdecodeだけの受理は行わない。[Firebase公式検証ガイド](https://firebase.google.com/docs/auth/admin/verify-id-tokens)と[Admin SDK設定ガイド](https://firebase.google.com/docs/admin/setup)を確認した。
 
@@ -100,7 +106,7 @@ QUEST_DATA_MODE=durable-local NODE_ENV=development \
 npm --prefix server run check
 ```
 
-型検査 → oxlint（警告も失敗）→ Node標準テスト → ビルド。テストはlocalhostの一時ポートを使い、Firebase SDK／リモート境界だけを置き換える。インストール済みSDKが不正なtoken文字列を拒否する確認も含む。このコマンドはサーバー専用。Web側はルートで`npm run check`を実行する。
+型検査、oxlint、Node標準テスト、ビルドを順に実行する。oxlintは警告が出た場合も失敗とする。テストはlocalhostの一時ポートを使い、Firebase SDK／リモート境界だけを置き換える。インストール済みのSDKが不正なtoken文字列を拒否することも確認する。Web側を検証するには、ルートで`npm run check`を実行する。
 
 | 条件 | 対応テスト |
 |---|---|
@@ -126,7 +132,7 @@ install scriptsは`.npmrc`で全面無効化し、`allowScripts`にも`@firebase
 
 `POST /api/v1/challenges/:challengeId/answers`は本人の挑戦・multipartのphoto/metadata・Idempotency-Keyを検証し、既定では202のRECEIVED/source:mockを返す。`GET /api/v1/attempts/:attemptId`は本人だけが受付を照会できる。同内容の再送では同じ受付を返し、違う内容は409。画像や位置を保存せず、hashと受付だけを上限付きメモリに保持する。
 
-開発画面から写真と位置を送信し、受付状態を照会できる。写真判定workerは未接続のため、`RECEIVED` になった回答は受付済みのまま。写真4MiB、本文受信5秒、同時4件、利用者10要求/60秒、受付256件の開発用制限を置く。画像は実デコード・正規化し、ヘッダーだけの偽画像を拒否する。[回答受付API](../docs/answer-intake.md)
+開発画面から写真と位置を送信し、受付状態を照会できる。写真判定workerは未接続のため、`RECEIVED` になった回答は受付済みのままになる。開発用の上限は、写真4MiB、本文の受信5秒、同時4件、利用者ごとに10要求/60秒、受付256件。画像は画素をデコードして正規化し、ヘッダーだけの偽画像を拒否する。[回答受付API](../docs/answer-intake.md)
 
 [開発用の内部回答処理](../docs/answer-processing.md)は既存受付・GPS・照合・メモリー記録をつなぐが、このHTTP受付や環境変数からは起動しない。実Vertex・実保存・CORRECTへ自動接続しない。
 
@@ -159,7 +165,7 @@ Web画面は公開`GET`へ接続済み。Vite開発proxyが`/api`を`http://127.
 
 ## 自治体写真素材APIの開発用設定
 
-`QUEST_ADMIN_ASSETS_MODE=memory` を明示すると、所属確認・画像検証付き写真登録と認可付き取得を使える。既定offは所属確認後503。下書きストアは登録assetIdの台帳を共有し、組織・用途を検証する。開発用の公開ヒント画像には専用用途で登録した画像を使う。画像と台帳は再起動で消える。[設定・再送・制約](../docs/admin-assets.md)
+`QUEST_ADMIN_ASSETS_MODE=memory` を指定すると、所属と画像を検証したうえで写真を登録し、認可を受けて取得できる。既定のoffでは所属確認後に503を返す。下書きストアは登録済みassetIdの台帳を共有し、組織と用途を検証する。開発用の公開ヒントには、その用途で登録した画像を使う。画像と台帳はサーバーを再起動すると消える。[設定・再送・制約](../docs/admin-assets.md)
 
 ## 自治体写真試験APIの接続口
 

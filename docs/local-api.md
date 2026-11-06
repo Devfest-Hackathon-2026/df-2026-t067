@@ -16,7 +16,9 @@
 
 ## 2つのターミナルで起動する
 
-Googleログインも試す場合は[認証ガイド](firebase-auth.md)の6項目を設定し、サーバー用に**同じプロジェクトのID**を`FIREBASE_PROJECT_ID`へ設定する。サービスアカウント鍵は不要。認証を試さず公開問題だけを見る場合は、`FIREBASE_PROJECT_ID`の行を省略する。空文字の行は不正な設定としてサーバー起動を止める。
+Googleログインも試す場合は[認証ガイド](firebase-auth.md)の6項目を設定する。サーバーの`FIREBASE_PROJECT_ID`には、ブラウザ側と**同じプロジェクトのID**を指定する。サービスアカウント鍵は不要。
+
+公開問題だけを見る場合は、`FIREBASE_PROJECT_ID`の行を省略する。空文字を指定すると、サーバーは不正な設定として起動を止める。
 
 実設定はルートの`.env.local`に置き、Gitへ追加しない。
 
@@ -28,7 +30,7 @@ npm --prefix server ci --ignore-scripts
 QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 ```
 
-サーバーをビルドして、127.0.0.1:8787で起動する。`dev:api`はNodeの`--env-file-if-exists=.env.local`でルートの実設定を読み込む。デモの指定を省略した起動、本番モード、Auth Emulatorは拒否する。以前のシェルで設定した環境変数がある場合は`.env.local`より優先されるので、意図しない設定は解除する。
+`dev:api`はサーバーをビルドし、127.0.0.1:8787で起動する。Nodeの`--env-file-if-exists=.env.local`でリポジトリのルートにある実設定を読み込む。デモの指定がない場合、本番モードを選んだ場合、Auth Emulatorを設定した場合は起動を拒否する。シェルで設定済みの環境変数は`.env.local`より優先される。不要な設定は起動前に解除する。
 
 ターミナル2（同じルート）：
 
@@ -36,7 +38,7 @@ QUEST_DATA_MODE=demo NODE_ENV=development npm run dev:api
 npm run dev
 ```
 
-[localhost:5173](http://localhost:5173/)を開く。5173が別の作業で使用中なら、その作業を止めず、明示的に`npm run dev -- --port 5174`で起動して[localhost:5174](http://localhost:5174/)を開く。Firebaseの許可ドメインに合わせ、ブラウザでは`127.0.0.1`ではなく`localhost`を使う。
+[localhost:5173](http://localhost:5173/)を開く。別の作業が5173を使っている場合は、その作業を動かしたまま`npm run dev -- --port 5174`で起動し、[localhost:5174](http://localhost:5174/)を開く。ブラウザではFirebaseの許可ドメインに合わせて`localhost`を使う。
 
 Viteの開発サーバーとローカルのpreviewは、`/api`へのリクエストを `127.0.0.1:8787` に転送する。ビルド済みのプレビュー画面は公開問題を取得せず、Hostingの配信設定はこの転送を使わない。設定を変更したらViteを再起動する。終了は両ターミナルで **Ctrl+C**。
 
@@ -44,8 +46,8 @@ Viteの開発サーバーとローカルのpreviewは、`/api`へのリクエス
 
 - ログインなしで公開問題を選び、地域で絞り込める。
 - 通信失敗・不正な返却・10秒の応答待ち超過では取得失敗と再試行を表示する。読み込み中や0件でも「自分の記録」を開ける。
-- Googleログイン後・状態復元後は、最新のID tokenで`GET /api/v1/session`を呼ぶ。返却uidと現在のFirebase利用者が一致した場合だけ「ログインを確認しました」と表示する。uid・token・SDKエラーは画面やログへ出さない。
-- 認証確認が401/503・不正返却・uid不一致・通信失敗になった場合、問題を保持して確認の再試行を出す。Googleのポップアップを勝手に開き直さない。
+- Googleログイン後やログイン状態の復元後に、最新のID tokenで`GET /api/v1/session`を呼ぶ。応答のuidが現在のFirebase利用者のuidと一致した場合だけ「ログインを確認しました」と表示する。uid・token・SDKエラーは画面やログへ出さない。
+- 認証確認で401/503、不正な応答、uidの不一致、通信失敗が起きた場合は、選んだ問題を保持し、確認をやり直す操作を表示する。Googleのポップアップは自動で開き直さない。
 - 「挑戦を始める」で最新tokenと公開問題ID・版を開始APIへ渡す。一致する応答を得てからカメラを開く。開始待ちは取消・10秒での打ち切りに対応し、409は問題の読み直し、429はRetry-After後の手動再試行を案内する。
 - ログアウト・利用者変更・画面終了時は進行中の通信を中止し、古い応答を反映しない。
 

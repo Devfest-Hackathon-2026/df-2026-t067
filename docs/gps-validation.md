@@ -4,7 +4,7 @@
 
 ## 有効化
 
-未設定または`QUEST_LOCATION_MODE=off`では従来の受付だけを維持する。GPS判定を試す場合はAPIを次の設定で起動する。Webの設定ではなく、サーバー側だけのフラグ。
+`QUEST_LOCATION_MODE`が未設定か`QUEST_LOCATION_MODE=off`の場合は、従来どおり回答の受付だけを行う。GPS判定を試す場合は、次のようにサーバー側の設定を指定してAPIを起動する。
 
 ```sh
 QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:api
@@ -26,7 +26,9 @@ QUEST_DATA_MODE=demo QUEST_LOCATION_MODE=demo NODE_ENV=development npm run dev:a
 | サーバー時計に対する未来の許容 | 5秒 |
 | 撮影時刻と測位時刻の最大差 | 前後どちらも30秒 |
 
-これらは**開発用の固定サンプル**で、本番のO-03を確定しない。実運用ではサーバーの問題ID・版に対応する非公開の設定から読み込む必要がある。`LocationValidation.policyFor`が未設定を返す、範囲が空、数値やサーバー時刻が不正なら503 SYSTEM_ERROR。誤設定を範囲外や位置不確実に隠さない。
+表の値は**開発用の固定サンプル**。本番のO-03は別に決める。実運用では、サーバーが問題IDと版に対応する非公開の設定を読み込む必要がある。
+
+`LocationValidation.policyFor`が未設定を返す場合、撮影範囲が空の場合、数値やサーバー時刻が不正な場合は503 SYSTEM_ERRORを返す。設定の誤りを、範囲外や位置不確実の結果として扱わない。
 
 ## 分類
 

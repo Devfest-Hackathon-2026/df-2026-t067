@@ -1,6 +1,6 @@
 # 挑戦開始APIの開発用実装
 
-`POST /api/v1/challenges`は既存のFirebase ID token検証と共通Challenge DTO/clientを使い、利用者と公開デモ問題・版をサーバーで結び付ける。[撮影画面](camera-preview.md)は`local-api`モードでこの開始APIの成功後に開き、写真と位置を開発用受付へ送れる。[回答受付](answer-intake.md)
+`POST /api/v1/challenges`は既存のFirebase ID token検証と共通Challenge DTO/clientを使う。サーバーは、確認した利用者を公開デモ問題の版に結び付ける。`local-api`モードでは開始APIが成功してから[撮影画面](camera-preview.md)を開く。利用者はその画面から、写真と位置を[開発用の回答受付](answer-intake.md)へ送れる。
 
 ## 入力と返却
 
@@ -48,7 +48,7 @@ const challenge = await api.createChallenge({
 
 ## 一時領域と制限
 
-`DemoChallengeStore`は**開発用のプロセス内メモリ**。最大256件で、サーバー再起動ですべて消える。永続保存や本人のクリア記録ではない。容量上限では503 SYSTEM_ERROR（retryable: false）を返し、既存の挑戦の再取得は可能。開発環境の再起動でリセットする。
+`DemoChallengeStore`は挑戦を**開発用のプロセス内メモリ**に最大256件保持する。本人のクリア記録は扱わない。上限に達すると、新規の要求には503 SYSTEM_ERROR（retryable: false）を返す。既存の挑戦は再取得できる。サーバーを再起動すると、保持した挑戦はすべて消える。
 
 正常な入力の開始要求は、再要求を含めて利用者ごとに60秒の窓で10回まで。超過は429 RATE_LIMITEDとRetry-Afterを返す。窓の管理領域も最大256利用者で、期限切れを除去する。これらは開発用リソース保護の値であり、本番の回数・保存期間・失効方針の決定ではない。
 

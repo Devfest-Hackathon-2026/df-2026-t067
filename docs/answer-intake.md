@@ -1,12 +1,12 @@
 # 開発用の回答受付API
 
-`POST /api/v1/challenges/:challengeId/answers`と`GET /api/v1/attempts/:attemptId`は、本人の挑戦に写真とCaptureMetadataを結び付ける。`local-api`の撮影画面から開発用の受付と位置判定を試せる。写真照合workerと画像保存は未接続。[ローカル画面の手順](camera-preview.md#ローカルapiで回答を送る)
+`POST /api/v1/challenges/:challengeId/answers`で本人の挑戦に写真とCaptureMetadataを結び付け、`GET /api/v1/attempts/:attemptId`でその受付を照会する。`local-api`の撮影画面から、開発用の受付と位置判定を試せる。この開発用受付では写真照合workerと画像保存は未接続。[ローカル画面の手順](camera-preview.md#ローカルapiで回答を送る)
 
 ## 受付と照会
 
-両APIともFirebase ID tokenが必要。未設定は503 AUTH_UNAVAILABLE、欠落・不正認証は401。別利用者の挑戦・受付と不明IDは同じ404 NOT_FOUND。queryは許可せず、本文のuid・orgId・isCorrect等を権限や正解の根拠にしない。
+両APIともFirebase ID tokenが必要。サーバーに認証設定がなければ503 AUTH_UNAVAILABLE、認証情報がないか不正な場合は401を返す。別の利用者の挑戦・受付を指定した場合も、存在しないIDを指定した場合も404 NOT_FOUNDを返す。queryは受け付けない。本文のuid・orgId・isCorrect等を権限や正解の根拠にしない。
 
-POSTはmultipart/form-dataでphotoファイル1つとmetadataのJSON文字列1つだけを送る。同じ名前の重複、追加・不足、metadataのFile化を拒否する。Content-Typeの境界はFormData/fetchに任せ、手動設定しない。
+POSTではmultipart/form-dataで、photoのファイル1つとmetadataのJSON文字列1つだけを送る。フィールドが重複、追加、不足している場合や、metadataがFileの場合は拒否する。Content-Typeの境界はFormData/fetchに任せる。
 
 Idempotency-Keyは可視ASCIIの1〜128文字で必須。同じuid＋challengeId＋keyについて、同じ画像bytes・MIME・正規化metadataなら同じ受付ID・結果を返す。multipartの境界・ファイル名・JSONキー順は同一性に影響しない。異なる写真・位置・日時等を同じキーで送ると409 IDEMPOTENCY_CONFLICT。新しい写真には新しいキーを使う。同時送信でも登録は1件となる。
 
