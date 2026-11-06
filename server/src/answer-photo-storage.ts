@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Storage } from 'firebase-admin/storage'
 import { DISCOVERY_PHOTO_MAX_BYTES } from '../../src/shared/api/types'
 import { HttpError, invalidInput } from './errors'
-import { conflict, incomingAnswerPhotoPath, recordAnswerPhotoPath, validDigest, validGeneration } from './firestore-answer-data'
+import { conflict, incomingAnswerPhotoPath, recordAnswerPhotoPath, validDigest, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
 import type { PhotoInput, PreparedPhoto } from './photo-input'
 import { parseId } from './query'
 
@@ -38,7 +38,7 @@ export class AnswerPhotoStorage {
   }
 
   async readRecord(reference: PhotoReference): Promise<PhotoInput> {
-    if (typeof reference?.path !== 'string' || !/^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(reference.path)) invalidInput()
+    if (!validRecordPhotoPath(reference?.path)) invalidInput()
     return this.read(reference)
   }
 

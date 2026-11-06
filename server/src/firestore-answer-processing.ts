@@ -5,7 +5,7 @@ import type { AttemptResult } from '../../src/shared/api/types'
 import { parseDiscovery } from '../../src/shared/api/validation'
 import { invalidInput } from './errors'
 import { answerTransaction, conflict, notFound, processingError, questChanged, readAnswerSource, readCurrentVersion, recordAnswerPhotoPath,
-  storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration } from './firestore-answer-data'
+  storedAnswerResult, storedId, validAnswerUid, validDigest, validGeneration, validRecordPhotoPath } from './firestore-answer-data'
 import { parseId } from './query'
 
 export interface AnswerIdentity {
@@ -162,8 +162,7 @@ async function readDiscovery(db: Firestore, tx: Transaction, uid: string, placeI
   const existing = (await tx.get(discovery)).data()
   if (existing && (existing.uid !== uid || existing.placeId !== placeId || existing.discoveryId !== discoveryId ||
     !(existing.firstClearedAt instanceof Timestamp) || !validGeneration(existing.photoObject?.generation) ||
-    typeof existing.photoObject.path !== 'string' ||
-    !/^answer-photos\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/record\.jpg$/.test(existing.photoObject.path))) throw processingError()
+    !validRecordPhotoPath(existing.photoObject.path))) throw processingError()
   return { discovery, existing }
 }
 

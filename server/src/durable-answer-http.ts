@@ -4,6 +4,7 @@ import type { AttemptResult } from '../../src/shared/api/types'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
+import { createDiscoveryHandler } from './discoveries-http'
 import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import type { AdmissionPolicy } from './firestore-admission'
@@ -11,13 +12,14 @@ import { processingError } from './firestore-answer-data'
 import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './firestore-answer-intake'
 import type { AnswerIdentity } from './firestore-answer-processing'
 import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-challenges'
+import { FirestoreDiscoveryReader } from './firestore-discoveries'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
 import { parseId, validateQuery } from './query'
 
 interface DurableAnswerHttpOptions {
   db: Firestore
-  photos: Pick<AnswerPhotoStorage, 'writeIncoming'>
+  photos: Pick<AnswerPhotoStorage, 'writeIncoming' | 'readRecord'>
   verifier: IdTokenVerifier
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
@@ -29,8 +31,11 @@ interface DurableAnswerHttpOptions {
 // separate demo server and does not instantiate any of these dependencies.
 export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
+  const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
+  const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryReader(options.db, options.photos), authenticate, send })
   return createQuestHttpServer('real', async (request, response) => {
     const { path, params } = requestTarget(request)
+    if (await discoveryHandler(request, response, path, params)) return
     const session = path === '/api/v1/session'
     const start = path === '/api/v1/challenges'
     const answer = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
@@ -41,7 +46,7 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    const uid = await authenticateRequest(request, options.verifier)
+    const uid = await authenticate(request)
     validateQuery(params, [])
     if (session) {
       send(response, 200, { uid })
