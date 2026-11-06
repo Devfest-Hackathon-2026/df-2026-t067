@@ -40,7 +40,8 @@ export async function acceptDurableAnswer(db: Firestore, input: AnswerSubmission
     const result: AttemptResult = { attemptId: target.attemptId, state: 'RECEIVED', outcome: null, nextAction: 'WAIT', source: 'real' }
     tx.create(intake.receipt, {
       uid, challengeId, digest, questId: current.questId, version: current.version, state: result.state,
-      receivedAt: FieldValue.serverTimestamp(), capture, sourcePhoto: { path: target.objectPath, generation },
+      receivedAt: FieldValue.serverTimestamp(), nextWorkAt: FieldValue.serverTimestamp(),
+      capture, sourcePhoto: { path: target.objectPath, generation },
     })
     tx.set(admission.ref, { windowStartedAt: admission.windowStartedAt, count: admission.count + 1 })
     return result

@@ -50,7 +50,10 @@ export async function claimAnswerWork(db: Firestore, input: AnswerIdentity, opti
     const claimed = { kind: 'claimed' as const, leaseId, questId, version, placeId }
     const result = step === 'commit' ? { ...claimed, step }
       : { ...claimed, step, source: readAnswerSource(data, input.attemptId) }
-    tx.update(receipt.ref, { state: step === 'verify' ? 'PROCESSING' : data.state, lease: { id: leaseId, expiresAt } })
+    tx.update(receipt.ref, {
+      state: step === 'verify' ? 'PROCESSING' : data.state, lease: { id: leaseId, expiresAt },
+      nextWorkAt: step === 'verify' ? FieldValue.delete() : expiresAt,
+    })
     return result
   })
 }
@@ -60,7 +63,7 @@ export async function recordAnswerMatch(db: Firestore, input: LeasedAnswer, proo
     proof.location !== 'WITHIN_AREA' || proof.photo !== 'MATCH') invalidInput()
   parseId(proof.placeId)
   return withOwnedAnswer(db, input, async (tx, receipt, data) => {
-    requireLiveLease(receipt, data, input.leaseId)
+    const lease = requireLiveLease(receipt, data, input.leaseId)
     const current = await readCurrentVersion(db, tx, data, input.uid)
     if (current.version !== proof.version) throw questChanged()
     if (current.placeId !== proof.placeId) throw processingError()
@@ -70,7 +73,7 @@ export async function recordAnswerMatch(db: Firestore, input: LeasedAnswer, proo
     }
     if (data.state !== 'PROCESSING' || data.checkpoint !== undefined) throw processingError(true)
     const { placeId, version, location, photo } = proof
-    tx.update(receipt.ref, { state: 'IMAGE_EVALUATED', checkpoint: { placeId, version, location, photo } })
+    tx.update(receipt.ref, { state: 'IMAGE_EVALUATED', checkpoint: { placeId, version, location, photo }, nextWorkAt: lease.expiresAt })
   })
 }
 
@@ -167,6 +170,7 @@ async function readDiscovery(db: Firestore, tx: Transaction, uid: string, placeI
 function finishAttempt(tx: Transaction, receipt: DocumentSnapshot, result: AttemptResult): AttemptResult {
   tx.update(receipt.ref, {
     state: 'COMPLETED', result, lease: FieldValue.delete(), checkpoint: FieldValue.delete(), capture: FieldValue.delete(),
+    nextWorkAt: FieldValue.delete(),
   })
   return result
 }
@@ -222,10 +226,11 @@ function readLease(data: DocumentData): { id: string; expiresAt: Timestamp } | u
   return { id: storedId(data.lease.id), expiresAt: data.lease.expiresAt }
 }
 
-function requireLiveLease(receipt: DocumentSnapshot, data: DocumentData, leaseId: string): void {
+function requireLiveLease(receipt: DocumentSnapshot, data: DocumentData, leaseId: string) {
   validateLeaseId(leaseId)
   const lease = readLease(data)
   if (lease?.id !== leaseId || lease.expiresAt.toMillis() <= receipt.readTime.toMillis()) throw processingError(true)
+  return lease
 }
 
 function validateLeaseId(leaseId: string): void {

@@ -8,6 +8,7 @@ import { createApiClient } from '../../src/shared/api/client'
 import { AnswerPhotoStorage } from '../src/answer-photo-storage'
 import { DemoAnswerStore } from '../src/answers'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
+import { runDueAnswerJobs } from '../src/durable-answer-jobs'
 import { runDurableAnswer } from '../src/durable-answer-worker'
 import { HttpError } from '../src/errors'
 import { getDurableAnswer } from '../src/firestore-answer-intake'
@@ -65,7 +66,7 @@ test('Cloud Storage photo generations stay immutable across retries', {
   assert.notEqual(newVersion.generation, first.generation)
   await assert.rejects(store.readIncoming(attemptId, digest, first), { code: 'SYSTEM_ERROR', retryable: false })
 
-  await t.test('HTTP intake and the durable worker keep JPEGs and results across retries', { skip: !firestoreEmulator }, async () => {
+  await t.test('HTTP intake and durable recovery keep JPEGs and results across interruptions', { skip: !firestoreEmulator }, async () => {
     assert(firestoreEmulator && /^127\.0\.0\.1:[1-9]\d{0,4}$/.test(firestoreEmulator) && Number(firestoreEmulator.split(':')[1]) <= 65535)
     process.env.FIRESTORE_EMULATOR_HOST = firestoreEmulator
     const db = getFirestore(app)
@@ -108,6 +109,10 @@ test('Cloud Storage photo generations stay immutable across retries', {
         assert.equal((await api.getSession()).uid, uid)
         await assert.rejects(client('other-owner').submitAnswer(input), { code: 'NOT_FOUND' })
         await assert.rejects(api.submitAnswer(input), { code: 'SYSTEM_ERROR', retryable: true })
+        const accepted = await db.collection('attempts').where('challengeId', '==', challenge.challengeId).get()
+        assert.equal(accepted.size, 1)
+        assert(!queued.has(accepted.docs[0].id))
+        return { uid, attemptId: accepted.docs[0].id, digest: String(accepted.docs[0].get('digest')) }
       }
       const receipt = await api.submitAnswer(input)
       assert.equal(receipt.state, 'RECEIVED')
@@ -123,18 +128,19 @@ test('Cloud Storage photo generations stay immutable across retries', {
       loadReference: async () => { referenceCalls++; return { reference: other, features: ['合成の確認済み特徴'] } },
       matcher: async () => { matcherCalls++; return 'MATCH' },
     }
+    const sweep = (worker = options) => runDueAnswerJobs({ worker, maximumJobs: 10, retryDelayMs: 60_000 })
     const identity = await submit(undefined, 0, 5, true)
-    const final = await runDurableAnswer(identity, options)
-    assert(final.kind === 'completed' && final.result.outcome === 'CORRECT')
-    assert.deepEqual(await client(identity.uid).getAttempt(identity.attemptId), final.result)
+    await Promise.all([sweep(), sweep()])
+    const final = await client(identity.uid).getAttempt(identity.attemptId)
+    assert(final.outcome === 'CORRECT')
     await assert.rejects(client('other-owner').getAttempt(identity.attemptId), { code: 'NOT_FOUND' })
-    assert.deepEqual(await getDurableAnswer(db, identity.uid, identity.attemptId), final.result)
-    const snapshot = await db.collection('discoveries').doc(final.result.optionalDiscoveryId).get()
+    assert.deepEqual(await getDurableAnswer(db, identity.uid, identity.attemptId), final)
+    const snapshot = await db.collection('discoveries').doc(final.optionalDiscoveryId).get()
     assert.deepEqual((await store.readRecord(snapshot.get('photoObject'))).bytes, photo.bytes)
-    assert.deepEqual(await runDurableAnswer(identity, options), final)
+    assert.deepEqual(await runDurableAnswer(identity, options), { kind: 'completed', result: final })
     const repeatVisit = await runDurableAnswer(await submit(identity.uid), options)
     assert(repeatVisit.kind === 'completed' && repeatVisit.result.outcome === 'ALREADY_CLEARED')
-    assert.equal(repeatVisit.result.optionalDiscoveryId, final.result.optionalDiscoveryId)
+    assert.equal(repeatVisit.result.optionalDiscoveryId, final.optionalDiscoveryId)
 
     for (const [latitude, accuracy, expected] of [[1, 5, 'OUTSIDE_AREA'], [0, 50, 'LOCATION_UNCERTAIN']] as const) {
       const located = await submit(undefined, latitude, accuracy)
@@ -155,9 +161,9 @@ test('Cloud Storage photo generations stay immutable across retries', {
       writeRecord: async () => { throw new HttpError(503, 'SYSTEM_ERROR', '一時障害', true) } }
     await assert.rejects(runDurableAnswer(recoverable, { ...options, photos: flaky }), { code: 'SYSTEM_ERROR', retryable: true })
     assert.equal((await getDurableAnswer(db, recoverable.uid, recoverable.attemptId)).state, 'IMAGE_EVALUATED')
-    await db.collection('attempts').doc(recoverable.attemptId).update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
-    const resumed = await runDurableAnswer(recoverable, options)
-    assert(resumed.kind === 'completed' && resumed.result.outcome === 'CORRECT')
+    await db.collection('attempts').doc(recoverable.attemptId).update({ 'lease.expiresAt': Timestamp.fromMillis(0), nextWorkAt: Timestamp.fromMillis(0) })
+    assert.equal((await sweep()).completed, 1)
+    assert.equal((await client(recoverable.uid).getAttempt(recoverable.attemptId)).outcome, 'CORRECT')
     assert.equal(matcherCalls, 2)
 
     const outage = await submit()
@@ -165,7 +171,28 @@ test('Cloud Storage photo generations stay immutable across retries', {
       { code: 'SYSTEM_ERROR', retryable: true })
     assert.equal((await getDurableAnswer(db, outage.uid, outage.attemptId)).outcome, null)
     assert.deepEqual(await runDurableAnswer(outage, options), { kind: 'busy' })
+    await db.collection('attempts').doc(outage.attemptId).update({ 'lease.expiresAt': Timestamp.fromMillis(0) })
+    assert.equal((await sweep()).examined, 0)
+    assert.equal(matcherCalls, 2)
 
+    const deferred = await submit(undefined, 1)
+    const deferredRef = db.collection('attempts').doc(deferred.attemptId)
+    assert.equal((await sweep({ ...options, authorize: async () => { throw new Error('認証の一時障害') } })).deferred, 1)
+    assert((await deferredRef.get()).get('nextWorkAt').toMillis() > Date.now())
+    assert.equal((await sweep()).examined, 0)
+    await deferredRef.update({ nextWorkAt: Timestamp.fromMillis(0) })
+    const future = Timestamp.fromMillis(Date.now() + 180_000)
+    const rescheduled = await sweep({ ...options, authorize: async () => {
+      await deferredRef.update({ nextWorkAt: future })
+      throw new Error('別のプロセスが回収日時を更新した後の障害')
+    } })
+    assert.equal(rescheduled.deferred, 1)
+    assert((await deferredRef.get()).get('nextWorkAt').isEqual(future))
+    await deferredRef.update({ nextWorkAt: Timestamp.fromMillis(0) })
+    assert.equal((await sweep()).completed, 1)
+    assert.equal((await client(deferred.uid).getAttempt(deferred.attemptId)).outcome, 'OUTSIDE_AREA')
+
+    const beforePause = await submit()
     const paused = await submit()
     await assert.rejects(runDurableAnswer(paused, { ...options, loadReference: async () => {
       await quest.update({ publishedVersion: null, status: 'paused' })
@@ -173,6 +200,8 @@ test('Cloud Storage photo generations stay immutable across retries', {
     } }), { code: 'QUEST_UNAVAILABLE' })
     await assert.rejects(client(paused.uid).createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
     await assert.rejects(client(paused.uid).getAttempt(paused.attemptId), { code: 'QUEST_UNAVAILABLE' })
+    assert.equal((await sweep()).discarded, 1)
+    assert.equal((await db.collection('attempts').doc(beforePause.attemptId).get()).get('nextWorkAt'), undefined)
     assert.equal(matcherCalls, 2)
     const discoveries = await db.collection('discoveries').where('placeId', '==', placeId).get()
     assert.equal(discoveries.size, 2)
