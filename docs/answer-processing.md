@@ -1,8 +1,8 @@
 # A向け：開発用の回答処理接続
 
-`server/src/answer-processing.ts`の`DemoAnswerProcessor`は、受付・GPS・写真照合・本人記録ストアをつなぐ**サーバー内部用の部品**。FR-06/07/08、AT-10/12/18/19/22の部分実装として、合成画像と代替matcherで検証する。
+`server/src/answer-processing.ts`の`DemoAnswerProcessor`は、回答受付からGPS判定、写真照合、本人記録ストアへの保存までをつなぐ**サーバー内部用の部品**。FR-06/07/08、AT-10/12/18/19/22の一部に当たり、合成画像と代替matcherで検証する。
 
-HTTPハンドラー・main・環境変数からは起動しない。既存の回答POST/本人照会は引き続きRECEIVEDか開発用GPS不合格を返す。旅行者の実写真をVertexへ送信せず、CORRECTを返さず、実Firestore/Storage・永続ジョブ・公開を有効にしない。
+この部品はHTTPハンドラー、main、環境変数からは起動しない。既存の回答POSTと本人照会は、引き続きRECEIVEDか開発用GPSの不合格を返す。旅行者の実写真をVertexへ送信したり、CORRECTを返したりする経路はここでは有効にしない。実Firestore/Storage、永続ジョブ、公開も対象外。
 
 ## 内部の受け渡し
 
