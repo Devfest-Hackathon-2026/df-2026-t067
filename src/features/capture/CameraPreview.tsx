@@ -13,11 +13,14 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   const photoRef = useRef<string | null>(null)
   const generation = useRef(0)
   const locationGeneration = useRef(0)
+  const rotationGeneration = useRef(0)
   const capturedAtRef = useRef<string | null>(null)
   const capturing = useRef(false)
   const [attempt, setAttempt] = useState(0)
   const [phase, setPhase] = useState<'opening' | 'live' | 'capturing' | 'photo' | 'error'>('opening')
-  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null)
+  const [photo, setPhoto] = useState<{ url: string; blob: Blob; originalBlob: Blob; rotation: number } | null>(null)
+  const [rotating, setRotating] = useState(false)
+  const [submissionStarted, setSubmissionStarted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<CaptureMetadata | null>(null)
   const [locating, setLocating] = useState(false)
@@ -38,6 +41,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   function dispose() {
     generation.current++
     locationGeneration.current++
+    rotationGeneration.current++
     capturing.current = false
     stopCamera()
     releasePhoto()
@@ -122,7 +126,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
           // The photo owns the view now; ignore a delayed play() result.
           generation.current++
           stopCamera()
-          setPhoto({ url, blob })
+          setPhoto({ url, blob, originalBlob: blob, rotation: 0 })
           setPhase('photo')
           capturing.current = false
         } catch { fail('写真を表示できませんでした。再試行してください。') }
@@ -165,14 +169,52 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
 
   function restart() {
     dispose()
+    setRotating(false)
     setLocating(false)
     setPhoto(null)
+    setSubmissionStarted(false)
     setError(null)
     setMetadata(null)
     setShowLocationMap(false)
     capturedAtRef.current = null
     setPhase('opening')
     setAttempt((value) => value + 1)
+  }
+
+  async function rotatePhoto(direction: -1 | 1) {
+    if (!photo || rotating || submissionStarted) return
+    const own = ++rotationGeneration.current
+    const nextRotation = (photo.rotation + direction + 4) % 4
+    setRotating(true)
+    setError(null)
+    let bitmap: ImageBitmap | null = null
+    try {
+      bitmap = await createImageBitmap(photo.originalBlob)
+      if (own !== rotationGeneration.current) return
+      const quarterTurn = nextRotation % 2 === 1
+      const canvas = document.createElement('canvas')
+      canvas.width = quarterTurn ? bitmap.height : bitmap.width
+      canvas.height = quarterTurn ? bitmap.width : bitmap.height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('no-context')
+      context.translate(canvas.width / 2, canvas.height / 2)
+      context.rotate(nextRotation * Math.PI / 2)
+      context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2)
+      const rotatedBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('no-blob')), 'image/jpeg', 0.9)
+      })
+      if (own !== rotationGeneration.current) return
+      const url = URL.createObjectURL(rotatedBlob)
+      const oldUrl = photoRef.current
+      photoRef.current = url
+      setPhoto({ ...photo, url, blob: rotatedBlob, rotation: nextRotation })
+      if (oldUrl) URL.revokeObjectURL(oldUrl)
+    } catch {
+      if (own === rotationGeneration.current) setError('写真を回転できませんでした。もう一度お試しください。')
+    } finally {
+      bitmap?.close()
+      if (own === rotationGeneration.current) setRotating(false)
+    }
   }
 
   return (
@@ -189,6 +231,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       {phase === 'opening' && <p role="status" className="camera-status">カメラを準備しています。許可の確認が出たら選択してください。</p>}
       {phase === 'capturing' && <p role="status" className="camera-status">写真を作成しています…</p>}
       {locating && <p role="status" className="camera-status">撮影地を取得しています…</p>}
+      {rotating && <p role="status" className="camera-status">写真を回転しています…</p>}
       {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
       {showCaptureLocationMapDebug && photoUrl && metadata && <div className="camera-map-reference">
         <button type="button" className="secondary-button" aria-expanded={showLocationMap}
@@ -197,10 +240,16 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
         {showLocationMap && <CaptureLocationMap latitude={metadata.position.latitude} longitude={metadata.position.longitude} />}
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
-      {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} />}
+      {photo && <div className="camera-actions" aria-label="写真の向き">
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted} aria-label="左に90度回転">左に90度回転</button>
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted} aria-label="右に90度回転">右に90度回転</button>
+      </div>}
+      {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} disabled={rotating}
+        onSubmissionStarted={() => setSubmissionStarted(true)} />}
       <div className="camera-actions">
         {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}
         {photoUrl && !metadata && <button type="button" className="primary-button" onClick={requestLocation} disabled={locating}>{locating ? '撮影地を取得中…' : '位置情報を再試行'}</button>}
+        {photoUrl && !answer && <button type="button" className="primary-button" disabled>解答を送信する（準備中）</button>}
         {photoUrl && <button type="button" className="secondary-button" onClick={restart}>撮り直す</button>}
         {phase === 'error' && <button type="button" className="secondary-button" onClick={restart}>カメラを再試行</button>}
         <button type="button" className="secondary-button" onClick={() => { dispose(); setLocating(false); onClose() }}>撮影を終了</button>
