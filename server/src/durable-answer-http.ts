@@ -22,7 +22,7 @@ interface DurableAnswerHttpOptions {
   challengePolicy: AdmissionPolicy
   answerPolicy: AdmissionPolicy
   acquireUpload(uid: string): () => void
-  enqueue(input: AnswerIdentity): Promise<void>
+  enqueue?(input: AnswerIdentity): Promise<void>
 }
 
 // Explicit assembly for durable routes. The development executable uses its
@@ -51,7 +51,7 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
       send(response, result.created ? 201 : 200, result.challenge)
     } else if (answer) {
       const { result, digest } = await receive(options, request, uid, parseId(decodeURIComponent(answer[1])))
-      if (result.state !== 'COMPLETED') {
+      if (result.state !== 'COMPLETED' && options.enqueue) {
         // Keep the receipt even if dispatch fails. The same submission can
         // enqueue it again and the worker lease deduplicates execution.
         try { await options.enqueue({ uid, attemptId: result.attemptId, digest }) }
