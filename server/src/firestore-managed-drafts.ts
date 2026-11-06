@@ -30,7 +30,7 @@ export class FirestoreManagedDraftStore {
   }
 
   get(uid: string, orgId: string, questId: string) {
-    return answerTransaction(this.db, async (tx) => (await this.getOwned(tx, uid, orgId, questId)).quest, true)
+    return answerTransaction(this.db, async (tx) => (await this.readOwned(tx, uid, orgId, questId)).quest, true)
   }
 
   getAtRevision(uid: string, orgId: string, questId: string, revision: number) {
@@ -38,14 +38,14 @@ export class FirestoreManagedDraftStore {
   }
 
   async readAtRevision(tx: Transaction, uid: string, orgId: string, questId: string, revision: number) {
-    const { quest } = await this.getOwned(tx, uid, orgId, questId)
+    const { quest } = await this.readOwned(tx, uid, orgId, questId)
     if (quest.draftRevision !== revision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
     return quest
   }
 
   getShootingAreas(uid: string, orgId: string, questId: string) {
     return answerTransaction(this.db, async (tx): Promise<ManagedShootingAreas> => {
-      const { quest, zones } = await this.getOwned(tx, uid, orgId, questId)
+      const { quest, zones } = await this.readOwned(tx, uid, orgId, questId)
       return { orgId, questId, draftRevision: quest.draftRevision, zones, source: 'real' }
     }, true)
   }
@@ -66,7 +66,7 @@ export class FirestoreManagedDraftStore {
 
   update(uid: string, orgId: string, questId: string, input: UpdateManagedQuest) {
     return answerTransaction(this.db, async (tx) => {
-      const { ref, quest } = await this.getOwned(tx, uid, orgId, questId)
+      const { ref, quest } = await this.readOwned(tx, uid, orgId, questId)
       const draftRevision = nextRevision(quest.draftRevision, input.expectedDraftRevision)
       await this.checkAssets(tx, orgId, input.draft)
       const changes = { draftRevision, status: 'draft' as const, draft: input.draft }
@@ -77,7 +77,7 @@ export class FirestoreManagedDraftStore {
 
   updateShootingAreas(uid: string, orgId: string, questId: string, input: UpdateShootingAreas) {
     return answerTransaction(this.db, async (tx): Promise<ManagedShootingAreas> => {
-      const { ref, quest } = await this.getOwned(tx, uid, orgId, questId)
+      const { ref, quest } = await this.readOwned(tx, uid, orgId, questId)
       const draftRevision = nextRevision(quest.draftRevision, input.expectedDraftRevision)
       tx.update(ref, { draftRevision, status: 'draft', zones: input.zones })
       return { orgId, questId, draftRevision, zones: input.zones, source: 'real' }
@@ -86,7 +86,7 @@ export class FirestoreManagedDraftStore {
 
   submitReview(uid: string, orgId: string, questId: string, expectedRevision: number) {
     return answerTransaction(this.db, async (tx): Promise<ReviewSubmission> => {
-      const { ref, quest } = await this.getOwned(tx, uid, orgId, questId)
+      const { ref, quest } = await this.readOwned(tx, uid, orgId, questId)
       if (quest.draftRevision !== expectedRevision) throw new HttpError(409, 'DRAFT_CONFLICT', '下書きの版が変更されています。')
       if (quest.status === 'published') throw new HttpError(409, 'DRAFT_CONFLICT', 'この下書き版は公開済みです。')
       const { referenceAssetId, hintAssetId } = quest.draft
@@ -101,9 +101,9 @@ export class FirestoreManagedDraftStore {
     })
   }
 
-  private async getOwned(tx: Transaction, uid: string, orgId: string, questId: string) {
-    await requireOrgMember(this.db, tx, uid, orgId)
-    return readDraft(await tx.get(this.db.collection('quests').doc(questId)), orgId)
+  async readOwned(tx: Transaction, uid: string, orgId: string, questId: string) {
+    const member = await requireOrgMember(this.db, tx, uid, orgId)
+    return { ...readDraft(await tx.get(this.db.collection('quests').doc(questId)), orgId), member }
   }
 
   private async checkAssets(tx: Transaction, orgId: string, draft: ManagedQuestDraft) {
@@ -140,7 +140,7 @@ function readDraft(snapshot: DocumentSnapshot, orgId: string) {
   if (!data || data.orgId !== orgId || data.managed !== true) throw notFound()
   const zones = parseCaptureZones(data.zones)
   const quest = managedQuest(snapshot.id, data, zones.length ? 'configured' : 'unconfigured')
-  return { ref: snapshot.ref, quest, zones }
+  return { ref: snapshot.ref, quest, zones, data }
 }
 
 function managedQuest(questId: string, data: Record<string, unknown>, shootingAreaStatus: 'configured' | 'unconfigured') {

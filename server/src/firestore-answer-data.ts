@@ -49,7 +49,7 @@ export async function readActiveChallenge(db: Firestore, tx: Transaction, uid: s
 export async function assertChallengeCanStart(db: Firestore, tx: Transaction, questId: string, version: number): Promise<void> {
   const [quest, versionDoc] = await tx.getAll(...versionDocuments(db, questId, version))
   const publication = quest.data()
-  if (!publication || (publication.publishedVersion === null && publication.status !== 'paused')) throw notFound()
+  if (!publication || (publication.publishedVersion === null && publication.status !== 'paused' && typeof publication.pauseReason !== 'string')) throw notFound()
   checkPublishedVersion(questId, version, publication, versionDoc.data())
 }
 
@@ -86,6 +86,10 @@ export function storedAnswerResult(data: DocumentData, attemptId: string) {
 
 export function incomingAnswerPhotoPath(attemptId: string, digest: string): string {
   return `answer-photos/${attemptId}/incoming-${digest}.jpg`
+}
+
+export function sealedIntakePhoto(db: Firestore, attemptId: string) {
+  return db.collection('sealedIntakePhotos').doc(attemptId)
 }
 
 export function recordAnswerPhotoPath(attemptId: string): string {

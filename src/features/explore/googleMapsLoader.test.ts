@@ -38,10 +38,10 @@ describe('Google Maps loader', () => {
     const retry = loadGoogleMaps('test-key')
     const replacement = document.querySelector<HTMLScriptElement>('script[data-quest-google-maps]')!
     expect(replacement).not.toBe(script)
-    window.google = { maps: { Map: class {}, event: { addListener: () => ({ remove() {} }) } } }
+    window.google = { maps: { Map: class {}, event: { addListener: () => ({ remove() {} }) } } as never }
     const ready = (window as unknown as Record<string, unknown>)[new URL(replacement.src).searchParams.get('callback')!] as () => void
     ready()
-    expect(await retry).toBe(window.google.maps)
+    expect(await retry).toBe(window.google?.maps)
   })
   it('times out a stalled script and removes its callback and auth handler', async () => {
     vi.useFakeTimers()

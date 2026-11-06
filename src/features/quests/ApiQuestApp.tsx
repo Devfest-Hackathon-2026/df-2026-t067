@@ -233,6 +233,13 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
     {refreshing && <span role="status">地域・問題一覧・選択中の詳細を取り直しています。</span>}
     {refreshNotice?.api === api && <span role="status">{refreshNotice.text}</span>}
   </>
+  const selectArea = (areaId: string) => {
+    if (areaId === selectedAreaId || !availableAreas.some((item) => item.areaId === areaId)) return
+    clearRefreshNotice()
+    if (syncUrl) writeSelectionToUrl(areaId, '', 'push')
+    setSelectedAreaId(areaId)
+    setSelectedId('')
+  }
   const fallback = !quest ? <section className="api-load-state" aria-live="polite">
       <p className="eyebrow">{dataMode === 'durable-local' ? '永続API・ローカル' : '公開APIデモ'}</p>
       <h1 id="explore-title">{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>
@@ -245,7 +252,8 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       {refreshControl}
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
     </section> : undefined
-  return <App authClient={authClient} quest={quest} areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
+  return <App authClient={authClient} quest={quest} mapAreas={availableAreas} selectedAreaId={selectedAreaId} onSelectArea={selectArea}
+    areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
     questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
     onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}

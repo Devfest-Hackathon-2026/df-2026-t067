@@ -7,6 +7,9 @@ import type { AuthClient } from '../auth/authTypes'
 import { ApiQuestApp } from './ApiQuestApp'
 import { ApiError } from '../../shared/api/client'
 
+vi.mock('../explore/MapPreview', () => ({ MapPreview: (props: { areas?: PublicArea[]; selectedAreaId?: string; onSelectArea?: (id: string) => void }) =>
+  <button type="button" aria-label="地図の公開地域を選択" onClick={() => props.onSelectArea?.('area-b')}>地図 {props.areas?.length ?? 0} {props.selectedAreaId}</button> }))
+
 const first: PublicQuest = { questId: 'quest-a', version: 2, title: '川辺の謎', clue: '詳細版の手がかり', areaId: 'area-a', visitConditions: '訪問条件', hintCount: 0 }
 const second: PublicQuest = { questId: 'quest-b', version: 1, title: '森の謎', clue: '森の手がかり', areaId: 'area-b', visitConditions: '訪問条件', hintCount: 0 }
 const areas: PublicArea[] = [
@@ -42,6 +45,19 @@ function signedOutAuth(): AuthClient {
 }
 
 describe('APIから問題を表示', () => {
+  it('地図の地域クリックで地域・問題・URL選択を同期する', async () => {
+    const api = apiFixture()
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
+    expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
+    api.listQuests.mockResolvedValueOnce(page([second]))
+    await userEvent.setup().click(screen.getByRole('button', { name: '地図の公開地域を選択' }))
+    expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-b')
+    expect(screen.getByRole('combobox', { name: '公開APIの問題を選択' })).toHaveValue('quest-b')
+    expect(new URL(window.location.href).searchParams.get('area')).toBe('area-b')
+    expect(new URL(window.location.href).searchParams.get('quest')).toBe('quest-b')
+  })
+
   it('uses the durable catalog anonymously and the same data mode for authenticated challenge and records', async () => {
     const user = userEvent.setup()
     const getUserMedia = vi.fn(async () => ({ getTracks: () => [] }))
