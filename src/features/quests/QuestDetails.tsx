@@ -6,6 +6,7 @@ import { ApiError } from '../../shared/api/client'
 import { useEffect, useRef, useState } from 'react'
 import { useId } from 'react'
 import type { ReactNode } from 'react'
+import type { MouseEvent } from 'react'
 import type { QuestHint } from '../../shared/api/types'
 
 export type ChallengeSelection = Parameters<ReturnType<typeof createApiClient>['createChallenge']>[0]
@@ -19,12 +20,12 @@ function getHintIdentity(getHint?: GetHint) {
   return identity
 }
 
-function HintItem({ questId, version, index, getHint, onVersionChanged }: {
-  questId: string; version: number; index: number; getHint: GetHint; onVersionChanged(): void
+function HintItem({ questId, version, index, getHint, onVersionChanged, onReloadQuest }: {
+  questId: string; version: number; index: number; getHint: GetHint; onVersionChanged(): void; onReloadQuest(event?: MouseEvent<HTMLButtonElement>): void
 }) {
   const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
-  const [state, setState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error' | 'changed'; text?: string; message?: string }>({ status: 'idle' })
+  const [state, setState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error' | 'changed'; text?: string; message?: string; reloadNeeded?: boolean }>({ status: 'idle' })
   const controllerRef = useRef<AbortController | null>(null)
   const timeoutRef = useRef<number | null>(null)
   const generation = useRef(0)
@@ -56,7 +57,7 @@ function HintItem({ questId, version, index, getHint, onVersionChanged }: {
         setState({ status: 'changed' })
         onVersionChanged()
       } else if (controller.signal.aborted && !timedOut) return
-      else setState({ status: 'error', message: timedOut ? '取得がタイムアウトしました。再試行できます。'
+      else setState({ status: 'error', reloadNeeded: error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'INVALID_INPUT'), message: timedOut ? '取得がタイムアウトしました。再試行できます。'
         : error instanceof ApiError && error.code === 'NOT_FOUND' ? 'このヒントは見つかりません（404）。問題を読み直してください。'
           : error instanceof ApiError && error.code === 'INVALID_INPUT' ? 'ヒント番号が無効です。問題を読み直してください。'
             : error instanceof ApiError && error.code === 'INVALID_RESPONSE' ? 'ヒントの応答を確認できませんでした。'
@@ -83,12 +84,13 @@ function HintItem({ questId, version, index, getHint, onVersionChanged }: {
         toggleRef.current?.focus()
         void load()
       }}>ヒント{index}を再試行</button>
+      {state.reloadNeeded && <button type="button" onClick={(event) => onReloadQuest(event)}>問題を読み直す</button>}
     </div>}
     {expanded && state.status === 'changed' && <div role="alert"><p>問題の版が変わりました。古いヒントと挑戦を無効にしました。</p><button type="button" onClick={onVersionChanged}>最新版の問題を読み直す</button></div>}
   </div>
 }
 
-function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadQuest }: { quest: PublicQuest; getHint?: GetHint; stale: boolean; onVersionChanged(): void; onReloadQuest(): void }) {
+function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadQuest }: { quest: PublicQuest; getHint?: GetHint; stale: boolean; onVersionChanged(): void; onReloadQuest(event?: MouseEvent<HTMLButtonElement>): void }) {
   const [changed, setChanged] = useState(false)
   if (!getHint) return null
   if (!quest.hintCount) return <p className="hints-note">この問題には通常ヒントがありません。</p>
@@ -96,7 +98,7 @@ function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadQuest }: 
   return <div className="quest-hints" aria-label="段階ヒント">
     <h4>段階ヒント</h4>
     {Array.from({ length: quest.hintCount }, (_, offset) => offset + 1).map(index =>
-      <HintItem key={`${quest.questId}:${quest.version}:${index}`} questId={quest.questId} version={quest.version} index={index} getHint={getHint} onVersionChanged={() => { setChanged(true); onVersionChanged() }} />)}
+      <HintItem key={`${quest.questId}:${quest.version}:${index}`} questId={quest.questId} version={quest.version} index={index} getHint={getHint} onVersionChanged={() => { setChanged(true); onVersionChanged() }} onReloadQuest={onReloadQuest} />)}
     <p className="hints-note">各ヒントは選んだ番号だけ取得します。最終案内は含みません。</p>
   </div>
 }
@@ -140,7 +142,7 @@ interface QuestDetailsProps {
   onStart(selection: ChallengeSelection): void | Promise<unknown>
   getHint?: GetHint
   onHintVersionChanged?(): void
-  onReloadQuest?(): void
+  onReloadQuest?(event?: MouseEvent<HTMLButtonElement>): void
   children?: ReactNode
   hideStartAction?: boolean
   stale?: boolean

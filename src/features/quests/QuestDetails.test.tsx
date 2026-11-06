@@ -98,14 +98,19 @@ it('hides the image control when absent and resets the open image on quest, vers
 it('fetches each public hint only on explicit request, retries failures, and gives 404 its own state', async () => {
   const user = userEvent.setup()
   const quest = { ...demoQuest, hintCount: 2 }
+  const reload = vi.fn()
   const getHint = vi.fn().mockRejectedValueOnce(new ApiError('NOT_FOUND', { status: 404 }))
     .mockResolvedValueOnce({ questId: quest.questId, version: quest.version, index: 1, text: '第一段階' })
     .mockResolvedValueOnce({ questId: quest.questId, version: quest.version, index: 2, text: '第二段階' })
-  render(<QuestDetails quest={quest} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} getHint={getHint} />)
+  render(<QuestDetails quest={quest} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} getHint={getHint} onReloadQuest={reload} />)
   expect(getHint).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('見つかりません（404）')
-  await user.tab()
+  expect(reload).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '問題を読み直す' }))
+  expect(reload).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: '挑戦する' })).toBeEnabled()
+  screen.getByRole('button', { name: 'ヒント1を再試行' }).focus()
   expect(screen.getByRole('button', { name: 'ヒント1を再試行' })).toHaveFocus()
   await user.keyboard('{Enter}')
   expect(await screen.findByText('第一段階')).toBeVisible()
@@ -118,6 +123,27 @@ it('fetches each public hint only on explicit request, retries failures, and giv
     { questId: quest.questId, expectedVersion: quest.version, index: 1 },
     { questId: quest.questId, expectedVersion: quest.version, index: 2 },
   ])
+})
+
+it('offers manual quest reload for INVALID_INPUT, invoked once with Enter, but not for transport errors', async () => {
+  const user = userEvent.setup()
+  const quest = { ...demoQuest, hintCount: 1 }
+  const reload = vi.fn()
+  const getHint = vi.fn().mockRejectedValueOnce(new ApiError('INVALID_INPUT', { status: 400 }))
+    .mockRejectedValueOnce(new Error('network down'))
+  render(<QuestDetails quest={quest} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} getHint={getHint} onReloadQuest={reload} />)
+  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('ヒント番号が無効')
+  expect(reload).not.toHaveBeenCalled()
+  screen.getByRole('button', { name: '問題を読み直す' }).focus()
+  await user.keyboard('{Enter}')
+  expect(reload).toHaveBeenCalledTimes(1)
+
+  await user.click(screen.getByRole('button', { name: 'ヒント1を閉じる' }))
+  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('通信を確認')
+  expect(screen.queryByRole('button', { name: '問題を読み直す' })).not.toBeInTheDocument()
+  expect(reload).toHaveBeenCalledTimes(1)
 })
 
 it('discards an old response when details close, and routes QUEST_CHANGED to reload', async () => {
