@@ -86,6 +86,7 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
       challengePolicy: policy, answerPolicy: policy, acquireUpload: (uid) => uploadLimiter.acquire(uid),
       worker: { ...material, leaseDurationMs: 180_000, authorize: verifier.isActiveUser, matcher, matchTimeoutMs: ledger ? 30_000 : undefined },
       maintenance: { intervalMs: 1000, maximumJobs: 8, retryDelayMs: 5000,
+        intakePhotos: { storage: photos, minimumAgeMs: 300_000, intervalMs: 60_000 },
         onFailure: (pass) => { console.error('Durable local maintenance failed: ' + pass) } },
     })
     return { ...runtime, close, label: ledger ? 'DURABLE LOCAL, synthetic Vertex trial' : 'DURABLE LOCAL, synthetic fixture matcher' }
