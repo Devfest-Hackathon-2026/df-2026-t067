@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const maps = vi.hoisted(() => ({
   loadGoogleMaps: vi.fn(),
-  subscribeMapsAuthFailure: vi.fn(() => () => {}),
+  subscribeMapsAuthFailure: vi.fn((_callback: () => void) => () => {}),
 }))
 
 vi.mock('../explore/googleMapsLoader', () => maps)
@@ -48,7 +48,27 @@ describe('capture location map', () => {
     render(<Component latitude={35} longitude={135} />)
 
     expect(await screen.findByText('Google Mapsの設定が必要です')).toBeVisible()
+    expect(screen.getByText(/撮影を終えてから設定を確認してください/)).toBeVisible()
     expect(maps.loadGoogleMaps).not.toHaveBeenCalled()
+  })
+
+  it('keeps the capture flow available after a Maps authentication error', async () => {
+    let reportAuthFailure!: () => void
+    maps.subscribeMapsAuthFailure.mockImplementation((callback: () => void) => {
+      reportAuthFailure = callback
+      return () => {}
+    })
+    maps.loadGoogleMaps.mockReturnValue(new Promise(() => {}))
+    const Component = await loadComponent()
+    render(<Component latitude={35} longitude={135} />)
+
+    reportAuthFailure()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('撮影を終えてからGoogle Mapsの設定を確認してください')
+    expect(screen.getByRole('alert')).toHaveTextContent('地図を閉じれば写真確認と回答を続けられます')
+    expect(screen.getByRole('alert')).toHaveTextContent('写真と撮影地はこの画面に保持されています')
+    expect(screen.queryByRole('button', { name: 'ページを再読み込み' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '地図を再試行' })).not.toBeInTheDocument()
   })
 
   it('shows a load failure and retries the SDK request', async () => {

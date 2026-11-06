@@ -38,10 +38,10 @@ export function CaptureLocationMap({ latitude, longitude }: { latitude: number; 
     <div className="capture-map" aria-label="撮影地の地図">
       {API_KEY && <div ref={target} className="google-map-canvas" aria-label="撮影地のGoogleマップ" />}
       {status !== 'ready' && <div className="map-state" role={status === 'error' || status === 'auth-error' ? 'alert' : 'status'}>
-        {status === 'missing' ? <><strong>Google Mapsの設定が必要です</strong><span>地図を表示できません。写真と撮影地はこの画面に保持されています。</span></> :
+        {status === 'missing' ? <><strong>Google Mapsの設定が必要です</strong><span>撮影を終えてから設定を確認してください。地図を閉じれば写真確認と回答を続けられます。</span><span>写真と撮影地はこの画面に保持されています。</span></> :
           status === 'loading' ? <span>地図を読み込んでいます…</span> :
             <><strong>地図を読み込めませんでした</strong><span>写真と撮影地はこの画面に保持されています。</span>{status === 'auth-error'
-              ? <><span>地図の設定を確認して、このページを再読み込みしてください。</span><button type="button" onClick={() => window.location.reload()}>ページを再読み込み</button></>
+              ? <span>撮影を終えてからGoogle Mapsの設定を確認してください。地図を閉じれば写真確認と回答を続けられます。</span>
               : <button type="button" onClick={() => setAttempt((value) => value + 1)}>地図を再試行</button>}</>}
       </div>}
     </div>
