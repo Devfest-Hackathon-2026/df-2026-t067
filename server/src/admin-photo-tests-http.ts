@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePhotoTestMetadata } from '../../src/shared/api/admin'
-import type { ManagedQuest } from '../../src/shared/api/admin'
+import type { ManagedQuest, PhotoTestResult } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
-import type { DemoAssetStore } from './admin-assets'
+import type { AssetHttpStore } from './admin-assets-http'
 import type { DemoPhotoTestStore } from './admin-photo-tests'
 import { HttpError, invalidInput } from './errors'
 import { readIdempotencyKey } from './idempotency-key'
@@ -11,10 +11,11 @@ import { comparePhotos, draftPhotoFeatures } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 import { readPhotoForm } from './photo-form'
 
-export interface AdminPhotoTestOptions { matcher: PhotoMatcher; timeoutMs?: number; capacity?: number }
+export interface AdminPhotoTestOptions { matcher: PhotoMatcher; timeoutMs?: number; capacity?: number; source?: PhotoTestResult['source'] }
 
 export async function handlePhotoTest(request: IncomingMessage, response: ServerResponse, input: {
-  uid: string; orgId: string; questId: string; store?: DemoPhotoTestStore; assets?: DemoAssetStore; options?: AdminPhotoTestOptions
+  uid: string; orgId: string; questId: string; store?: Pick<DemoPhotoTestStore, 'execute'>
+  assets?: Pick<AssetHttpStore, 'getOwned' | 'getPhotoOwned'>; options?: AdminPhotoTestOptions
   acquire?: (uid: string) => () => void
   recheck: (expectedRevision: number) => Promise<ManagedQuest>
   send: (response: ServerResponse, status: number, body: unknown) => void
@@ -38,14 +39,15 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
     const quest = await input.recheck(metadata.expectedDraftRevision)
     controller.signal.throwIfAborted()
     const assetId = quest.draft.referenceAssetId
-    const reference = assetId && assets.getOwned(input.orgId, assetId)
-    const bytes = assetId && assets.getPhotoOwned(input.orgId, assetId)
     const features = draftPhotoFeatures(quest.draft.content.verifiedFeatures)
-    if (!reference || reference.purpose !== 'reference' || !bytes || !features) invalidInput()
+    const reference = assetId && await assets.getOwned(input.orgId, assetId)
+    if (!assetId || !reference || reference.purpose !== 'reference' || !features) invalidInput()
     const digest = createHash('sha256').update(JSON.stringify([input.orgId, input.questId, metadata, assetId, features, form.mimeType]))
       .update('\0').update(form.image).digest('hex')
-    const index = JSON.stringify([input.uid, input.orgId, input.questId, key])
-    const result = await store.execute(index, digest, async (track) => {
+    const result = await store.execute({ uid: input.uid, orgId: input.orgId, questId: input.questId, key,
+      draftRevision: metadata.expectedDraftRevision }, digest, async (track) => {
+      const bytes = await assets.getPhotoOwned(input.orgId, assetId)
+      if (!bytes) invalidInput()
       let gateFailure: unknown
       let photoDigest = ''
       const guarded = track(async (value, call) => {
@@ -65,7 +67,7 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
       await input.recheck(metadata.expectedDraftRevision)
       controller.signal.throwIfAborted()
       return { photoDigest, result: { testId: randomUUID(), orgId: input.orgId, questId: input.questId,
-        draftRevision: metadata.expectedDraftRevision, outcome, source: 'mock' } }
+        draftRevision: metadata.expectedDraftRevision, outcome, source: options.source ?? 'mock' } }
     })
     await input.recheck(metadata.expectedDraftRevision)
     controller.signal.throwIfAborted()

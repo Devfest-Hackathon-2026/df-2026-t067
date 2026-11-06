@@ -1,5 +1,6 @@
 export interface GoogleMapsApi {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance
+  Marker?: new (options: Record<string, unknown>) => unknown
   Data: new () => DataLayer
   LatLngBounds: new () => Bounds
   event: { addListener(target: unknown, name: string, callback: () => void): { remove(): void } }
