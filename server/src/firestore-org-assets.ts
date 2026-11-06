@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
-import { parseOrgMembership, parseUploadedOrgAsset } from '../../src/shared/api/admin'
+import { parseUploadedOrgAsset } from '../../src/shared/api/admin'
 import type { OrgAssetMetadata } from '../../src/shared/api/admin'
 import { DemoAssetStore, orgAssetLimits } from './admin-assets'
 import type { AssetHttpStore } from './admin-assets-http'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { HttpError } from './errors'
 import { answerTransaction, processingError, validDigest, validGeneration } from './firestore-answer-data'
+import { requireOrgMember } from './firestore-org-memberships'
 import type { PreparedPhoto } from './photo-input'
 
 type AssetPhotos = Pick<AnswerPhotoStorage, 'writeReference' | 'readReference' | 'writeHint' | 'readHint'>
@@ -18,14 +19,14 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
 
   acquire(uid: string) { return this.uploadLimiter.acquire(uid) }
 
-  assertMember(uid: string, orgId: string) {
-    return answerTransaction(this.db, (tx) => this.requireMember(tx, uid, orgId), true)
+  async assertMember(uid: string, orgId: string): Promise<void> {
+    await answerTransaction(this.db, (tx) => requireOrgMember(this.db, tx, uid, orgId), true)
   }
 
   findReplay(orgId: string, uid: string, key: string, digest: string) {
     return answerTransaction(this.db, async (tx) => {
       const ref = this.db.collection('orgAssets').doc(hash([orgId, uid, key]))
-      const record = readRecord(await tx.get(ref), orgId)
+      const record = readOrgAssetRecord(await tx.get(ref), orgId)
       assertDigest(record, digest)
       return record?.generation ? record.asset : null
     }, true)
@@ -38,9 +39,9 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
       height: photo.height, byteLength: photo.bytes.length, source: 'real' })
 
     const previous = await answerTransaction(this.db, async (tx) => {
-      await this.requireMember(tx, uid, orgId)
+      await requireOrgMember(this.db, tx, uid, orgId)
       const snapshot = await tx.get(ref)
-      const record = readRecord(snapshot, orgId)
+      const record = readOrgAssetRecord(snapshot, orgId)
       assertDigest(record, digest)
       if (record?.generation) return record.asset
       if (!snapshot.exists) {
@@ -61,8 +62,8 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
     if (!usableGeneration(generation)) throw processingError()
 
     return answerTransaction(this.db, async (tx) => {
-      await this.requireMember(tx, uid, orgId)
-      const record = readRecord(await tx.get(ref), orgId)
+      await requireOrgMember(this.db, tx, uid, orgId)
+      const record = readOrgAssetRecord(await tx.get(ref), orgId)
       if (!record) throw processingError()
       assertDigest(record, digest)
       if (record.generation !== undefined) {
@@ -91,17 +92,7 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
 
   private readOwned(orgId: string, assetId: string) {
     return answerTransaction(this.db, async (tx) =>
-      readRecord(await tx.get(this.db.collection('orgAssets').doc(assetId)), orgId), true)
-  }
-
-  private async requireMember(tx: Transaction, uid: string, orgId: string): Promise<void> {
-    const ref = this.db.collection('memberships').doc(hash([uid, orgId]))
-    const member = (await tx.get(ref)).data()
-    if (member?.active !== true || member.uid !== uid || member.orgId !== orgId ||
-      (member.role !== 'editor' && member.role !== 'publisher')) {
-      throw new HttpError(403, 'FORBIDDEN', 'この自治体の操作権限がありません。')
-    }
-    parseOrgMembership({ orgId, role: member.role, label: member.label, areaId: member.areaId })
+      readOrgAssetRecord(await tx.get(this.db.collection('orgAssets').doc(assetId)), orgId), true)
   }
 
   private async reserveCapacity(tx: Transaction, orgId: string, byteLength: number) {
@@ -122,7 +113,7 @@ function hash(parts: string[]) {
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex')
 }
 
-function readRecord(snapshot: DocumentSnapshot, orgId: string) {
+export function readOrgAssetRecord(snapshot: DocumentSnapshot, orgId: string) {
   const data = snapshot.data()
   if (!data || data.asset?.orgId !== orgId) return null
   const asset = parseUploadedOrgAsset(data.asset)
@@ -137,7 +128,7 @@ function usableGeneration(value: unknown): value is string {
   return validGeneration(value) && Number.isSafeInteger(Number(value))
 }
 
-function assertDigest(record: ReturnType<typeof readRecord>, digest: string) {
+function assertDigest(record: ReturnType<typeof readOrgAssetRecord>, digest: string) {
   if (record && record.digest !== digest) {
     throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', '同じ素材キーで異なる内容は送信できません。')
   }

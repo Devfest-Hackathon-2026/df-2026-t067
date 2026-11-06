@@ -6,6 +6,7 @@ import { handleAssetRequest, matchAssetRoute } from './admin-assets-http'
 import { answerKey, readAnswerInput } from './answer-input'
 import { assertNoAuthEmulator } from './config'
 import { createDiscoveryHandler } from './discoveries-http'
+import { createDurableDraftHandler } from './durable-admin-drafts-http'
 import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
 import type { AdmissionPolicy } from './firestore-admission'
@@ -14,6 +15,7 @@ import { acceptDurableAnswer, getDurableAnswer, prepareAnswerIntake } from './fi
 import type { AnswerIdentity } from './firestore-answer-processing'
 import { assertDurableChallengeOwner, startDurableChallenge } from './firestore-challenges'
 import { FirestoreDiscoveryStore } from './firestore-discoveries'
+import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import type { FirestoreOrgAssetStore } from './firestore-org-assets'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { readChallengeInput } from './json-body'
@@ -28,6 +30,7 @@ interface DurableAnswerHttpOptions {
   answerPolicy: AdmissionPolicy
   dataMode?: 'durable-local'
   assets?: FirestoreOrgAssetStore
+  drafts?: FirestoreManagedDraftStore
   acquireUpload(uid: string): () => void
   enqueue?(input: AnswerIdentity): Promise<void>
 }
@@ -37,12 +40,14 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   assertNoAuthEmulator(process.env)
   const authenticate = (request: IncomingMessage) => authenticateRequest(request, options.verifier)
   const discoveryHandler = createDiscoveryHandler({ repository: new FirestoreDiscoveryStore(options.db, options.photos), authenticate, send })
+  const draftHandler = options.drafts && createDurableDraftHandler(options.drafts, authenticate)
   const dataMode = options.dataMode ?? 'real'
   const assets = options.assets
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
     if (await handlePublicCatalog(options.db, request, response, path, params)) return
     if (await discoveryHandler(request, response, path, params)) return
+    if (await draftHandler?.(request, response, path, params)) return
     const asset = assets && matchAssetRoute(path)
     if (asset) {
       const method = asset[2] ? 'GET' : 'POST'
