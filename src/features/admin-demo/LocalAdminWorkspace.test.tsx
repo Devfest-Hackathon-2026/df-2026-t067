@@ -20,6 +20,49 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { headers: {
 } })
 const page = (items: unknown[]) => json({ items, nextCursor: null })
 
+it.each(['demo', 'durable-local'] as const)('connects the management screen to the selected %s API', async (mode) => {
+  vi.stubEnv('VITE_QUEST_DATA_SOURCE', mode)
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {},
+    signInWithGoogle: async () => {}, signOut: async () => {}, getIdToken: async () => 'test-token',
+  }
+  const fetcher = vi.fn<typeof fetch>(async (input) => new Response(JSON.stringify(
+    String(input) === '/api/v1/session' ? { uid: 'test-manager' } : { items: [], nextCursor: null },
+  ), { headers: { 'Content-Type': 'application/json', 'X-Quest-Data-Mode': mode } }))
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} />)
+    expect(await screen.findByText('利用できる所属がありません。')).toBeVisible()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('link', { name: '未認証・未接続の入力確認画面へ' })).toHaveAttribute('href', '/admin-demo')
+    expect(screen.getByText(mode === 'durable-local' ? /Firestoreエミュレーターと非公開の画像保存先/ : /サーバーの一時領域/)).toBeVisible()
+  } finally {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  }
+})
+
+it('does not fall back to the memory API when the selected persistent API returns a different mode', async () => {
+  vi.stubEnv('VITE_QUEST_DATA_SOURCE', 'durable-local')
+  const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
+  const authClient: AuthClient = {
+    getSnapshot: () => snapshot, subscribe: () => () => {},
+    signInWithGoogle: async () => {}, signOut: async () => {}, getIdToken: async () => 'test-token',
+  }
+  const fetcher = vi.fn<typeof fetch>(async () => json({ uid: 'test-manager' }))
+  vi.stubGlobal('fetch', fetcher)
+  try {
+    render(<LocalAdminWorkspace authClient={authClient} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('ログインを確認できませんでした。')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('heading', { name: '所属する組織' })).not.toBeInTheDocument()
+  } finally {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  }
+})
+
 it('requires verified membership, cancels an old organization read, and shows reports only for a publisher', async () => {
   const user = userEvent.setup()
   let snapshot: AuthSnapshot = { status: 'signed-out', user: null }

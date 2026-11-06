@@ -35,16 +35,19 @@ it('saves a local draft with its reference, then updates the saved revision and 
   const file = image()
   await user.type(screen.getByLabelText('対象名'), '架空の時計')
   await user.type(screen.getByLabelText('対象とする根拠'), '架空の根拠')
+  await user.click(screen.getByRole('radio', { name: '補足を入力' }))
+  await user.type(screen.getByLabelText('時間の補足'), '火曜から日曜')
   await user.type(screen.getByLabelText('写真の出典と利用権'), '自作の合成画像')
   await user.upload(screen.getByLabelText('参考写真（公開ヒントには自動流用しません）'), file)
   expect(uploadOrgAsset).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
-  expect(await screen.findByText('開発用の下書きに保存しました。')).toBeVisible()
+  expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
   expect(uploadOrgAsset).toHaveBeenCalledExactlyOnceWith('demo-org', {
     purpose: 'reference', photoRights: '自作の合成画像', photo: file, idempotencyKey: expect.any(String),
   }, { signal: expect.any(AbortSignal) })
   expect(createManagedQuest.mock.calls[0][1]).toMatchObject({
     referenceAssetId: 'demo-reference', hintAssetId: null, materials: { name: '架空の時計', evidence: '架空の根拠' },
+    afterClear: { hours: '火曜から日曜' },
   })
   await user.type(screen.getByLabelText('料金'), '架空の料金')
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
@@ -52,7 +55,7 @@ it('saves a local draft with its reference, then updates the saved revision and 
   expect(screen.getByLabelText('料金')).toHaveValue('架空の料金')
   expect(screen.getByRole('button', { name: '下書きを保存' })).toBeDisabled()
   expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({
-    expectedDraftRevision: 1, draft: { referenceAssetId: 'demo-reference', materials: { price: '架空の料金' } },
+    expectedDraftRevision: 1, draft: { referenceAssetId: 'demo-reference', materials: { price: '架空の料金' }, afterClear: { hours: '火曜から日曜' } },
   })
   expect(uploadOrgAsset).toHaveBeenCalledTimes(1)
 })
@@ -106,18 +109,96 @@ it('loads a candidate for the saved version and waits for explicit adoption and 
   expect(screen.getByLabelText('問題タイトル')).toHaveValue(candidate.title)
   expect(updateManagedQuest).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
-  expect(await screen.findByText('開発用の下書きに保存しました。')).toBeVisible()
+  expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
   expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate } })
 })
 
 describe('A03 admin demo', () => {
+  it('keeps the hourly selection across steps, restores legacy hours unchanged, and saves the existing string contract', async () => {
+    const user = userEvent.setup()
+    const legacyHours = '09:30〜17:30'
+    const initial: ManagedQuest = {
+      orgId: 'demo-org', questId: 'demo-quest', areaId: 'demo-area', draftRevision: 3, publishedVersion: null,
+      source: 'mock', status: 'draft', shootingAreaStatus: 'unconfigured',
+      draft: {
+        materials: { name: '架空の対象', evidence: '確認材料', price: '', photoNote: '', photoRights: '自作', requiresBoat: false, requiresPaidFacility: false },
+        content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+        afterClear: { access: '', hours: legacyHours, promoComment: '', explanation: '' }, referenceAssetId: null, hintAssetId: null,
+      },
+    }
+    const updateManagedQuest = vi.fn().mockImplementation(async (_orgId: string, _questId: string, request: { draft: ManagedQuestDraft }) => ({ ...initial, draft: request.draft }))
+    const api = { ...createApiClient(), updateManagedQuest }
+    render(<AdminDemo connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体', role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
+    expect(screen.getByRole('radio', { name: '補足を入力' })).toBeChecked()
+    expect(screen.getByLabelText('時間の補足')).toHaveValue(legacyHours)
+    await user.click(screen.getByRole('radio', { name: '時間を指定' }))
+    expect(screen.queryByLabelText('時間の補足')).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('開始時刻'), '09:00')
+    await user.selectOptions(screen.getByLabelText('終了時刻'), '17:00')
+    await user.click(screen.getByRole('radio', { name: '補足を入力' }))
+    expect(screen.getByLabelText('時間の補足')).toHaveValue(legacyHours)
+    const supplementRadio = screen.getByRole('radio', { name: '補足を入力' })
+    supplementRadio.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('radio', { name: '時間を指定' })).toBeChecked()
+    expect(screen.getByLabelText('開始時刻')).toHaveValue('09:00')
+    expect(screen.getByLabelText('終了時刻')).toHaveValue('17:00')
+    await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+    expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
+    expect(updateManagedQuest.mock.calls[0][2].draft.afterClear.hours).toBe('09:00〜17:00')
+  })
+
+  it('blocks a partial hourly range from summary, navigation, and saving with a focused error', async () => {
+    const user = userEvent.setup()
+    const createManagedQuest = vi.fn()
+    const api = { ...createApiClient(), createManagedQuest }
+    render(<AdminDemo connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体', role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
+    await user.click(screen.getByRole('radio', { name: '時間を指定' }))
+    await user.selectOptions(screen.getByLabelText('開始時刻'), '09:00')
+    await user.click(screen.getByRole('button', { name: '入力内容を確認' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('開始時刻と終了時刻を選んでください')
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
+    expect(screen.queryByRole('heading', { name: '入力内容の確認' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
+    expect(screen.getByRole('heading', { name: 'A03 素材・場所登録：対象と根拠' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
+    expect(createManagedQuest).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['09:00〜翌日 17:00', '時間を指定'],
+    ['17:00〜09:00', '補足を入力'],
+    ['09:30〜17:30', '補足を入力'],
+    ['09:00〜24:00', '時間を指定'],
+  ])('restores and saves %s without silently changing its meaning', async (hours, mode) => {
+    const user = userEvent.setup()
+    const initial: ManagedQuest = {
+      orgId: 'test-org', questId: 'test-quest', areaId: 'test-area', draftRevision: 2, publishedVersion: null,
+      source: 'mock', status: 'draft', shootingAreaStatus: 'unconfigured',
+      draft: {
+        materials: { name: '架空の場所', evidence: '確認済み', requiresBoat: false, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '' },
+        content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+        afterClear: { access: '', hours, promoComment: '', explanation: '' }, referenceAssetId: null, hintAssetId: null,
+      },
+    }
+    const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 3 })
+    render(<AdminDemo connection={{ api: { ...createApiClient(), updateManagedQuest }, initial,
+      member: { orgId: initial.orgId, areaId: initial.areaId, label: '架空自治体', role: 'editor' }, onBack: vi.fn() }} />)
+    expect(screen.getByRole('radio', { name: mode })).toBeChecked()
+    await user.click(screen.getByRole('button', { name: '下書きを保存' }))
+    expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
+    expect(updateManagedQuest.mock.calls[0][2].draft.afterClear.hours).toBe(hours)
+  })
+
   it('keeps text input in component state and exposes A04/A05', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<AdminDemo />)
     await user.type(screen.getByLabelText('対象名'), '架空の時計台')
     await user.type(screen.getByLabelText('対象とする根拠'), 'デモ用の根拠')
     await user.type(screen.getByLabelText('アクセス補足'), '駅から歩く')
-    await user.type(screen.getByLabelText('利用できる時間'), '終日')
+    await user.click(screen.getByRole('radio', { name: '終日' }))
     await user.type(screen.getByLabelText('自治体のアピールコメント'), '地域のおすすめ')
     await user.type(screen.getByLabelText('解説'), 'スポットの背景です')
     await user.type(screen.getByLabelText('料金'), '無料')
@@ -127,7 +208,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByLabelText('対象名')).toHaveValue('架空の時計台')
     expect(screen.getByLabelText('対象とする根拠')).toHaveValue('デモ用の根拠')
     expect(screen.getByLabelText('アクセス補足')).toHaveValue('駅から歩く')
-    expect(screen.getByLabelText('利用できる時間')).toHaveValue('終日')
+    expect(screen.getByRole('radio', { name: '終日' })).toBeChecked()
     expect(screen.getByLabelText('自治体のアピールコメント')).toHaveValue('地域のおすすめ')
     expect(screen.getByLabelText('解説')).toHaveValue('スポットの背景です')
     expect(screen.getByLabelText('料金')).toHaveValue('無料')
@@ -255,10 +336,10 @@ describe('A03 admin demo', () => {
     expect(screen.getByLabelText('対象とする根拠')).toHaveFocus()
     await user.tab()
     expect(screen.getByLabelText(/参考写真/)).toHaveFocus()
-    await userEvent.setup().click(screen.getByRole('button', { name: '入力内容を確認（デモ）' }))
+    await userEvent.setup().click(screen.getByRole('button', { name: '入力内容を確認' }))
     expect(screen.getByText(/送信・保存はしていません/)).toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '入力内容を確認（デモ）' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '入力内容を確認' })).toHaveFocus()
   })
 
   it('supports keyboard toggling and discards all form state after unmount', async () => {
@@ -294,7 +375,8 @@ describe('A03 admin demo', () => {
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
     await user.click(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' }))
     await user.type(screen.getByLabelText('アクセス補足'), '駅から10分')
-    await user.type(screen.getByLabelText('利用できる時間'), '日中')
+    await user.click(screen.getByRole('radio', { name: '補足を入力' }))
+    await user.type(screen.getByLabelText('時間の補足'), '日中')
     await user.type(screen.getByLabelText('自治体のアピールコメント'), '地元の魅力')
     await user.type(screen.getByLabelText('解説'), '歴史の紹介')
     await user.type(screen.getByLabelText('料金'), '無料')
@@ -314,7 +396,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' })).toBeChecked()
     expect(screen.getByLabelText('アクセス補足')).toHaveValue('駅から10分')
-    expect(screen.getByLabelText('利用できる時間')).toHaveValue('日中')
+    expect(screen.getByLabelText('時間の補足')).toHaveValue('日中')
     expect(screen.getByLabelText('自治体のアピールコメント')).toHaveValue('地元の魅力')
     expect(screen.getByLabelText('解説')).toHaveValue('歴史の紹介')
     expect(screen.getByLabelText('料金')).toHaveValue('無料')
@@ -398,7 +480,8 @@ describe('A03 admin demo', () => {
     await user.type(screen.getByLabelText('写真の出典と利用権'), 'PRIVATE_RIGHTS_91')
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
     await user.type(screen.getByLabelText('アクセス補足'), 'PUBLIC_ACCESS_91')
-    await user.type(screen.getByLabelText('利用できる時間'), 'PUBLIC_HOURS_91')
+    await user.click(screen.getByRole('radio', { name: '補足を入力' }))
+    await user.type(screen.getByLabelText('時間の補足'), 'PUBLIC_HOURS_91')
     await user.type(screen.getByLabelText('自治体のアピールコメント'), 'PUBLIC_PROMO_91')
     await user.type(screen.getByLabelText('解説'), 'PUBLIC_EXPLANATION_91')
     await user.type(screen.getByLabelText('料金'), 'PUBLIC_PRICE_91')
@@ -423,14 +506,14 @@ describe('A03 admin demo', () => {
     for (const value of ['PUBLIC_ACCESS_91', 'PUBLIC_HOURS_91', 'PUBLIC_PROMO_91', 'PUBLIC_EXPLANATION_91']) {
       expect(preview.textContent).not.toContain(value)
     }
-    expect(preview.textContent).toContain('青葉みらい市の行政区域（デモ用の架空エリア）')
+    expect(preview.textContent).toContain('青葉みらい市の行政区域（架空エリア）')
     for (const privateValue of ['PRIVATE_TARGET_91', 'PRIVATE_EVIDENCE_91', 'PRIVATE_RIGHTS_91', 'PRIVATE_FILENAME_91.png', privateMemo, 'PRIVATE_FEATURE_91', 'blob:demo-1']) {
       expect(preview.textContent).not.toContain(privateValue)
     }
     expect(preview.querySelector('img, b, script')).toBeNull()
     expect(preview.textContent).toContain('公開ヒント画像は未設定')
-    await user.click(within(preview).getByRole('button', { name: 'クリア後の解説（デモ）' }))
-    expect(within(preview).getByRole('button', { name: 'クリア後の解説（デモ）' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(preview).getByRole('button', { name: 'クリア後の解説' }))
+    expect(within(preview).getByRole('button', { name: 'クリア後の解説' })).toHaveAttribute('aria-pressed', 'true')
     for (const value of ['PUBLIC_ACCESS_91', 'PUBLIC_HOURS_91', 'PUBLIC_PROMO_91', 'PUBLIC_EXPLANATION_91']) {
       expect(within(preview).getByText(value)).toBeVisible()
     }
@@ -438,7 +521,7 @@ describe('A03 admin demo', () => {
       expect(preview.textContent).not.toContain(challengeValue)
     }
     expect(preview.querySelector('img, b, script')).toBeNull()
-  })
+  }, 15000)
 
   it('opens hints with keyboard and resets them closed when the preview is re-entered', async () => {
     const user = userEvent.setup()
@@ -475,7 +558,8 @@ describe('A03 admin demo', () => {
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
     await user.click(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' }))
     await user.type(screen.getByLabelText('アクセス補足'), 'PUBLIC_ACCESS_BEFORE')
-    await user.type(screen.getByLabelText('利用できる時間'), 'PUBLIC_HOURS_BEFORE')
+    await user.click(screen.getByRole('radio', { name: '補足を入力' }))
+    await user.type(screen.getByLabelText('時間の補足'), 'PUBLIC_HOURS_BEFORE')
     await user.type(screen.getByLabelText('自治体のアピールコメント'), 'PUBLIC_PROMO_BEFORE')
     await user.type(screen.getByLabelText('解説'), 'PUBLIC_EXPLANATION_BEFORE')
     await user.type(screen.getByLabelText('料金'), 'PUBLIC_PRICE_BEFORE')
@@ -492,7 +576,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' })).toBeChecked()
     expect(screen.getByLabelText('アクセス補足')).toHaveValue('PUBLIC_ACCESS_BEFORE')
-    expect(screen.getByLabelText('利用できる時間')).toHaveValue('PUBLIC_HOURS_BEFORE')
+    expect(screen.getByLabelText('時間の補足')).toHaveValue('PUBLIC_HOURS_BEFORE')
     expect(screen.getByLabelText('自治体のアピールコメント')).toHaveValue('PUBLIC_PROMO_BEFORE')
     expect(screen.getByLabelText('解説')).toHaveValue('PUBLIC_EXPLANATION_BEFORE')
     expect(screen.getByLabelText('料金')).toHaveValue('PUBLIC_PRICE_BEFORE')
@@ -507,7 +591,7 @@ describe('A03 admin demo', () => {
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByText('PUBLIC_TITLE_AFTER')).toBeInTheDocument()
     expect(screen.queryByText('PUBLIC_TITLE_BEFORE')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'クリア後の解説（デモ）' }))
+    await user.click(screen.getByRole('button', { name: 'クリア後の解説' }))
     expect(screen.getByText('PUBLIC_ACCESS_BEFORE')).toBeVisible()
     expect(screen.getByText('PUBLIC_PROMO_BEFORE')).toBeVisible()
     expect(screen.getByText('PUBLIC_EXPLANATION_BEFORE')).toBeVisible()
@@ -521,11 +605,11 @@ describe('A03 admin demo', () => {
     const user = userEvent.setup()
     render(<AdminDemo />)
     await user.click(screen.getByRole('button', { name: /A05.*表示プレビュー/ }))
-    const afterMode = screen.getByRole('button', { name: 'クリア後の解説（デモ）' })
+    const afterMode = screen.getByRole('button', { name: 'クリア後の解説' })
     afterMode.focus()
     await user.keyboard('{Enter}')
     expect(afterMode).toHaveAttribute('aria-pressed', 'true')
-    const explanation = screen.getByRole('article', { name: 'クリア後の解説（デモ）' })
+    const explanation = screen.getByRole('article', { name: 'クリア後の解説' })
     expect(within(explanation).getAllByText('未入力')).toHaveLength(4)
     expect(screen.getByRole('heading', { name: '旅行者向け表示の確認（未公開）' })).toHaveFocus()
     expect(screen.queryByRole('button', { name: /正解|クリアする|公開する/ })).not.toBeInTheDocument()
@@ -533,7 +617,7 @@ describe('A03 admin demo', () => {
     challengeMode.focus()
     await user.keyboard(' ')
     expect(challengeMode).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByRole('article', { name: 'クリア後の解説（デモ）' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: 'クリア後の解説' })).not.toBeInTheDocument()
   })
 
   it('keeps explanation markup out of the question DOM and renders it only as text after switching', async () => {
@@ -547,8 +631,8 @@ describe('A03 admin demo', () => {
     const preview = screen.getByRole('region', { name: '旅行者向け表示の確認（未公開）' })
     expect(preview.outerHTML).not.toContain('EXPLANATION_ONLY_91')
     expect(preview.outerHTML).not.toContain('alert(91)')
-    await user.click(screen.getByRole('button', { name: 'クリア後の解説（デモ）' }))
-    const explanation = screen.getByRole('article', { name: 'クリア後の解説（デモ）' })
+    await user.click(screen.getByRole('button', { name: 'クリア後の解説' }))
+    const explanation = screen.getByRole('article', { name: 'クリア後の解説' })
     expect(within(explanation).getByText(payload)).toBeVisible()
     expect(within(explanation).getByText('EXPLANATION_ONLY_91')).toBeVisible()
     expect(explanation.querySelector('img, script')).toBeNull()

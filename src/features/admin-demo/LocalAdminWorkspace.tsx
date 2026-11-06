@@ -105,7 +105,8 @@ function Memberships({ api }: { api: ApiClient }) {
 
 export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: providedApi }: { authClient?: AuthClient; apiClient?: ApiClient } = {}) {
   const authClient = useMemo(() => providedAuth ?? createFirebaseAuthClient(), [providedAuth])
-  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: 'demo', getIdToken: authClient.getIdToken }), [providedApi, authClient])
+  const dataMode = import.meta.env.VITE_QUEST_DATA_SOURCE === 'durable-local' ? 'durable-local' : 'demo'
+  const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode, getIdToken: authClient.getIdToken }), [providedApi, authClient, dataMode])
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const identity = useServerIdentity(true, api, auth)
   const [pending, setPending] = useState(false)
@@ -127,7 +128,9 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
 
   return <main className="admin-demo">
     <header className="admin-header"><h1>自治体向けローカル管理</h1><a href="/">旅行者画面へ</a></header>
-    <p className="demo-notice">架空の組織と開発用APIを使います。下書きと報告はサーバーの一時領域に保存されます。</p>
+    <p className="demo-notice">{dataMode === 'durable-local'
+      ? 'ローカルのFirestoreエミュレーターと非公開の画像保存先に接続します。実在の自治体や本番環境への接続ではありません。'
+      : '架空の組織と開発用APIを使います。下書きと報告はサーバーの一時領域に保存されます。'}</p>
     <section className="form-section" aria-label="担当者ログイン">
       {auth.status === 'signed-out' && <button type="button" disabled={pending} onClick={() => void authenticate('login')}>Googleログイン</button>}
       {auth.status === 'signed-in' && <button type="button" disabled={pending} onClick={() => void authenticate('logout')}>ログアウト</button>}
@@ -139,6 +142,6 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
       : identity.result?.status === 'error' ? <div className="form-section"><p role="alert">ログインを確認できませんでした。</p>
         <button type="button" onClick={identity.retry}>ログインを確認し直す</button></div>
         : <p role="status">サーバーでログインを確認しています…</p>)}
-    <p><a href="/admin-demo">素材・文章・プレビューの操作デモへ</a></p>
+    <p><a href="/admin-demo">未認証・未接続の入力確認画面へ</a></p>
   </main>
 }
