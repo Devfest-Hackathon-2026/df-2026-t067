@@ -1,7 +1,30 @@
 export interface GoogleMapsApi {
-  Map: new (element: HTMLElement, options: Record<string, unknown>) => unknown
+  Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance
+  Data: new () => DataLayer
+  LatLngBounds: new () => Bounds
   event: { addListener(target: unknown, name: string, callback: () => void): { remove(): void } }
 }
+
+export interface Bounds { extend(point: { lat: number; lng: number }): void }
+
+export interface MapInstance {
+  setZoom(value: number): void
+  getZoom(): number | undefined
+  setCenter(value: { lat: number; lng: number }): void
+  fitBounds(bounds: Bounds): void
+  addListener(name: string, callback: () => void): { remove(): void }
+}
+
+export interface DataLayer {
+  addGeoJson(data: { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; id: string; properties: { areaId: string }; geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] } }> }): void
+  setStyle(style: (feature: DataFeature) => Record<string, unknown>): void
+  addListener(name: string, callback: (event: { feature: DataFeature }) => void): { remove(): void }
+  setMap(map: MapInstance | null): void
+  forEach(callback: (feature: DataFeature) => void): void
+  remove(feature: DataFeature): void
+}
+
+export interface DataFeature { getProperty(name: string): unknown }
 
 declare global {
   interface Window { google?: { maps?: GoogleMapsApi }; gm_authFailure?: () => void }

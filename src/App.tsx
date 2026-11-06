@@ -7,7 +7,7 @@ import type { ChallengeSelection } from './features/quests/QuestDetails'
 import { MapPreview } from './features/explore/MapPreview'
 import { Icon } from './components/Icon'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
-import type { PublicQuest } from './shared/api/types'
+import type { PublicArea, PublicQuest } from './shared/api/types'
 import { createApiClient } from './shared/api'
 import type { ApiClient, LocalApiDataMode } from './shared/api'
 import { CameraPreview } from './features/capture/CameraPreview'
@@ -36,6 +36,9 @@ type AppProps = {
   authClient?: AuthClient
   onStartChallenge?: (selection: ChallengeSelection) => void | Promise<unknown>
   quest?: PublicQuest
+  mapAreas?: PublicArea[]
+  selectedAreaId?: string
+  onSelectArea?(areaId: string): void
   areaLabel?: string
   questPicker?: ReactNode
   catalogFallback?: ReactNode
@@ -77,7 +80,7 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
   })
 }
 
-export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false, apiDataMode = 'demo' }: AppProps = {}) {
+export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, mapAreas = [], selectedAreaId = '', onSelectArea, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false, apiDataMode = 'demo' }: AppProps = {}) {
   const [openState, setOpenState] = useState<{ quest?: PublicQuest; open: boolean }>({ open: false })
   const isQuestOpen = openState.quest === externalQuest && openState.open
   const [recordsOpen, setRecordsOpen] = useState(false)
@@ -244,7 +247,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
           </div>
 
           <div className="explore-workspace">
-            <MapPreview />
+            <MapPreview areas={mapAreas} selectedAreaId={selectedAreaId} onSelectArea={onSelectArea} showPublicAreas={apiMode && apiDataMode === 'durable-local'} />
 
             <aside className="quest-rail" aria-label="選べる謎">
               <div className="rail-heading"><h2>選べる謎</h2>{!apiMode && <span>1件</span>}</div>
