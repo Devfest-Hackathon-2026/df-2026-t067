@@ -1,8 +1,7 @@
-import { ContractError, parseShootingConditions } from './validation'
-import type { ShootingConditions } from './types'
+import { ContractError, parseAfterClearContent, parseShootingConditions } from './validation'
+import type { AfterClearContent, ShootingConditions } from './types'
 
-export type { ShootingConditions } from './types'
-export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
+export type { AfterClearContent, ShootingConditions } from './types'
 export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
 export interface ManagedShootingAreas {
   orgId: string; questId: string; draftRevision: number; zones: CaptureZone[]; source: 'real' | 'mock'
@@ -161,14 +160,12 @@ export function parseDraftSuggestion(input: unknown): DraftSuggestion {
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
   const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId'], 'draft')
   const m = fields(d.materials, ['name', 'evidence', 'requiresBoat', 'requiresPaidFacility', 'price', 'photoNote', 'photoRights'], 'materials')
-  const a = fields(d.afterClear, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
   return {
     materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
       ...parseShootingConditions({ requiresBoat: m.requiresBoat, requiresPaidFacility: m.requiresPaidFacility }), price: text(m.price, 'price', 2000),
       photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
     content: draftContent(d.content),
-    afterClear: { access: text(a.access, 'afterClear.access', 2000), hours: text(a.hours, 'afterClear.hours', 2000),
-      promoComment: text(a.promoComment, 'afterClear.promoComment', 2000), explanation: text(a.explanation, 'afterClear.explanation') },
+    afterClear: parseAfterClearContent(d.afterClear),
     referenceAssetId: d.referenceAssetId === null ? null : identifier(d.referenceAssetId, 'referenceAssetId'),
     hintAssetId: d.hintAssetId === null ? null : identifier(d.hintAssetId, 'hintAssetId'),
   }

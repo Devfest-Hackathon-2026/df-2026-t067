@@ -147,6 +147,7 @@ export async function commitVerifiedAnswer(db: Firestore, input: LeasedAnswer): 
         discoveryId, placeId, questId, questVersion: version, placeName: snapshot.placeName,
         descriptionSnapshot: snapshot.descriptionSnapshot, revealedLocation: snapshot.revealedLocation,
         ownerPhoto: `/api/v1/me/discoveries/${discoveryId}/photo`, firstClearedAt: receipt.readTime.toDate().toISOString(),
+        ...(snapshot.afterClear === undefined ? {} : { afterClear: snapshot.afterClear }),
       })
       tx.create(db.collection('discoveries').doc(discoveryId), {
         ...record, uid, areaId, firstClearedAt: FieldValue.serverTimestamp(),

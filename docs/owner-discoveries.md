@@ -63,6 +63,14 @@ const status = await api.getDeletion(receipt.deletionId)
 
 画面は本人uidごとに状態を分け、問題切替・ログアウト・利用者変更・画面離脱で中止する。AbortSignalだけに依存せず、応答世代を確認して古い結果を表示しない。写真URLは不要になった時点で解放する。保存日時はUTC、日付表示は既存方針のAsia/Tokyoを使う。
 
+### クリア後の案内
+
+T08は同じ `getDiscovery(id)` で任意の `afterClear` を受け取る。型は自治体の下書きと共通の `AfterClearContent`。アクセス `access`、利用時間 `hours`、自治体コメント `promoComment`、解説 `explanation` は文字列で、未入力は空文字。
+
+初回クリア時に対象の公開版から4項目を保存する。以前の記録で4項目を保存していない場合は、記録にある `questId` と `questVersion` で公開時のデータを参照する。現在公開中の版に切り替わることはない。元の版にも案内がなければ `afterClear` は省略される。
+
+詳細画面では入力済みの項目をテキストで表示する。`afterClear.explanation` を取得できない場合や空欄の場合は、既存の `descriptionSnapshot` を使う。空の時間欄は未入力として扱う。一覧、匿名の問題詳細とヒントにはこの案内を含めない。[Issue #89](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/89)
+
 ### 削除の扱い
 
 記録詳細の「記録を削除」で確認を開き、「記録と写真を削除する」で送信する。受付後に状態を照会し、`completed`を受け取ると写真を解放して一覧を読み直す。受付IDを得た後に通信が途切れたときは、削除状態の再確認だけを行う。
