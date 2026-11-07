@@ -122,6 +122,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
     const missingName = !name.trim()
     const missingEvidence = !evidence.trim()
     if (missingName || missingEvidence) {
+      setShowSummary(false)
       setDraftEntryError('対象名と対象とする理由を入力してください。')
       setStep('A03')
       requestAnimationFrame(() => draftErrorRef.current?.focus())
