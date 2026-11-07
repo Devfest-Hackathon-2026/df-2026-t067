@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import type { MouseEvent } from 'react'
-import { demoAreaLabel } from './features/quests/demoQuest'
+import { demoAreaLabel, demoQuest, demoQuestHints } from './features/quests/demoQuest'
 import { QuestDetails } from './features/quests/QuestDetails'
 import { QuestReport } from './features/quests/QuestReport'
 import type { ChallengeSelection } from './features/quests/QuestDetails'
@@ -9,6 +9,7 @@ import { MapPreview } from './features/explore/MapPreview'
 import { Icon } from './components/Icon'
 import type { AuthClient, AuthSnapshot } from './features/auth/authTypes'
 import type { PublicArea, PublicQuest } from './shared/api/types'
+import type { QuestHint } from './shared/api/types'
 import { createApiClient } from './shared/api'
 import type { ApiClient, LocalApiDataMode } from './shared/api'
 import { CameraPreview } from './features/capture/CameraPreview'
@@ -53,6 +54,14 @@ type AppProps = {
   onHintVersionStale?(): void
 }
 
+async function getPreviewHint(input: { questId: string; expectedVersion: number; index: number }, call?: { signal?: AbortSignal }): Promise<QuestHint> {
+  call?.signal?.throwIfAborted()
+  if (input.questId !== demoQuest.questId || input.expectedVersion !== demoQuest.version || !Number.isInteger(input.index) || input.index < 1 || input.index > demoQuestHints.length) {
+    throw new Error('Preview hint is unavailable')
+  }
+  return { questId: input.questId, version: input.expectedVersion, index: input.index, text: demoQuestHints[input.index - 1] }
+}
+
 function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<boolean> {
   if (authClient.getSnapshot().status === 'signed-in') return Promise.resolve(true)
   return new Promise((resolve) => {
@@ -91,6 +100,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
   const teamPreview = apiMode && apiDataMode === 'team-preview'
+  const getHint = providedGetHint ?? (source === 'preview' && !apiMode && !externalQuest && !catalogFallback ? getPreviewHint : undefined)
   const localApiMode = apiMode || source === 'local-api'
   const durableLocal = apiMode && apiDataMode === 'durable-local'
   const showRecords = localApiMode && recordsOpen
@@ -257,7 +267,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
               {questPicker}
               <div ref={questCard}>
                 {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={teamPreview ? '共有検証用の問題' : apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
-                  getHint={providedGetHint ?? api.getHint} getHintPhoto={teamPreview ? api.getPublishedHintPhoto : undefined} stale={questStale}
+                  getHint={getHint ?? api.getHint} getHintPhoto={teamPreview ? api.getPublishedHintPhoto : undefined} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
                   onReloadQuest={(event) => { if (externalQuest) onReloadQuest?.(event); else connection.retry() }}
                   hideStartAction={teamPreview || (!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null)}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MapPreview } from './MapPreview'
 import type { PublicArea } from '../../shared/api/types'
@@ -118,6 +118,38 @@ describe('Google map panel', () => {
     delete window.google
   })
 
+  it('starts at zoom 5 and allows zooming through 12 up to the max of 20, then stops and respects min 3', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
+    vi.resetModules()
+    let currentZoom = 5
+    let zoomChanged: (() => void) | undefined
+    const setZoom = vi.fn((next: number) => { currentZoom = next; zoomChanged?.() })
+    const map = { ...mapInstance, getZoom: () => currentZoom, setZoom, addListener: (_name: string, callback: () => void) => { zoomChanged = callback; return { remove() {} } } }
+    let mapOptions: Record<string, unknown> | undefined
+    class Data { setMap() {} addGeoJson() {} setStyle() {} addListener() { return { remove() {} } } forEach() {} remove() {} }
+    window.google = { maps: { Map: class { constructor(_element: HTMLElement, options: Record<string, unknown>) { mapOptions = options; return map } }, Data, event: { addListener: () => ({ remove() {} }) } } as never }
+    const { MapPreview: ConfiguredMapPreview } = await import('./MapPreview')
+    const { userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    render(<ConfiguredMapPreview />)
+    expect(await screen.findByRole('button', { name: '地図を拡大' })).toBeEnabled()
+    expect(mapOptions).toMatchObject({ zoom: 5, minZoom: 3, maxZoom: 20 })
+    expect(screen.getByRole('button', { name: '地図を縮小' })).toBeEnabled()
+    for (let zoom = 6; zoom <= 12; zoom++) await user.click(screen.getByRole('button', { name: '地図を拡大' }))
+    expect(currentZoom).toBe(12)
+    expect(screen.getByRole('button', { name: '地図を拡大' })).toBeEnabled()
+    for (let zoom = 13; zoom <= 20; zoom++) await user.click(screen.getByRole('button', { name: '地図を拡大' }))
+    expect(currentZoom).toBe(20)
+    expect(screen.getByRole('button', { name: '地図を拡大' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '地図を縮小' }))
+    expect(currentZoom).toBe(19)
+    for (let zoom = 18; zoom >= 3; zoom--) await user.click(screen.getByRole('button', { name: '地図を縮小' }))
+    expect(currentZoom).toBe(3)
+    expect(screen.getByRole('button', { name: '地図を縮小' })).toBeDisabled()
+    expect(setZoom).toHaveBeenLastCalledWith(3)
+    delete window.google
+  })
+
   it('fits selected public bounds once, keeps user panning on same selection, and fits initial selection after map readiness', async () => {
     vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
     vi.resetModules()
@@ -135,6 +167,75 @@ describe('Google map panel', () => {
     expect(setCenter).not.toHaveBeenCalled()
     unmount()
     delete window.google
+  })
+
+  it('requests location only on click and zooms to a valid location without changing region selection', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
+    vi.resetModules()
+    let success: ((position: { coords: { latitude: number; longitude: number } }) => void) | undefined
+    let failure: ((error: { code: number }) => void) | undefined
+    const getCurrentPosition = vi.fn((callback: typeof success, onError: typeof failure) => { success = callback; failure = onError })
+    const setCenter = vi.fn()
+    const setZoom = vi.fn()
+    const map = { ...mapInstance, setCenter, setZoom, fitBounds: vi.fn() }
+    let mapOptions: Record<string, unknown> | undefined
+    class Data { setMap() {} addGeoJson() {} setStyle() {} addListener() { return { remove() {} } } forEach() {} remove() {} }
+    window.google = { maps: { Map: class { constructor(_element: HTMLElement, options: Record<string, unknown>) { mapOptions = options; return map } }, Data, LatLngBounds: class { extend() {} }, event: { addListener: () => ({ remove() {} }) } } as never }
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition } }))
+    const { MapPreview: ConfiguredMapPreview } = await import('./MapPreview')
+    const { userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    const onSelectArea = vi.fn()
+    const { rerender, unmount } = render(<ConfiguredMapPreview areas={areas} selectedAreaId="area-a" onSelectArea={onSelectArea} />)
+    expect(await screen.findByRole('button', { name: '現在地へ戻る' })).toBeVisible()
+    expect(mapOptions?.zoom).toBe(5)
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '現在地へ戻る' }))
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1)
+    expect(getCurrentPosition).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), expect.objectContaining({ timeout: 10_000, maximumAge: 0 }))
+    const lateSuccess = success
+    rerender(<ConfiguredMapPreview areas={areas} selectedAreaId="" onSelectArea={onSelectArea} />)
+    expect(document.querySelector('.map-location-status')).not.toBeInTheDocument()
+    setCenter.mockClear()
+    act(() => lateSuccess?.({ coords: { latitude: 35, longitude: 139 } }))
+    expect(setCenter).not.toHaveBeenCalled()
+    rerender(<ConfiguredMapPreview areas={areas} selectedAreaId="area-a" onSelectArea={onSelectArea} />)
+    await user.click(screen.getByRole('button', { name: '現在地へ戻る' }))
+    act(() => failure?.({ code: 1 }))
+    expect(document.querySelector('.map-location-status')).toHaveTextContent('位置情報が許可されませんでした')
+    await user.click(screen.getByRole('button', { name: '現在地へ戻る' }))
+    expect(getCurrentPosition).toHaveBeenCalledTimes(3)
+    act(() => success?.({ coords: { latitude: 35.6812, longitude: 139.7671 } }))
+    expect(setCenter).toHaveBeenCalledWith({ lat: 35.6812, lng: 139.7671 })
+    expect(setZoom).toHaveBeenCalledWith(12)
+    expect(document.querySelector('.map-location-status')).toHaveTextContent('現在地を地図の中心に表示しました')
+    expect(onSelectArea).not.toHaveBeenCalled()
+    unmount()
+    delete window.google
+  })
+
+  it('ignores a location callback arriving after the ten second deadline', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
+    vi.resetModules()
+    let success: ((position: { coords: { latitude: number; longitude: number } }) => void) | undefined
+    const getCurrentPosition = vi.fn((callback: typeof success) => { success = callback })
+    const setCenter = vi.fn()
+    const map = { ...mapInstance, setCenter }
+    class Data { setMap() {} addGeoJson() {} setStyle() {} addListener() { return { remove() {} } } forEach() {} remove() {} }
+    window.google = { maps: { Map: class { constructor() { return map } }, Data, LatLngBounds: class { extend() {} }, event: { addListener: () => ({ remove() {} }) } } as never }
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition } }))
+    const { MapPreview: ConfiguredMapPreview } = await import('./MapPreview')
+    render(<ConfiguredMapPreview />)
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: '現在地へ戻る' })).toBeVisible())
+    setCenter.mockClear()
+    act(() => { screen.getByRole('button', { name: '現在地へ戻る' }).click() })
+    await act(() => vi.advanceTimersByTimeAsync(10_000))
+    expect(document.querySelector('.map-location-status')).toHaveTextContent('現在地を取得できませんでした')
+    act(() => success?.({ coords: { latitude: 35, longitude: 139 } }))
+    expect(setCenter).not.toHaveBeenCalled()
+    delete window.google
+    vi.useRealTimers()
   })
 })
 

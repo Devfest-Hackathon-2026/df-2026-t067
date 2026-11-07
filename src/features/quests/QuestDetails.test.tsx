@@ -95,6 +95,134 @@ it('hides the image control when absent and resets the open image on quest, vers
   expect(screen.queryByRole('button', { name: /ヒント画像/ })).not.toBeInTheDocument()
 })
 
+it('times out each image attempt, ignores late events from timed out or closed attempts, and retries with a fresh image', async () => {
+  vi.useFakeTimers()
+  const consoleError = vi.spyOn(console, 'error')
+  try {
+    const quest = { ...demoQuest, optionalHintImage: '/hint-harness.svg' }
+    render(<QuestDetails quest={quest} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const firstImage = document.querySelector('img.optional-hint-image') as HTMLImageElement
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(screen.getByRole('alert')).toHaveTextContent('タイムアウト')
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+    fireEvent.load(firstImage)
+    expect(screen.getByRole('alert')).toHaveTextContent('タイムアウト')
+
+    fireEvent.click(screen.getByRole('button', { name: '再試行' }))
+    const retryImage = document.querySelector('img.optional-hint-image') as HTMLImageElement
+    expect(retryImage).not.toBe(firstImage)
+    fireEvent.error(firstImage)
+    expect(screen.getByRole('status')).toHaveTextContent('読み込み中')
+    fireEvent.load(retryImage)
+    expect(retryImage).toBeVisible()
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(retryImage).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を閉じる' }))
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const reopenedImage = document.querySelector('img.optional-hint-image') as HTMLImageElement
+    fireEvent.error(retryImage)
+    expect(screen.getByRole('status')).toHaveTextContent('読み込み中')
+    fireEvent.load(reopenedImage)
+    expect(reopenedImage).toBeVisible()
+    expect(consoleError).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('does not create an object URL when an authenticated image response resolves after close', async () => {
+  const user = userEvent.setup()
+  const quest = { ...demoQuest, optionalHintImage: '/api/v1/quests/demo-quest/hint-image?expectedVersion=1' }
+  let resolvePhoto!: (photo: Blob) => void
+  const getPhoto = vi.fn(() => new Promise<Blob>((resolve) => { resolvePhoto = resolve }))
+  const createObjectURL = vi.fn(() => 'blob:late-hint')
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
+  try {
+    render(<QuestDetails quest={quest} getHintPhoto={getPhoto} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    expect(getPhoto).toHaveBeenCalledWith(quest.questId, quest.version, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を閉じる' }))
+    await act(async () => resolvePhoto(new Blob(['image'], { type: 'image/jpeg' })))
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('times out an authenticated fetch, retries, keeps one blob URL after load, and revokes it once on unmount', async () => {
+  vi.useFakeTimers()
+  const quest = { ...demoQuest, optionalHintImage: '/api/v1/quests/demo-quest/hint-image?expectedVersion=1' }
+  const blob = new Blob(['image'], { type: 'image/jpeg' })
+  const getPhoto = vi.fn()
+    .mockImplementationOnce(() => new Promise<Blob>(() => {}))
+    .mockResolvedValueOnce(blob)
+  const createObjectURL = vi.fn(() => 'blob:retry-hint')
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
+  try {
+    const { unmount } = render(<QuestDetails quest={quest} getHintPhoto={getPhoto} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(screen.getByRole('alert')).toHaveTextContent('タイムアウト')
+    expect(getPhoto).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '再試行' }))
+    await act(async () => { await Promise.resolve() })
+    const image = document.querySelector('img.optional-hint-image') as HTMLImageElement
+    expect(image).toBeInTheDocument()
+    expect(getPhoto).toHaveBeenCalledTimes(2)
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    fireEvent.load(image)
+    expect(image).toBeVisible()
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(getPhoto).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+
+    unmount()
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:retry-hint')
+  } finally {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('disposes the current protected image when the authenticated photo provider changes', async () => {
+  const quest = { ...demoQuest, optionalHintImage: '/api/v1/quests/demo-quest/hint-image?expectedVersion=1' }
+  const firstPhoto = vi.fn().mockResolvedValue(new Blob(['one'], { type: 'image/jpeg' }))
+  const secondPhoto = vi.fn().mockResolvedValue(new Blob(['two'], { type: 'image/jpeg' }))
+  const createObjectURL = vi.fn().mockReturnValueOnce('blob:first-provider').mockReturnValueOnce('blob:second-provider')
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
+  try {
+    const base = { quest, areaLabel: '地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '', onToggle: vi.fn(), onStart: vi.fn() }
+    const { rerender } = render(<QuestDetails {...base} getHintPhoto={firstPhoto} />)
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    const oldImage = document.querySelector('img.optional-hint-image') as HTMLImageElement
+    expect(oldImage).toHaveAttribute('src', 'blob:first-provider')
+    fireEvent.load(oldImage)
+
+    rerender(<QuestDetails {...base} getHintPhoto={secondPhoto} />)
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ヒント画像を見る' })).toHaveAttribute('aria-expanded', 'false')
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:first-provider')
+
+    fireEvent.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(secondPhoto).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('img.optional-hint-image')).toHaveAttribute('src', 'blob:second-provider')
+  } finally { vi.unstubAllGlobals() }
+})
+
 it('fetches each public hint only on explicit request, retries failures, and gives 404 its own state', async () => {
   const user = userEvent.setup()
   const quest = { ...demoQuest, hintCount: 2 }
