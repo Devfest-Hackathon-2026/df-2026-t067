@@ -60,9 +60,14 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .map-state span { max-width: 32ch; }
 .map-state button { min-height: 44px; padding: 8px 14px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-control-shadow); }
 .map-zoom { bottom: 52px; }
-.map-topline { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; z-index: 2; pointer-events: none; }
+.map-topline { position: absolute; top: 20px; left: 20px; right: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; z-index: 2; pointer-events: none; }
 .map-scope { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; background: var(--ui-surface); border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); font-weight: var(--ui-weight-strong); font-size: 12px; box-shadow: var(--ui-shadow); }
 .map-scope .icon { width: 16px; height: 16px; color: var(--ui-muted); }
+.map-location-action { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: auto; }
+.map-location-action button { min-height: 44px; padding: 7px 12px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-control-shadow); font-weight: var(--ui-weight-strong); }
+.map-location-action button:disabled { opacity: .65; }
+.map-location-action span { padding: 3px 6px; border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); font-size: 10px; }
+.map-location-status { position: absolute; left: 20px; bottom: 20px; z-index: 3; max-width: 70%; padding: 8px 12px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); font-size: 12px; box-shadow: var(--ui-control-shadow); }
 .demo-map-label { padding: 4px 7px; font-size: 12px; color: var(--ui-muted); background: var(--ui-muted); border-radius: var(--ui-radius); }
 .map-viewport { position: absolute; inset: 0; overflow: hidden; }
 .map-canvas { position: relative; width: 100%; height: 100%; transform-origin: 50% 50%; transition: transform 200ms ease; }
@@ -181,8 +186,13 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .preview-label.api-source { display: inline-flex; }
   .map-preview { height: 338px; border-radius: var(--ui-radius); }
   .map-topline { top: 12px; left: 12px; right: 12px; gap: 6px; }
+  .map-location-action { max-width: 52%; }
   .map-scope { padding: 7px 9px; font-size: 12px; gap: 6px; }
   .map-scope .icon { width: 14px; height: 14px; }
+  .map-location-action { gap: 2px; }
+  .map-location-action button { min-height: 44px; padding: 6px 8px; font-size: 12px; }
+  .map-location-action span { max-width: 170px; text-align: right; font-size: 9px; }
+  .map-location-status { left: 12px; bottom: 12px; max-width: calc(100% - 88px); padding: 7px 9px; font-size: 11px; }
   .demo-map-label { font-size: 12px; padding: 3px 5px; }
   .map-zoom { right: 11px; bottom: 72px; }
   .map-zoom button { width: 44px; height: 44px; }
@@ -306,8 +316,8 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .hint-item > button, .hint-item [role="alert"] button, .hint-version-changed button { min-height: 44px; padding: 9px 14px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); font: inherit; cursor: pointer; }
 .hint-item p, .hint-version-changed p, .hints-note { margin: 8px 0 0; color: var(--ui-muted); font-size: 13px; line-height: 1.7; }
 .hint-item [role="alert"] { color: var(--ui-error); }
-.hint-item [role="alert"] .hint-retry, .quest-reload-subtle { min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--ui-radius); background: transparent; color: var(--ui-muted); font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
-.hint-item [role="alert"] .hint-retry { text-decoration: underline; text-underline-offset: 2px; }
+.hint-item [role="alert"] .hint-retry, .optional-hint-content .optional-hint-retry, .quest-reload-subtle { min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--ui-radius); background: transparent; color: var(--ui-muted); font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
+.hint-item [role="alert"] .hint-retry, .optional-hint-content .optional-hint-retry { text-decoration: underline; text-underline-offset: 2px; }
 .quest-reload-subtle { margin-top: 8px; border-color: var(--ui-disabled-line); }
-.hint-retry:focus-visible, .quest-reload-subtle:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+.hint-retry:focus-visible, .optional-hint-retry:focus-visible, .quest-reload-subtle:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 .hints-note { margin: 0; }

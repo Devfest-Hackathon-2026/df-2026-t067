@@ -30,6 +30,21 @@ async function openQuest() {
 }
 
 describe('Google sign-in from the selected quest', () => {
+  it('serves the three provisional hints from the preview boundary', async () => {
+    const { client } = authFixture()
+    render(<App authClient={client} />)
+    const { user, details } = await openQuest()
+    const hints = [
+      '港を見渡せる場所に立つ建物を探してみましょう。(仮)',
+      '三角屋根の下にある、丸い文字盤が目印です。(仮)',
+      '船の出入りとともに、街へ時を知らせる時計のある建物です。(仮)',
+    ]
+    for (let index = 1; index <= hints.length; index++) {
+      await user.click(within(details).getByRole('button', { name: `ヒント${index}を見る` }))
+      expect(await within(details).findByText(hints[index - 1])).toBeVisible()
+    }
+  })
+
   it('keeps browsing anonymous and starts sign-in only on the challenge action', async () => {
     const { client, onStartChallenge } = authFixture()
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)

@@ -4,6 +4,11 @@ import type { PublicArea } from '../../shared/api/types'
 import { loadGoogleMaps, subscribeMapsAuthFailure, type DataLayer, type MapInstance } from './googleMapsLoader'
 
 const JAPAN = { lat: 36.2048, lng: 138.2529 }
+const MIN_ZOOM = 3
+const INITIAL_ZOOM = 5
+const MAX_ZOOM = 20
+const LOCATION_ZOOM = 12
+const LOCATION_DEADLINE_MS = 10_000
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''
 
 export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, showPublicAreas = true }: {
@@ -13,12 +18,22 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
   const map = useRef<MapInstance | null>(null)
   const dataLayer = useRef<DataLayer | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error' | 'auth-error'>(API_KEY ? 'loading' : 'missing')
-  const [zoom, setZoom] = useState(5)
+  const [zoom, setZoom] = useState(INITIAL_ZOOM)
+  const [locationStatus, setLocationStatus] = useState('')
+  const [locating, setLocating] = useState(false)
+  const locationRequest = useRef(0)
+  const locationTimer = useRef<number | undefined>(undefined)
   const [attempt, setAttempt] = useState(0)
   const [areaAttempt, setAreaAttempt] = useState(0)
   const [areaFailed, setAreaFailed] = useState(false)
   const lastViewportSelection = useRef<{ map: MapInstance; areaId: string } | null>(null)
   const areaFailureTimer = useRef<number | undefined>(undefined)
+  const cancelLocationRequest = (updateState = true) => {
+    locationRequest.current += 1
+    window.clearTimeout(locationTimer.current)
+    locationTimer.current = undefined
+    if (updateState) { setLocating(false); setLocationStatus('') }
+  }
   const failArea = () => {
     window.clearTimeout(areaFailureTimer.current)
     areaFailureTimer.current = window.setTimeout(() => { areaFailureTimer.current = undefined; setAreaFailed(true) }, 0)
@@ -31,14 +46,14 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
     let zoomListener: { remove(): void } | undefined
     const unsubscribeAuth = subscribeMapsAuthFailure(() => {
       authFailed = true
-      if (active) { map.current = null; setStatus('auth-error') }
+      if (active) { cancelLocationRequest(); map.current = null; setStatus('auth-error') }
     })
     void loadGoogleMaps(API_KEY).then((google) => {
       if (!active || authFailed || !target.current) return
       let instance: MapInstance
       try {
         instance = new google.Map(target.current, {
-          center: JAPAN, zoom: 5, minZoom: 3, maxZoom: 12,
+          center: JAPAN, zoom: INITIAL_ZOOM, minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM,
           disableDefaultUI: true, mapTypeControl: false, streetViewControl: false,
           fullscreenControl: false, clickableIcons: false, gestureHandling: 'greedy',
         }) as MapInstance
@@ -60,6 +75,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
     }).catch((error: unknown) => { if (active) setStatus(error instanceof Error && error.message === 'auth' ? 'auth-error' : 'error') })
     return () => {
       active = false
+      cancelLocationRequest(false)
       window.clearTimeout(areaFailureTimer.current)
       unsubscribeAuth()
       try { zoomListener?.remove() } catch { /* SDK teardown is best effort. */ }
@@ -123,8 +139,9 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
     const instance = map.current
     const google = window.google?.maps
     if (!API_KEY || !instance || !google || !showPublicAreas || status !== 'ready') return
+    if (lastViewportSelection.current?.map === instance && lastViewportSelection.current.areaId !== selectedAreaId) cancelLocationRequest()
     if (lastViewportSelection.current?.map === instance && lastViewportSelection.current.areaId === selectedAreaId) return
-    if (!selectedAreaId) { instance.setCenter(JAPAN); instance.setZoom(5); lastViewportSelection.current = { map: instance, areaId: '' }; return }
+    if (!selectedAreaId) { instance.setCenter(JAPAN); instance.setZoom(INITIAL_ZOOM); lastViewportSelection.current = { map: instance, areaId: '' }; return }
     try {
       const area = areas.find((candidate) => candidate.areaId === selectedAreaId)
       if (!area) return
@@ -145,12 +162,49 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
     } catch { failArea() }
   }, [selectedAreaId, areas, showPublicAreas, status, areaAttempt])
 
-  const changeZoom = (delta: number) => map.current?.setZoom(Math.max(3, Math.min(12, (map.current.getZoom() ?? zoom) + delta)))
-  const reset = () => { map.current?.setCenter(JAPAN); map.current?.setZoom(5) }
+  const changeZoom = (delta: number) => map.current?.setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (map.current.getZoom() ?? zoom) + delta)))
+  const reset = () => { cancelLocationRequest(); setLocationStatus(''); map.current?.setCenter(JAPAN); map.current?.setZoom(INITIAL_ZOOM) }
+  const locate = () => {
+    if (locating) return
+    const geolocation = navigator.geolocation
+    if (!geolocation?.getCurrentPosition) { setLocationStatus('この端末では現在地を取得できません。'); return }
+    const request = ++locationRequest.current
+    const requestedMap = map.current
+    setLocationStatus('現在地を取得しています…')
+    setLocating(true)
+    const settle = (message: string) => {
+      if (request !== locationRequest.current) return
+      locationRequest.current += 1
+      window.clearTimeout(locationTimer.current)
+      locationTimer.current = undefined
+      setLocating(false)
+      setLocationStatus(message)
+    }
+    locationTimer.current = window.setTimeout(() => settle('現在地を取得できませんでした。もう一度お試しください。'), LOCATION_DEADLINE_MS)
+    try {
+      geolocation.getCurrentPosition((position) => {
+        if (request !== locationRequest.current) return
+        const { latitude, longitude } = position.coords
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+          settle('現在地を取得できませんでした。もう一度お試しください。')
+          return
+        }
+        if (!requestedMap || map.current !== requestedMap) { settle('現在地を取得できませんでした。もう一度お試しください。'); return }
+        requestedMap.setCenter({ lat: latitude, lng: longitude })
+        requestedMap.setZoom(LOCATION_ZOOM)
+        settle('現在地を地図の中心に表示しました。')
+      }, (error) => {
+        const message = error.code === 1 ? '位置情報が許可されませんでした。設定を確認して、もう一度お試しください。'
+          : error.code === 3 ? '現在地を取得できませんでした。もう一度お試しください。'
+            : '現在地を取得できません。位置情報を確認して、もう一度お試しください。'
+        settle(message)
+      }, { enableHighAccuracy: false, maximumAge: 0, timeout: LOCATION_DEADLINE_MS })
+    } catch { settle('現在地を取得できません。位置情報を確認して、もう一度お試しください。') }
+  }
 
   return (
     <section className="map-preview" aria-label="全国の謎">
-      <div className="map-topline"><span className="map-scope"><Icon name="map" />全国の謎</span></div>
+      <div className="map-topline"><span className="map-scope"><Icon name="map" />全国の謎</span>{status === 'ready' && <div className="map-location-action"><button type="button" onClick={locate} disabled={locating}>現在地へ戻る</button><span>位置情報はGoogle Mapsに送信されます</span></div>}</div>
       {API_KEY && <div ref={target} className="google-map-canvas" aria-label="日本地図" />}
       {status !== 'ready' && <div className="map-state" role={status === 'error' || status === 'auth-error' ? 'alert' : 'status'}>
         {status === 'missing' ? <><strong>Google Mapsの設定が必要です</strong><span>地図を表示するには設定をご確認ください。問題の閲覧は続けられます。</span></> :
@@ -160,9 +214,10 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
               : <button type="button" onClick={() => { setStatus('loading'); setAttempt((value) => value + 1) }}>地図を再試行</button>}</>}
       </div>}
       {status === 'ready' && areaFailed && <div className="map-state map-area-error" role="alert"><strong>地域エリアを表示できませんでした</strong><button type="button" onClick={() => { window.clearTimeout(areaFailureTimer.current); areaFailureTimer.current = undefined; setAreaFailed(false); setAreaAttempt((value) => value + 1) }}>地域エリアを再試行</button></div>}
+      {status === 'ready' && locationStatus && <div className="map-location-status" role="status">{locationStatus}</div>}
       {status === 'ready' && <div className="map-zoom" aria-label="地図の表示操作">
-        <button type="button" aria-label="地図を拡大" disabled={zoom >= 12} onClick={() => changeZoom(1)}><Icon name="plus" /></button>
-        <button type="button" aria-label="地図を縮小" disabled={zoom <= 3} onClick={() => changeZoom(-1)}><Icon name="minus" /></button>
+        <button type="button" aria-label="地図を拡大" disabled={zoom >= MAX_ZOOM} onClick={() => changeZoom(1)}><Icon name="plus" /></button>
+        <button type="button" aria-label="地図を縮小" disabled={zoom <= MIN_ZOOM} onClick={() => changeZoom(-1)}><Icon name="minus" /></button>
         <button type="button" aria-label="地図の表示を戻す" onClick={reset}><Icon name="reset" /></button>
       </div>}
       {status === 'ready' && <output className="sr-only" aria-label="地図の表示倍率">{zoom}</output>}

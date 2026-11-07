@@ -109,6 +109,14 @@ function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadNeeded }:
 }
 
 type HintPhoto = ReturnType<typeof createApiClient>['getPublishedHintPhoto']
+const getPhotoIdentities = new WeakMap<HintPhoto, number>()
+let nextGetPhotoIdentity = 1
+function getPhotoIdentity(getPhoto?: HintPhoto) {
+  if (!getPhoto) return 0
+  let identity = getPhotoIdentities.get(getPhoto)
+  if (!identity) { identity = nextGetPhotoIdentity++; getPhotoIdentities.set(getPhoto, identity) }
+  return identity
+}
 
 function ProtectedHintImage({ getPhoto, questId, version, alt, hidden, onLoad, onError }: {
   getPhoto: HintPhoto; questId: string; version: number; alt: string; hidden: boolean
@@ -135,29 +143,75 @@ function ProtectedHintImage({ getPhoto, questId, version, alt, hidden, onLoad, o
 function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: PublicQuest; getPhoto?: HintPhoto }) {
   const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error' | 'timeout'>('loading')
   const [attempt, setAttempt] = useState(0)
-  const onLoad = useCallback(() => setStatus('loaded'), [])
-  const onError = useCallback(() => setStatus('error'), [])
   const alt = `${quest.title}のヒント画像`
+  const attemptRef = useRef(0)
+  const finishedAttemptRef = useRef(-1)
+  const timeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!expanded || status !== 'loading') return
+    const currentAttempt = attemptRef.current
+    timeoutRef.current = window.setTimeout(() => {
+      timeoutRef.current = null
+      if (attemptRef.current === currentAttempt && finishedAttemptRef.current !== currentAttempt) {
+        finishedAttemptRef.current = currentAttempt
+        setStatus('timeout')
+      }
+    }, 10_000)
+    return () => {
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+  }, [expanded, attempt, status])
+
+  const finishAttempt = useCallback((nextStatus: 'loaded' | 'error', imageAttempt: number) => {
+    if (!expanded || imageAttempt !== attemptRef.current || finishedAttemptRef.current === imageAttempt) return
+    finishedAttemptRef.current = imageAttempt
+    if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+    timeoutRef.current = null
+    setStatus(nextStatus)
+  }, [expanded])
+  const onLoad = useCallback(() => finishAttempt('loaded', attempt), [attempt, finishAttempt])
+  const onError = useCallback(() => finishAttempt('error', attempt), [attempt, finishAttempt])
   return <div className="optional-hint">
     <button ref={toggleRef} type="button" className="optional-hint-toggle" aria-expanded={expanded}
-      onClick={() => { setExpanded(value => !value); setStatus('loading') }}>
+      onClick={() => {
+        if (expanded) {
+          attemptRef.current++
+          if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+          setExpanded(false)
+          setStatus('loading')
+        } else {
+          attemptRef.current++
+          finishedAttemptRef.current = -1
+          setAttempt(attemptRef.current)
+          setStatus('loading')
+          setExpanded(true)
+        }
+      }}>
       {expanded ? 'ヒント画像を閉じる' : 'ヒント画像を見る'}
     </button>
     {expanded && <div className="optional-hint-content" aria-live="polite">
       {status === 'loading' && <p role="status">ヒント画像を読み込み中…</p>}
-      {status === 'error' && <div role="alert"><p>ヒント画像を読み込めませんでした。</p>
-        <button type="button" onClick={() => {
+      {(status === 'error' || status === 'timeout') && <div role="alert"><p>{status === 'timeout' ? '読み込みがタイムアウトしました。再試行できます。' : 'ヒント画像を読み込めませんでした。'}</p>
+        <button type="button" className="optional-hint-retry" onClick={() => {
           toggleRef.current?.focus()
+          attemptRef.current++
+          finishedAttemptRef.current = -1
+          setAttempt(attemptRef.current)
           setStatus('loading')
-          setAttempt(value => value + 1)
         }}>再試行</button>
       </div>}
-      {getPhoto ? <ProtectedHintImage key={attempt} getPhoto={getPhoto} questId={quest.questId} version={quest.version}
-        alt={alt} hidden={status !== 'loaded'} onLoad={onLoad} onError={onError} />
+      {(status === 'loading' || status === 'loaded') && (getPhoto
+        ? <ProtectedHintImage key={attempt} getPhoto={getPhoto} questId={quest.questId} version={quest.version}
+          alt={alt} hidden={status !== 'loaded'}
+          onLoad={onLoad} onError={onError} />
         : <img key={attempt} src={url} alt={alt} className="optional-hint-image"
-          style={{ display: status === 'loaded' ? undefined : 'none' }} onLoad={onLoad} onError={onError} />}
+        style={{ display: status === 'loaded' ? undefined : 'none' }}
+        onLoad={onLoad} onError={onError} />)}
     </div>}
   </div>
 }
@@ -185,7 +239,7 @@ interface QuestDetailsProps {
 export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, note, sourceLabel = '架空のサンプル問題', feedback, onToggle, onStart, children, hideStartAction = false, stale = false, getHint, getHintPhoto, onHintVersionChanged = () => {}, onReloadQuest = () => {} }: QuestDetailsProps) {
   const detailsId = `quest-details-${useId().replaceAll(':', '')}`
   const hintUrl = quest.optionalHintImage
-  const hintIdentity = `${quest.questId}\u0000${quest.version}\u0000${hintUrl ?? ''}\u0000${getHintIdentity(getHint)}`
+  const hintIdentity = `${quest.questId}\u0000${quest.version}\u0000${hintUrl ?? ''}\u0000${getHintIdentity(getHint)}\u0000${getPhotoIdentity(getHintPhoto)}`
   const [staleHintIdentity, setStaleHintIdentity] = useState('')
   const [reloadNeededState, setReloadNeededState] = useState<{ identity: string; open: boolean; indexes: Set<number> }>(() => ({ identity: hintIdentity, open, indexes: new Set() }))
   if (reloadNeededState.identity !== hintIdentity || reloadNeededState.open !== open) {
@@ -216,12 +270,12 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
             <h4>この場所はどこ？</h4>
             <p className="clue-text">{quest.clue}</p>
             <p className="sample-note">{quest.visitConditions}</p>
-            <QuestHints key={hintIdentity} quest={quest} getHint={getHint} stale={questStale} onVersionChanged={() => { setStaleHintIdentity(hintIdentity); onHintVersionChanged() }} onReloadNeeded={(index, needed) => setReloadNeededState(current => {
+            <QuestHints key={`hints:${hintIdentity}`} quest={quest} getHint={getHint} stale={questStale} onVersionChanged={() => { setStaleHintIdentity(hintIdentity); onHintVersionChanged() }} onReloadNeeded={(index, needed) => setReloadNeededState(current => {
               const indexes = current.identity === hintIdentity && current.open === open ? new Set(current.indexes) : new Set<number>()
               if (needed) indexes.add(index); else indexes.delete(index)
               return { identity: hintIdentity, open, indexes }
             })} />
-            {hintUrl && !questStale && <OptionalHintImage key={hintIdentity} url={hintUrl} quest={quest} getPhoto={getHintPhoto} />}
+            {hintUrl && !questStale && <OptionalHintImage key={`image:${hintIdentity}`} url={hintUrl} quest={quest} getPhoto={getHintPhoto} />}
             {!hideStartAction && <><button type="button" className="primary-button" disabled={disabled || questStale} onClick={() => { if (!questStale) void onStart({ questId: quest.questId, expectedVersion: quest.version }) }} aria-describedby={`${detailsId}-note`}>
               {buttonLabel}
             </button>

@@ -45,6 +45,74 @@ function signedOutAuth(): AuthClient {
 }
 
 describe('APIから問題を表示', () => {
+  it('公開情報更新で表示中の古いヒント画像と遅延イベントを破棄する', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, optionalHintImage: 'https://example.test/old.jpg' }
+    const revised = { ...quest, version: quest.version + 1, optionalHintImage: 'https://example.test/new.jpg' }
+    const api = apiFixture()
+    api.getQuest.mockResolvedValueOnce(quest).mockResolvedValueOnce(revised)
+    api.listQuests.mockResolvedValueOnce(page([quest])).mockResolvedValueOnce(page([revised, second]))
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} />)
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const oldImage = await waitFor(() => {
+      const image = document.querySelector<HTMLImageElement>('.optional-hint-image')
+      expect(image).not.toBeNull()
+      return image!
+    })
+    await user.click(screen.getByRole('button', { name: '公開情報を更新' }))
+    expect(await screen.findByText(/問題が更新されました/)).toBeVisible()
+    expect(oldImage).not.toBeInTheDocument()
+    fireEvent.load(oldImage)
+    expect(document.querySelector('.optional-hint-image')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    expect(document.querySelector('.optional-hint-image')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const newImage = await waitFor(() => document.querySelector<HTMLImageElement>('.optional-hint-image'))
+    expect(newImage).toHaveAttribute('src', revised.optionalHintImage)
+  })
+
+  it('問題を切り替えると古いヒント画像要素を破棄する', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, optionalHintImage: 'https://example.test/a.jpg' }
+    const forest = { ...second, optionalHintImage: 'https://example.test/b.jpg' }
+    const api = apiFixture()
+    api.listQuests.mockResolvedValue(page([quest, forest]))
+    api.getQuest.mockImplementation(async (id) => id === quest.questId ? quest : forest)
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} />)
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const oldImage = await waitFor(() => {
+      const image = document.querySelector<HTMLImageElement>('.optional-hint-image')
+      expect(image).not.toBeNull()
+      return image!
+    })
+    await user.selectOptions(screen.getByRole('combobox', { name: '公開APIの問題を選択' }), forest.questId)
+    expect(await screen.findByRole('heading', { name: forest.title })).toBeVisible()
+    expect(oldImage).not.toBeInTheDocument()
+    fireEvent.error(oldImage)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('問題詳細を閉じるとヒント画像を外し、遅延エラーを表示しない', async () => {
+    const user = userEvent.setup()
+    const quest = { ...first, optionalHintImage: 'https://example.test/hint.jpg' }
+    const api = apiFixture()
+    api.getQuest.mockResolvedValue(quest)
+    render(<ApiQuestApp api={api} authClient={signedOutAuth()} />)
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const oldImage = await waitFor(() => {
+      const image = document.querySelector<HTMLImageElement>('.optional-hint-image')
+      expect(image).not.toBeNull()
+      return image!
+    })
+    await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
+    expect(oldImage).not.toBeInTheDocument()
+    fireEvent.error(oldImage)
+    expect(screen.queryByText('ヒント画像を読み込めませんでした。')).not.toBeInTheDocument()
+  })
+
   it('404ヒントから手動更新し、完了後に公開情報更新へフォーカスを戻す', async () => {
     const user = userEvent.setup()
     const quest = { ...first, hintCount: 1 }
@@ -213,9 +281,18 @@ describe('APIから問題を表示', () => {
       .mockResolvedValue({ questId: latest.questId, version: latest.version, index: 1, text: '最新版ヒント' })
     render(<ApiQuestApp api={api} syncUrl={false} authClient={signedOutAuth()} />)
     await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
+    const oldImage = await waitFor(() => {
+      const image = document.querySelector<HTMLImageElement>('.optional-hint-image')
+      expect(image).not.toBeNull()
+      return image!
+    })
     expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('すべてのヒントと挑戦を無効にしました')
+    expect(oldImage).not.toBeInTheDocument()
+    fireEvent.load(oldImage)
+    expect(document.querySelector('.optional-hint-image')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Googleログインして挑戦する' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
