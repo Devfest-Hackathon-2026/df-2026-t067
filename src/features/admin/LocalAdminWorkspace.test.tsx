@@ -20,6 +20,11 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { headers: {
 } })
 const page = (items: unknown[]) => json({ items, nextCursor: null })
 
+it('shows team administrators who can see published content', () => {
+  render(<LocalAdminWorkspace dataMode="team-preview" />)
+  expect(screen.getByText(/公開した問題と公開ヒントは誰でも閲覧できます/)).toBeVisible()
+})
+
 it('confirms durable identity and membership before saving a real-source shooting area revision', async () => {
   const user = userEvent.setup()
   const snapshot: AuthSnapshot = { status: 'signed-in', user: { uid: 'test-manager', displayName: null } }
