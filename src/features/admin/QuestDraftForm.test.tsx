@@ -372,6 +372,28 @@ describe('A03 admin demo', () => {
     expect(screen.getByRole('alert')).toHaveFocus()
   })
 
+  it('keeps focus on the field after a validation error and refocuses the error on a new attempt', async () => {
+    const user = userEvent.setup()
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    render(<QuestDraftForm />)
+    const confirm = screen.getByRole('button', { name: '入力内容を確認' })
+    await user.click(confirm)
+    const error = screen.getByRole('alert')
+    expect(error).toHaveFocus()
+
+    const reason = screen.getByLabelText('対象とする理由（確認した内容）')
+    reason.focus()
+    frames.forEach((callback) => callback(0))
+    expect(reason).toHaveFocus()
+
+    await user.click(confirm)
+    expect(error).toHaveFocus()
+  })
+
   it('supports keyboard toggling and discards all form state after unmount', async () => {
     const user = userEvent.setup()
     const { unmount } = render(<QuestDraftForm />)
