@@ -18,6 +18,13 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+// 紹介欄を操作する既存テストは、初期折りたたみを明示的に開く。
+function renderExpanded(element: Parameters<typeof render>[0]) {
+  const result = render(element)
+  fireEvent.click(screen.getByText('クリア後の紹介・解説（任意）'))
+  return result
+}
+
 function image(name = 'reference.png', size = 100, type = 'image/png') {
   return new File([new Uint8Array(size)], name, { type })
 }
@@ -35,7 +42,7 @@ it('saves a local draft with its reference, then updates the saved revision and 
   const createManagedQuest = vi.fn().mockImplementation(async (_orgId: string, draft: ManagedQuestDraft) => ({ ...saved, draft }))
   const updateManagedQuest = vi.fn().mockRejectedValue(new ApiError('DRAFT_CONFLICT'))
   const api = { ...createApiClient(), uploadOrgAsset, createManagedQuest, updateManagedQuest }
-  render(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+  renderExpanded(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
     role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
   const file = image()
   await user.type(screen.getByLabelText('対象名'), '架空の時計')
@@ -70,7 +77,7 @@ it('blocks a second create when the response is lost and preserves the entered d
   const createManagedQuest = vi.fn().mockRejectedValue(new ApiError('NETWORK_ERROR'))
   const api = { ...createApiClient(), createManagedQuest }
   const back = vi.fn()
-  render(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
+  renderExpanded(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体',
     role: 'editor', areaId: 'demo-area' }, onBack: back }} />)
   await user.type(screen.getByLabelText('対象名'), '架空の対象')
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
@@ -94,7 +101,7 @@ it.each([
       materials: { name: '架空の対象', evidence: '確認材料', price: '', photoNote: '', photoRights: '自作',
         requiresBoat: false, requiresPaidFacility: false },
       content: { title: '手入力の題名', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
-      afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: 'ref', hintAssetId: null,
+      afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: 'ref', hintAssetId: 'legacy-hint', hintAssetIds: ['hint-a', 'hint-b', null],
     },
   }
   const candidate = { ...initial.draft.content, title: '合成素材の候補', question: '架空の問題文', hints: ['1', '2', '3'],
@@ -103,7 +110,7 @@ it.each([
     draftRevision: 3, source, content: candidate })
   const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 4 })
   const api = { ...createApiClient(), generateManagedQuestDraft, updateManagedQuest }
-  render(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
+  renderExpanded(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体',
     role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
   await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
   await user.click(screen.getByRole('button', { name: '保存済み版の候補を取得' }))
@@ -119,7 +126,7 @@ it.each([
   expect(updateManagedQuest).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
   expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
-  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate } })
+  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate, hintAssetId: 'legacy-hint', hintAssetIds: ['hint-a', 'hint-b', null] } })
 })
 
 describe('A03 admin demo', () => {
@@ -137,7 +144,7 @@ describe('A03 admin demo', () => {
     }
     const updateManagedQuest = vi.fn().mockImplementation(async (_orgId: string, _questId: string, request: { draft: ManagedQuestDraft }) => ({ ...initial, draft: request.draft }))
     const api = { ...createApiClient(), updateManagedQuest }
-    render(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体', role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
+    renderExpanded(<QuestDraftForm connection={{ api, initial, member: { orgId: initial.orgId, label: '架空自治体', role: 'editor', areaId: initial.areaId }, onBack: vi.fn() }} />)
     expect(screen.getByRole('radio', { name: '補足を入力' })).toBeChecked()
     expect(screen.getByLabelText('時間の補足')).toHaveValue(legacyHours)
     await user.click(screen.getByRole('radio', { name: '時間を指定' }))
@@ -161,7 +168,7 @@ describe('A03 admin demo', () => {
     const user = userEvent.setup()
     const createManagedQuest = vi.fn()
     const api = { ...createApiClient(), createManagedQuest }
-    render(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体', role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
+    renderExpanded(<QuestDraftForm connection={{ api, initial: null, member: { orgId: 'demo-org', label: '架空自治体', role: 'editor', areaId: 'demo-area' }, onBack: vi.fn() }} />)
     await user.click(screen.getByRole('radio', { name: '時間を指定' }))
     await user.selectOptions(screen.getByLabelText('開始時刻'), '09:00')
     await user.click(screen.getByRole('button', { name: '入力内容を確認' }))
@@ -170,7 +177,7 @@ describe('A03 admin demo', () => {
     expect(screen.queryByRole('heading', { name: '入力内容の確認' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
-    expect(screen.getByRole('heading', { name: 'A03 素材・場所登録：対象と根拠' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '1/3 素材と場所' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '下書きを保存' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
     expect(createManagedQuest).not.toHaveBeenCalled()
@@ -193,7 +200,7 @@ describe('A03 admin demo', () => {
       },
     }
     const updateManagedQuest = vi.fn().mockResolvedValue({ ...initial, draftRevision: 3 })
-    render(<QuestDraftForm connection={{ api: { ...createApiClient(), updateManagedQuest }, initial,
+    renderExpanded(<QuestDraftForm connection={{ api: { ...createApiClient(), updateManagedQuest }, initial,
       member: { orgId: initial.orgId, areaId: initial.areaId, label: '架空自治体', role: 'editor' }, onBack: vi.fn() }} />)
     expect(screen.getByRole('radio', { name: mode })).toBeChecked()
     await user.click(screen.getByRole('button', { name: '下書きを保存' }))
@@ -203,7 +210,7 @@ describe('A03 admin demo', () => {
 
   it('keeps text input in component state and exposes A04/A05', async () => {
     const user = userEvent.setup()
-    const { rerender } = render(<QuestDraftForm />)
+    const { rerender } = renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('対象名'), '架空の時計台')
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), 'デモ用の根拠')
     await user.type(screen.getByLabelText('アクセス補足'), '駅から歩く')
@@ -223,14 +230,14 @@ describe('A03 admin demo', () => {
     expect(screen.getByLabelText('料金')).toHaveValue('無料')
     expect(screen.getByLabelText('撮影時の注意')).toHaveValue('安全な場所から')
     expect(screen.getByLabelText('写真の出典と利用権')).toHaveValue('チーム撮影・利用許諾済み')
-    expect(screen.getByRole('navigation', { name: '登録手順' })).toHaveTextContent('A03')
+    expect(screen.getByRole('navigation', { name: '登録手順' })).toHaveTextContent('1/3')
     const steps = screen.getByRole('navigation', { name: '登録手順' })
-    expect(within(steps).getByRole('button', { name: /A04.*下書き・編集/ })).toBeEnabled()
-    expect(within(steps).getByRole('button', { name: /A05.*表示プレビュー/ })).toBeEnabled()
+    expect(within(steps).getByRole('button', { name: /2\/3.*下書き・編集/ })).toBeEnabled()
+    expect(within(steps).getByRole('button', { name: /3\/3.*表示プレビュー/ })).toBeEnabled()
   })
 
   it('offers manual entry and marks AI auto-entry as preparing without replacing the existing fields', () => {
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const mode = screen.getByRole('radiogroup', { name: '紹介・解説の入力方法' })
     expect(within(mode).getByRole('radio', { name: '手入力' })).toBeChecked()
     expect(within(mode).getByRole('radio', { name: 'AI自動入力（準備中）' })).toBeDisabled()
@@ -241,7 +248,7 @@ describe('A03 admin demo', () => {
 
   it('keeps the two shooting requirements independent and shows only selected indicators', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const boat = screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })
     const paid = screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' })
     expect(boat).not.toBeChecked()
@@ -254,30 +261,30 @@ describe('A03 admin demo', () => {
     const challenge = screen.getByRole('article')
     expect(within(challenge).getByRole('img', { name: '船上・海上での撮影が必要' })).toBeVisible()
     expect(within(challenge).queryByText('有料施設内での撮影が必要')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /A03.*素材・場所登録/ }))
+    await user.click(screen.getByRole('button', { name: /1\/3.*素材・場所登録/ }))
     await user.click(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' }))
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' })).toBeChecked()
-    await user.click(screen.getByRole('button', { name: /A04.*下書き・編集/ }))
+    await user.click(screen.getByRole('button', { name: /2\/3.*下書き・編集/ }))
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByRole('article').querySelectorAll('.condition-indicator')).toHaveLength(2)
     expect(screen.getByRole('img', { name: '有料施設内での撮影が必要' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /A03.*素材・場所登録/ }))
+    await user.click(screen.getByRole('button', { name: /1\/3.*素材・場所登録/ }))
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
-    await user.click(screen.getByRole('button', { name: /A04.*下書き・編集/ }))
+    await user.click(screen.getByRole('button', { name: /2\/3.*下書き・編集/ }))
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByRole('article').querySelectorAll('.condition-indicator')).toHaveLength(1)
     expect(screen.getByRole('img', { name: '有料施設内での撮影が必要' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /A03.*素材・場所登録/ }))
+    await user.click(screen.getByRole('button', { name: /1\/3.*素材・場所登録/ }))
     await user.click(screen.getByRole('checkbox', { name: '有料施設内での撮影が必要' }))
-    await user.click(screen.getByRole('button', { name: /A04.*下書き・編集/ }))
+    await user.click(screen.getByRole('button', { name: /2\/3.*下書き・編集/ }))
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByRole('article').querySelector('.condition-indicators')).toBeNull()
   })
 
   it('previews, replaces, deletes, and revokes object URLs', async () => {
     const user = userEvent.setup()
-    const { unmount } = render(<QuestDraftForm />)
+    const { unmount } = renderExpanded(<QuestDraftForm />)
     const input = screen.getByLabelText(/参考写真/)
     await user.upload(input, image())
     expect(await screen.findByRole('img', { name: '選択した参考写真：reference.png' })).toHaveAttribute('src', 'blob:demo-1')
@@ -294,7 +301,7 @@ describe('A03 admin demo', () => {
 
   it('shows the selected filename and allows selecting the same reference photo again', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const input = screen.getByLabelText(/参考写真/)
     await user.upload(input, image())
     expect(screen.getByRole('region', { name: '選択中の参考写真' })).toHaveTextContent('選択中：reference.png')
@@ -317,7 +324,7 @@ describe('A03 admin demo', () => {
     const user = userEvent.setup()
     const createObjectURL = vi.fn().mockImplementationOnce(() => { throw new Error('unavailable') }).mockReturnValue('blob:recovered')
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() })
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const input = screen.getByLabelText(/参考写真/)
     await user.upload(input, image())
     expect(screen.getByRole('alert')).toHaveTextContent('プレビューを準備できませんでした')
@@ -328,7 +335,7 @@ describe('A03 admin demo', () => {
 
   it('reports invalid and oversized files and recovers with a valid selection', async () => {
     const user = userEvent.setup({ applyAccept: false })
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const input = screen.getByLabelText(/参考写真/)
     await user.upload(input, image('empty.png', 0))
     expect(screen.getByRole('alert')).toHaveTextContent('空です')
@@ -343,7 +350,7 @@ describe('A03 admin demo', () => {
 
   it('handles image load failure and offers retry', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await user.upload(screen.getByLabelText(/参考写真/), image())
     fireEvent.error(screen.getByRole('img'))
     expect(screen.getByRole('alert')).toHaveTextContent('読み込めませんでした')
@@ -352,7 +359,7 @@ describe('A03 admin demo', () => {
 
   it('exposes accessible fieldsets, labels, focusable controls and no private coordinates or network actions', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     expect(screen.getByRole('group', { name: '撮影に必要な条件' })).toBeInTheDocument()
     expect(screen.getByLabelText('アクセス補足')).toBeInTheDocument()
     expect(screen.getByText('未設定・接続待ち')).toBeInTheDocument()
@@ -369,21 +376,21 @@ describe('A03 admin demo', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: '入力内容を確認' }))
     expect(screen.getByText(/送信・保存はしていません/)).toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
-    expect(screen.getByRole('alert')).toHaveFocus()
+    expect(screen.getByLabelText('対象名')).toHaveFocus()
   })
 
-  it('keeps focus on the field after a validation error and refocuses the error on a new attempt', async () => {
+  it('keeps focus on the field after a validation error and focuses the first missing field on a new attempt', async () => {
     const user = userEvent.setup()
     const frames: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       frames.push(callback)
       return frames.length
     })
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const confirm = screen.getByRole('button', { name: '入力内容を確認' })
     await user.click(confirm)
-    const error = screen.getByRole('alert')
-    expect(error).toHaveFocus()
+    const firstMissing = screen.getByLabelText('対象名')
+    expect(firstMissing).toHaveFocus()
 
     const reason = screen.getByLabelText('対象とする理由（確認した内容）')
     reason.focus()
@@ -391,26 +398,26 @@ describe('A03 admin demo', () => {
     expect(reason).toHaveFocus()
 
     await user.click(confirm)
-    expect(error).toHaveFocus()
+    expect(firstMissing).toHaveFocus()
   })
 
   it('supports keyboard toggling and discards all form state after unmount', async () => {
     const user = userEvent.setup()
-    const { unmount } = render(<QuestDraftForm />)
+    const { unmount } = renderExpanded(<QuestDraftForm />)
     const boat = screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })
     boat.focus()
     await user.keyboard(' ')
     expect(boat).toBeChecked()
     await user.type(screen.getByLabelText('対象名'), '一時入力')
     unmount()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     expect(screen.getByLabelText('対象名')).toHaveValue('')
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).not.toBeChecked()
   })
 
   it('retains a load failure when a replacement file is rejected', async () => {
     const user = userEvent.setup({ applyAccept: false })
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const input = screen.getByLabelText(/参考写真/)
     await user.upload(input, image())
     fireEvent.error(screen.getByRole('img'))
@@ -421,7 +428,7 @@ describe('A03 admin demo', () => {
 
   it('keeps every A03 field, the photo URL, and edited draft through A03/A04 navigation', async () => {
     const user = userEvent.setup()
-    const { unmount } = render(<QuestDraftForm />)
+    const { unmount } = renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('対象名'), '架空の風車')
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), '管理者の確認メモ')
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
@@ -436,13 +443,13 @@ describe('A03 admin demo', () => {
     await pasteText(user, '写真の出典と利用権', 'チーム撮影')
     await user.upload(screen.getByLabelText(/参考写真/), image())
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
-    expect(screen.getByRole('heading', { name: 'A04 下書き・編集（AI未接続）' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: '2/3 問題の文章（AI未接続）' })).toHaveFocus()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(revoked).not.toContain('blob:demo-1')
     await user.type(screen.getByLabelText('問題タイトル'), ' 手直し')
     await user.type(screen.getByLabelText('ヒント 2'), ' 追加の手掛かり')
     await user.click(screen.getByRole('button', { name: '素材・場所へ戻る' }))
-    expect(screen.getByRole('heading', { name: 'A03 素材・場所登録：対象と根拠' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: '1/3 素材と場所' })).toHaveFocus()
     expect(screen.getByLabelText('対象名')).toHaveValue('架空の風車')
     expect(screen.getByLabelText('対象とする理由（確認した内容）')).toHaveValue('管理者の確認メモ')
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).toBeChecked()
@@ -457,7 +464,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByRole('img', { name: '選択した参考写真：reference.png' })).toHaveAttribute('src', 'blob:demo-1')
     expect(screen.queryByText('素材が変更されています。下書きを確認してください。')).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('アクセス補足'), '・徒歩')
-    await user.click(screen.getByRole('button', { name: /A04.*下書き・編集/ }))
+    await user.click(screen.getByRole('button', { name: /2\/3.*下書き・編集/ }))
     expect(screen.getByRole('status')).toHaveTextContent('素材が変更されています')
     expect(screen.getByLabelText('問題タイトル')).toHaveValue(' 手直し')
     expect(screen.getByLabelText('ヒント 2')).toHaveValue(' 追加の手掛かり')
@@ -469,7 +476,7 @@ describe('A03 admin demo', () => {
 
   it('requires target and evidence before opening A04, with an inline error', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
     expect(screen.getByRole('alert')).toHaveTextContent('対象名と対象とする理由')
     expect(screen.queryByLabelText('問題タイトル')).not.toBeInTheDocument()
@@ -492,16 +499,16 @@ describe('A03 admin demo', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('対象名と対象とする理由')
     expect(screen.queryByRole('heading', { name: '入力内容の確認' })).not.toBeInTheDocument()
     await user.type(reason, '架空の根拠')
-    const a04Step = screen.getByRole('button', { name: /A04.*下書き・編集/ })
+    const a04Step = screen.getByRole('button', { name: /2\/3.*下書き・編集/ })
     a04Step.focus()
     await user.keyboard('{Enter}')
-    expect(screen.getByRole('heading', { name: 'A04 下書き・編集（AI未接続）' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: '2/3 問題の文章（AI未接続）' })).toHaveFocus()
     expect(screen.getByLabelText('問題タイトル')).toHaveValue('')
   })
 
   it('loads a fictional sample only on request and confirms before overwriting edits', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('対象名'), '対象')
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), '根拠')
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
@@ -526,7 +533,7 @@ describe('A03 admin demo', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
     const alertSpy = vi.spyOn(window, 'alert')
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     const payload = '<script>window.__demoExecuted = true</script><img src=x onerror=alert(1)>'
     await user.type(screen.getByLabelText('対象名'), payload)
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), '根拠')
@@ -543,7 +550,7 @@ describe('A03 admin demo', () => {
 
   it('shows only the traveler allowlist and excludes private A03/A04 details and the reference photo', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await pasteText(user, '対象名', 'PRIVATE_TARGET_91')
     await pasteText(user, '対象とする理由（確認した内容）', 'PRIVATE_EVIDENCE_91')
     await pasteText(user, '写真の出典と利用権', 'PRIVATE_RIGHTS_91')
@@ -594,7 +601,7 @@ describe('A03 admin demo', () => {
 
   it('opens hints with keyboard and resets them closed when the preview is re-entered', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('対象名'), '場所')
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), '確認メモ')
     await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
@@ -613,7 +620,7 @@ describe('A03 admin demo', () => {
     await user.click(screen.getByRole('button', { name: 'ヒント 2を見る' }))
     expect(firstHint).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button', { name: 'ヒント 2を見る' })).toHaveAttribute('aria-expanded', 'true')
-    await user.click(screen.getByRole('button', { name: 'A04編集へ戻る' }))
+    await user.click(screen.getByRole('button', { name: '問題の文章を編集' }))
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByRole('button', { name: 'ヒント 1を見る' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText('風車のある場所')).not.toBeVisible()
@@ -621,7 +628,7 @@ describe('A03 admin demo', () => {
 
   it('keeps A03/A04/photo state across A05 navigation, refreshes preview content, and releases photo on unmount', async () => {
     const user = userEvent.setup()
-    const { unmount } = render(<QuestDraftForm />)
+    const { unmount } = renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('対象名'), 'PRIVATE_SPOT')
     await user.type(screen.getByLabelText('対象とする理由（確認した内容）'), 'PRIVATE_REASON')
     await user.click(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' }))
@@ -639,7 +646,7 @@ describe('A03 admin demo', () => {
     await user.type(screen.getByLabelText('問題タイトル'), 'PUBLIC_TITLE_BEFORE')
     await user.click(screen.getByRole('button', { name: '表示プレビューへ' }))
     expect(screen.getByText('PUBLIC_TITLE_BEFORE')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /A03.*素材・場所登録/ }))
+    await user.click(screen.getByRole('button', { name: /1\/3.*素材・場所登録/ }))
     expect(screen.getByLabelText('対象名')).toHaveValue('PRIVATE_SPOT')
     expect(screen.getByLabelText('対象とする理由（確認した内容）')).toHaveValue('PRIVATE_REASON')
     expect(screen.getByRole('checkbox', { name: '船上・海上での撮影が必要' })).toBeChecked()
@@ -653,7 +660,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByLabelText('写真の出典と利用権')).toHaveValue('PRIVATE_RIGHTS')
     expect(screen.getByRole('img', { name: '選択した参考写真：private-photo.png' })).toHaveAttribute('src', 'blob:demo-1')
     expect(revoked).not.toContain('blob:demo-1')
-    await user.click(screen.getByRole('button', { name: /A04.*下書き・編集/ }))
+    await user.click(screen.getByRole('button', { name: /2\/3.*下書き・編集/ }))
     expect(screen.getByLabelText('問題タイトル')).toHaveValue('PUBLIC_TITLE_BEFORE')
     await user.clear(screen.getByLabelText('問題タイトル'))
     await user.type(screen.getByLabelText('問題タイトル'), 'PUBLIC_TITLE_AFTER')
@@ -664,7 +671,7 @@ describe('A03 admin demo', () => {
     expect(screen.getByText('PUBLIC_ACCESS_BEFORE')).toBeVisible()
     expect(screen.getByText('PUBLIC_PROMO_BEFORE')).toBeVisible()
     expect(screen.getByText('PUBLIC_EXPLANATION_BEFORE')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'A04編集へ戻る' }))
+    await user.click(screen.getByRole('button', { name: '問題の文章を編集' }))
     expect(revoked).not.toContain('blob:demo-1')
     unmount()
     expect(revoked.filter(url => url === 'blob:demo-1')).toHaveLength(1)
@@ -672,8 +679,8 @@ describe('A03 admin demo', () => {
 
   it('shows empty after-clear fields and switches modes with the keyboard without clearing a quest', async () => {
     const user = userEvent.setup()
-    render(<QuestDraftForm />)
-    await user.click(screen.getByRole('button', { name: /A05.*表示プレビュー/ }))
+    renderExpanded(<QuestDraftForm />)
+    await user.click(screen.getByRole('button', { name: /3\/3.*表示プレビュー/ }))
     const afterMode = screen.getByRole('button', { name: 'クリア後の解説' })
     afterMode.focus()
     await user.keyboard('{Enter}')
@@ -693,10 +700,10 @@ describe('A03 admin demo', () => {
     const user = userEvent.setup()
     const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
     const payload = '<img src=x onerror=alert(91)><script>alert(91)</script>'
-    render(<QuestDraftForm />)
+    renderExpanded(<QuestDraftForm />)
     await user.type(screen.getByLabelText('自治体のアピールコメント'), payload)
     await user.type(screen.getByLabelText('解説', { exact: true }), 'EXPLANATION_ONLY_91')
-    await user.click(screen.getByRole('button', { name: /A05.*表示プレビュー/ }))
+    await user.click(screen.getByRole('button', { name: /3\/3.*表示プレビュー/ }))
     const preview = screen.getByRole('region', { name: '旅行者向け表示の確認（未公開）' })
     expect(preview.outerHTML).not.toContain('EXPLANATION_ONLY_91')
     expect(preview.outerHTML).not.toContain('alert(91)')
@@ -708,12 +715,12 @@ describe('A03 admin demo', () => {
     expect(storageSpy).not.toHaveBeenCalled()
   })
 
-  it('allows a blank preview without implying readiness and redirects invalid A04 entry to A03', async () => {
+  it('allows a blank preview without implying readiness and returns directly to editing its text', async () => {
     const user = userEvent.setup()
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
-    render(<QuestDraftForm />)
-    await user.click(screen.getByRole('button', { name: /A05.*表示プレビュー/ }))
+    renderExpanded(<QuestDraftForm />)
+    await user.click(screen.getByRole('button', { name: /3\/3.*表示プレビュー/ }))
     expect(screen.getByRole('heading', { name: '旅行者向け表示の確認（未公開）' })).toHaveFocus()
     const preview = screen.getByRole('region', { name: '旅行者向け表示の確認（未公開）' })
     expect(within(preview).getByRole('heading', { level: 3, name: '未入力' })).toBeInTheDocument()
@@ -721,10 +728,34 @@ describe('A03 admin demo', () => {
     expect(within(preview).getByText('公開ヒント画像は未設定')).toBeInTheDocument()
     expect(screen.getByText(/実際の旅行者画面、写真判定、公開には未接続/)).toBeInTheDocument()
     expect(within(preview).queryByRole('button', { name: /公開|判定|試験/ })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'A04編集へ戻る' }))
-    expect(screen.getByRole('heading', { name: 'A03 素材・場所登録：対象と根拠' })).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: '問題の文章を編集' }))
+    expect(screen.getByRole('heading', { name: '2/3 問題の文章（AI未接続）' })).toHaveFocus()
+    expect(screen.getByLabelText('問題タイトル')).toHaveValue('')
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(storageSpy).not.toHaveBeenCalled()
   })
+})
+
+
+it.each([false, true])('investigates PR119 with durable form, saved=%s, photo and corrected input', async (saved) => {
+  const user = userEvent.setup()
+  const draft: ManagedQuestDraft = {
+    materials: { name: '保存済み対象', evidence: '保存済み根拠', requiresBoat: false, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成' },
+    content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+    afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: null, hintAssetId: null,
+  }
+  const initial: ManagedQuest = { questId: 'investigation', orgId: 'org', areaId: 'area', draftRevision: 1, publishedVersion: null, status: 'draft', source: 'real', shootingAreaStatus: 'unconfigured', draft }
+  renderExpanded(<QuestDraftForm teamPreview connection={{ api: createApiClient({ expectedDataMode: 'durable-local' }), initial: saved ? initial : null, member: { orgId: 'org', areaId: 'area', label: '架空', role: 'editor' }, onBack: vi.fn() }} />)
+  if (saved) {
+    await user.clear(screen.getByLabelText('対象名'))
+    await user.clear(screen.getByLabelText('対象とする理由（確認した内容）'))
+  }
+  await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('対象名と対象とする理由')
+  await pasteText(user, '対象とする理由（確認した内容）', '　入力済みの根拠　')
+  await pasteText(user, '対象名', '　入力済み対象　')
+  await user.upload(screen.getByLabelText('参考写真（公開ヒントには自動流用しません）'), image())
+  await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+  expect(screen.getByRole('heading', { name: '2/3 問題の文章（AI未接続）' })).toHaveFocus()
+  expect(screen.queryByText(/対象名と対象とする理由を入力/)).not.toBeInTheDocument()
 })

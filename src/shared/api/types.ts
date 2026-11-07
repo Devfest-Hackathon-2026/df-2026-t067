@@ -19,6 +19,7 @@ export interface PublicQuest {
   clue: string
   areaId: string
   optionalHintImage?: string
+  hintImages?: (string | null)[]
   shootingConditions?: ShootingConditions
   visitConditions: string
   hintCount: number

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
 import type { ApiClient, Challenge, LocalApiDataMode, PublicQuest } from '../../shared/api'
 import { CameraPreview } from './CameraPreview'
@@ -25,8 +25,8 @@ function failure(cause: unknown): Extract<StartState, { status: 'error' }> {
 
 // The parent keys this component by verified user, selected quest/version and
 // navigation revision. Leaving any of them disposes the operation and camera.
-export function ChallengeCapture({ api, quest, onReloadQuest, dataMode = 'demo' }: {
-  api: ApiClient; quest: PublicQuest; onReloadQuest: () => void; dataMode?: LocalApiDataMode
+export function ChallengeCapture({ api, quest, onReloadQuest, onOpenDiscovery, autoStart = false, canAutoStart, onAutoStartConsumed, dataMode = 'demo' }: {
+  api: ApiClient; quest: PublicQuest; onReloadQuest: () => void; autoStart?: boolean; canAutoStart?: () => boolean; onAutoStartConsumed?: () => void; dataMode?: LocalApiDataMode; onOpenDiscovery?: (id: string) => void
 }) {
   const [state, setState] = useState<StartState>({ status: 'idle' })
   const [cameraOpen, setCameraOpen] = useState(false)
@@ -80,6 +80,17 @@ export function ChallengeCapture({ api, quest, onReloadQuest, dataMode = 'demo' 
     }
   }
 
+  const continueIntent = useEffectEvent(() => {
+    if (!autoStart || !canAutoStart?.()) return
+    void start()
+    onAutoStartConsumed?.()
+  })
+  useEffect(() => {
+    if (!autoStart) return
+    const timer = setTimeout(() => continueIntent(), 0)
+    return () => clearTimeout(timer)
+  }, [autoStart])
+
   return <>
     <button type="button" className="primary-button" onClick={start} aria-describedby="challenge-note"
       disabled={state.status === 'starting' || cameraOpen || seconds > 0 || (state.status === 'error' && state.reload)}>
@@ -97,6 +108,6 @@ export function ChallengeCapture({ api, quest, onReloadQuest, dataMode = 'demo' 
       {state.reload && <button type="button" className="retry-button" onClick={onReloadQuest}>問題を読み直す</button>}
     </div>}
     {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera}
-      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest, dataMode }} />}
+      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest, dataMode, onOpenDiscovery }} />}
   </>
 }

@@ -107,7 +107,8 @@ export class FirestoreManagedDraftStore {
   }
 
   private async checkAssets(tx: Transaction, orgId: string, draft: ManagedQuestDraft) {
-    for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint']] as const) {
+    for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint'],
+      ...(draft.hintAssetIds ?? []).map((assetId) => [assetId, 'public_hint'] as const)] as const) {
       if (assetId !== null && !await this.hasAsset(tx, orgId, assetId, purpose)) invalidInput()
     }
   }

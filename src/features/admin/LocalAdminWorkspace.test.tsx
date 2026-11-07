@@ -52,8 +52,8 @@ it('confirms durable identity and membership before saving a real-source shootin
   vi.stubGlobal('fetch', fetcher)
   try {
     render(<LocalAdminWorkspace authClient={authClient} dataMode="durable-local" />)
-    await user.click(await screen.findByRole('button', { name: /永続の架空自治体/ }))
     expect(await screen.findByText(quest.draft.content.title)).toBeVisible()
+    expect(screen.getByRole('button', { name: /永続の架空自治体/ })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '撮影範囲を設定' }))
     await user.click(await screen.findByRole('button', { name: '範囲を追加' }))
     await user.type(screen.getByLabelText('緯度'), '0')
@@ -234,6 +234,10 @@ it('publishes and pauses through durable session, membership and common HTTP con
     await user.type(screen.getByLabelText('試験写真の利用権'), '自作の合成画像')
     for (const [name, message] of [['match', '一致試験を確認しました。'], ['other', '別対象の試験を確認しました。']]) {
       await user.upload(screen.getByLabelText('試験写真'), new File([name], name + '.png', { type: 'image/png' }))
+      if (name === 'other') {
+        expect(screen.getByRole('button', { name: '写真試験を送信' })).toBeDisabled()
+        await user.click(screen.getByLabelText('差し替えた写真を非公開試験に使う権利を確認し、入力済みの権利文を適用する'))
+      }
       await user.click(screen.getByRole('button', { name: '写真試験を送信' }))
       expect(await screen.findByText(message)).toBeVisible()
       expect(publish).toBeDisabled()

@@ -7,7 +7,7 @@ const JAPAN = { lat: 36.2048, lng: 138.2529 }
 const MIN_ZOOM = 3
 const INITIAL_ZOOM = 5
 const MAX_ZOOM = 20
-const LOCATION_ZOOM = 12
+const LOCATION_ZOOM = 14
 const LOCATION_DEADLINE_MS = 10_000
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''
 

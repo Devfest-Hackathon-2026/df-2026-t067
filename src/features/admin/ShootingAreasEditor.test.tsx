@@ -4,6 +4,8 @@ import { expect, it, vi } from 'vitest'
 import { ApiError, createApiClient } from '../../shared/api'
 import { ShootingAreasEditor } from './ShootingAreasEditor'
 
+vi.mock('./ShootingAreasMap', () => ({ ShootingAreasMap: ({ onSelect, disabled }: { onSelect: (lat: number, lng: number) => void; disabled: boolean }) => <button type="button" disabled={disabled} onClick={() => onSelect(36, 138)}>地図のテスト地点を選ぶ</button> }))
+
 it('saves only valid coordinates using the loaded revision and keeps an edit on a conflict', async () => {
   const user = userEvent.setup()
   const initial = { questId: 'demo-quest', orgId: 'demo-org', draftRevision: 4, source: 'mock',
@@ -12,7 +14,7 @@ it('saves only valid coordinates using the loaded revision and keeps an edit on 
   const updateShootingAreas = vi.fn().mockResolvedValueOnce({ ...initial, draftRevision: 5,
     zones: [{ latitude: 1, longitude: 0, radiusMeters: 80 }] }).mockRejectedValueOnce(new ApiError('DRAFT_CONFLICT'))
   const api = { ...createApiClient(), getShootingAreas, updateShootingAreas }
-  render(<ShootingAreasEditor api={api} orgId="demo-org" questId="demo-quest" onBack={vi.fn()} />)
+  render(<ShootingAreasEditor enableMap api={api} orgId="demo-org" questId="demo-quest" onBack={vi.fn()} />)
   const latitude = await screen.findByLabelText('緯度')
   expect(latitude).toHaveValue(0)
   await user.clear(latitude)
@@ -29,4 +31,36 @@ it('saves only valid coordinates using the loaded revision and keeps an edit on 
   expect(updateShootingAreas.mock.calls[1][2]).toEqual({ expectedDraftRevision: 5, zones: [] })
   expect(screen.getByText('設定する範囲はありません。')).toBeVisible()
   expect(screen.getByRole('button', { name: '撮影範囲を保存' })).toBeDisabled()
+})
+
+it('adds and moves private shooting positions on the map, preserving radius when saving', async () => {
+  const user = userEvent.setup()
+  const initial = { questId: 'demo-quest', orgId: 'demo-org', draftRevision: 7, source: 'mock', zones: [] }
+  const updateShootingAreas = vi.fn().mockImplementation(async (_org, _quest, input) => ({ ...initial, draftRevision: 8, zones: input.zones }))
+  render(<ShootingAreasEditor enableMap api={{ ...createApiClient(), getShootingAreas: vi.fn().mockResolvedValue(initial), updateShootingAreas }} orgId="demo-org" questId="demo-quest" onBack={vi.fn()} />)
+  await user.click(await screen.findByRole('button', { name: '地図のテスト地点を選ぶ' }))
+  expect(screen.getByLabelText('緯度')).toHaveValue(36)
+  expect(screen.getByLabelText('経度')).toHaveValue(138)
+  expect(screen.getByLabelText('半径（m）')).toHaveValue(50)
+  await user.clear(screen.getByLabelText('半径（m）'))
+  await user.type(screen.getByLabelText('半径（m）'), '85')
+  await user.click(screen.getByRole('button', { name: '地図のテスト地点を選ぶ' }))
+  await user.click(screen.getByRole('button', { name: '撮影範囲を保存' }))
+  expect(updateShootingAreas.mock.calls[0][2]).toEqual({ expectedDraftRevision: 7, zones: [{ latitude: 36, longitude: 138, radiusMeters: 85 }] })
+})
+
+it('keeps ten-zone limit and allows deleting a zone before selecting a replacement', async () => {
+  const user = userEvent.setup()
+  const zones = Array.from({ length: 10 }, (_, index) => ({ latitude: index, longitude: 135, radiusMeters: 80 }))
+  const initial = { questId: 'demo-quest', orgId: 'demo-org', draftRevision: 2, source: 'mock', zones }
+  render(<ShootingAreasEditor enableMap api={{ ...createApiClient(), getShootingAreas: vi.fn().mockResolvedValue(initial) }} orgId="demo-org" questId="demo-quest" onBack={vi.fn()} />)
+  expect(await screen.findByRole('button', { name: '範囲を追加' })).toBeDisabled()
+  await user.selectOptions(screen.getByLabelText('地図で編集する範囲'), '9')
+  await user.click(screen.getByRole('button', { name: '地図のテスト地点を選ぶ' }))
+  expect(screen.getAllByLabelText('緯度')).toHaveLength(10)
+  expect(screen.getAllByLabelText('緯度')[9]).toHaveValue(36)
+  await user.click(screen.getAllByRole('button', { name: 'この範囲を外す' })[9])
+  expect(screen.getByRole('button', { name: '範囲を追加' })).toBeEnabled()
+  await user.click(screen.getByRole('button', { name: '地図のテスト地点を選ぶ' }))
+  expect(screen.getAllByLabelText('緯度')).toHaveLength(10)
 })

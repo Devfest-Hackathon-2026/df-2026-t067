@@ -45,7 +45,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
     content: { title: '公開する架空問題', question: '公開用の問題文', hints: ['ヒント1', 'ヒント2', 'ヒント3'],
       verifiedFeatures: '非公開の確認済み特徴', draftingNotes: '内部メモ' },
     afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: '非公開の解説' },
-    referenceAssetId: reference.assetId, hintAssetId: hint.assetId,
+    referenceAssetId: reference.assetId, hintAssetId: null, hintAssetIds: [null, hint.assetId, null],
   }
   const created = await editor.createManagedQuest(org, draft)
   const id = created.questId
@@ -106,8 +106,9 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.doesNotMatch(JSON.stringify(visible), /内部|非公開|クリア後|0\.1221|0\.2332/)
   for (const assetId of [reference.assetId, hint.assetId]) assert(!JSON.stringify(visible).includes(assetId))
   assert.equal((await traveler.getHint({ questId: id, expectedVersion: 1, index: 1 })).text, 'ヒント1')
-  assert(visible.optionalHintImage)
-  const publicHint = await fetch(base + visible.optionalHintImage)
+  assert(visible.hintImages?.[1])
+  assert.equal(visible.optionalHintImage, undefined)
+  const publicHint = await fetch(base + visible.hintImages[1])
   assert.equal(publicHint.headers.get('Content-Type'), 'image/jpeg')
   const storedHint = await editor.getOrgAssetPhoto(org, hint.assetId)
   assert.deepEqual(await publicHint.arrayBuffer(), await storedHint.arrayBuffer())
@@ -142,7 +143,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.equal(admin.getPublishedAnswerMaterial(id, 1), undefined)
   assert.deepEqual(await publisher.pauseManagedQuest(org, id, pause), paused)
   await expectError(await fetch(base + '/api/v1/quests/' + id), 404, 'NOT_FOUND')
-  await expectError(await fetch(base + visible.optionalHintImage), 404, 'NOT_FOUND')
+  await expectError(await fetch(base + visible.hintImages[1]), 404, 'NOT_FOUND')
   assert.equal((await traveler.listAreas()).items.find((area) => area.areaId === 'demo-area')?.publishedCount, 2)
   await assert.rejects(traveler.createChallenge({ questId: id, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'paused' }), { code: 'QUEST_UNAVAILABLE' })
@@ -165,7 +166,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
     zones: [{ latitude: 1, longitude: 1, radiusMeters: 80 }],
   })
   assert.deepEqual((await traveler.getQuest(id)).shootingConditions, { requiresBoat: false, requiresPaidFacility: true })
-  await expectError(await fetch(base + visible.optionalHintImage), 409, 'QUEST_CHANGED')
+  await expectError(await fetch(base + visible.hintImages[1]), 409, 'QUEST_CHANGED')
   await assert.rejects(traveler.submitAnswer({ ...answer, idempotencyKey: 'old-version' }), { code: 'QUEST_CHANGED' })
   await assert.rejects(traveler.getAttempt(pending.attemptId), { code: 'QUEST_CHANGED' })
 })

@@ -48,6 +48,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
 }) {
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode }), [providedApi, dataMode])
   const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
+  const [openQuestRequest, setOpenQuestRequest] = useState<{ questId: string; sequence: number }>()
   const [selectedId, setSelectedId] = useState(initialSelection.questId)
   const [selectedAreaId, setSelectedAreaId] = useState(initialSelection.areaId)
   const [retry, setRetry] = useState(0)
@@ -192,7 +193,14 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
         && <option value={selectedAreaId}>選択中の地域（一覧にありません）</option>}
       {availableAreas.map((item) => <option key={item.areaId} value={item.areaId}>{item.label}（{item.publishedCount}問）</option>)}
     </select>
-    <label htmlFor="api-quest-select">公開APIの問題を選択</label>
+    {dataMode === 'durable-local' ? <ul aria-label="公開問題">{choices.map(item => <li key={item.questId}>
+      <button type="button" aria-label={`${item.title}を開く`} aria-pressed={item.questId === selectedQuestId} onClick={() => {
+        clearRefreshNotice()
+        if (syncUrl) writeSelectionToUrl(selectedAreaId, item.questId, 'push')
+        setSelectedId(item.questId)
+        setOpenQuestRequest(previous => ({ questId: item.questId, sequence: (previous?.sequence ?? 0) + 1 }))
+      }}>{item.title}</button>
+    </li>)}</ul> : <><label htmlFor="api-quest-select">公開APIの問題を選択</label>
     <select id="api-quest-select" aria-label="公開APIの問題を選択" value={selectedQuestId}
       disabled={!choices.length}
       onChange={(event) => {
@@ -203,7 +211,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       }}>
       {!choices.length && <option value="">{state === 'loading' ? '問題を読み込み中' : '選べる問題がありません'}</option>}
       {choices.map((item) => <option key={item.questId} value={item.questId}>{item.title}</option>)}
-    </select>
+    </select></>}
     <p>問題と地域名は公開APIから取得しています。架空の問題の位置は地図に表示しません。</p>
   </div>
 
@@ -253,7 +261,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
       {refreshControl}
       {(availableAreas.length > 0 || choices.length > 0 || state === 'empty' || state === 'error') && picker}
     </section> : undefined
-  return <App authClient={authClient} quest={quest} mapAreas={availableAreas} selectedAreaId={selectedAreaId} onSelectArea={selectArea}
+  return <App openQuestRequest={openQuestRequest} authClient={authClient} quest={quest} mapAreas={availableAreas} selectedAreaId={selectedAreaId} onSelectArea={selectArea}
     areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
     questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} teamAnswerTrial={teamAnswerTrial} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}

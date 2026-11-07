@@ -20,6 +20,7 @@ interface PublicPublication {
   orgId: string
   hints: string[]
   hintAssetId: string | null
+  hintAssetIds: (string | null)[]
 }
 
 interface Publication extends PublicPublication {
@@ -108,7 +109,7 @@ export class DemoAdminStore {
     if (!Number.isSafeInteger(version)) throw new HttpError(409, 'DRAFT_CONFLICT', '公開版を更新できません。')
     const updated: ManagedQuest = { ...quest, status: 'published', publishedVersion: version }
     this.publications.set(questId, {
-      ...projectManagedQuest(quest, version), orgId, hintAssetId, pauseReason: null,
+      ...projectManagedQuest(quest, version), orgId, hintAssetId, hintAssetIds: (quest.draft.hintAssetIds ?? [null, null, null]).map((assetId, index) => assetId ?? (index === 0 ? hintAssetId : null)), pauseReason: null,
       answerMaterial: { referenceAssetId, features, zones: structuredClone(this.shootingAreas.get(questId) ?? []) },
     })
     this.quests.set(questId, updated)
@@ -135,8 +136,8 @@ export class DemoAdminStore {
   getPublished(questId: string): PublicPublication | undefined {
     const publication = this.publications.get(questId)
     if (publication?.pauseReason !== null) return undefined
-    const { quest, orgId, hints, hintAssetId } = publication
-    return structuredClone({ quest, orgId, hints, hintAssetId })
+    const { quest, orgId, hints, hintAssetId, hintAssetIds } = publication
+    return structuredClone({ quest, orgId, hints, hintAssetId, hintAssetIds })
   }
   // This snapshot is for server-side answer checks only.
   getPublishedAnswerMaterial(questId: string, version: number): (AnswerMaterial & { orgId: string }) | undefined {
@@ -178,7 +179,8 @@ export class DemoAdminStore {
   }
   private checkedDraft(orgId: string, input: ManagedQuestDraft): ManagedQuestDraft {
     const draft = parseManagedQuestDraft(input)
-    for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint']] as const) {
+    for (const [assetId, purpose] of [[draft.referenceAssetId, 'reference'], [draft.hintAssetId, 'public_hint'],
+      ...(draft.hintAssetIds ?? []).map((assetId) => [assetId, 'public_hint'] as const)] as const) {
       if (assetId === null) continue
       if (!this.hasAsset(orgId, assetId, purpose)) invalidInput()
     }

@@ -1,17 +1,20 @@
 import { useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
 import type { ApiClient, AssetPurpose, ManagedQuest, ManagedQuestDraft, OrgMembership } from '../../shared/api'
+import { normalizeHintAssets } from './hintAssets'
 import { useRequestAction } from '../../shared/useRequestAction'
 
 export interface LocalDraftConnection {
+  taskFocused?: boolean
   api: Pick<ApiClient, 'uploadOrgAsset' | 'createManagedQuest' | 'updateManagedQuest' | 'generateManagedQuestDraft'>
   initial: ManagedQuest | null
   member: OrgMembership
+  onContinue?: (record: ManagedQuest, destination: 'areas' | 'publication' | 1 | 2 | 3) => void
   onBack: () => void
 }
 
 type SaveState = { status: 'idle' | 'saving' | 'saved' } | { status: 'error'; message: string; reload?: true }
-type DraftAsset = { file: File; purpose: AssetPurpose; photoRights: string }
+type DraftAsset = { file: File; purpose: AssetPurpose; photoRights: string; hintIndex?: number }
 
 function saveFailure(cause: unknown, attemptedCreate: boolean): SaveState {
   const code = cause instanceof ApiError ? cause.code : undefined
@@ -45,7 +48,7 @@ export function useLocalDraftSave(connection?: LocalDraftConnection) {
     try {
       let payload = draft
       if (asset) {
-        const { file, purpose } = asset
+        const { file, purpose, hintIndex } = asset
         const photoRights = asset.photoRights.trim()
         if (upload.current?.file !== file || upload.current.purpose !== purpose || upload.current.photoRights !== photoRights) {
           upload.current = { file, purpose, photoRights, key: crypto.randomUUID() }
@@ -53,8 +56,12 @@ export function useLocalDraftSave(connection?: LocalDraftConnection) {
         const savedAsset = await api.uploadOrgAsset(orgId, { purpose, photo: file, photoRights,
           idempotencyKey: upload.current.key }, call)
         if (!operation.isCurrent()) return
-        const field = purpose === 'reference' ? 'referenceAssetId' : 'hintAssetId'
-        payload = { ...draft, [field]: savedAsset.assetId }
+        if (purpose === 'reference') payload = { ...draft, referenceAssetId: savedAsset.assetId }
+        else if (hintIndex !== undefined) {
+          const { hintAssetIds, hintAssetId } = normalizeHintAssets(draft)
+          hintAssetIds[hintIndex - 1] = savedAsset.assetId
+          payload = { ...draft, hintAssetIds, hintAssetId }
+        } else payload = { ...draft, hintAssetId: savedAsset.assetId }
       }
       attemptedCreate = record === null
       const saved = record === null ? await api.createManagedQuest(orgId, payload, call)

@@ -79,11 +79,12 @@ export function createAdminHandler(options: {
           if (action === 'publish') {
             const input = parsePublishManagedQuest(body)
             const quest = store.getAtRevision(orgId, questId, input.expectedDraftRevision)
-            const { hintAssetId, referenceAssetId } = quest.draft
-            if (hintAssetId) {
-              const asset = options.assets?.getOwned(orgId, hintAssetId)
-              const image = options.assets?.getPhotoOwned(orgId, hintAssetId)
-              const reference = referenceAssetId && options.assets?.getPhotoOwned(orgId, referenceAssetId)
+            const { hintAssetId, hintAssetIds, referenceAssetId } = quest.draft
+            const reference = referenceAssetId && options.assets?.getPhotoOwned(orgId, referenceAssetId)
+            for (const assetId of new Set([hintAssetId, ...(hintAssetIds ?? [])])) {
+              if (!assetId) continue
+              const asset = options.assets?.getOwned(orgId, assetId)
+              const image = options.assets?.getPhotoOwned(orgId, assetId)
               if (asset?.purpose !== 'public_hint' || !image || !reference || image.equals(reference)) {
                 throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
               }

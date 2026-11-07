@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
 import type { ApiClient, AttemptOutcome, AttemptResult, CaptureMetadata, LocalApiDataMode } from '../../shared/api'
 
@@ -6,10 +6,11 @@ export interface DemoAnswerContext {
   api: Pick<ApiClient, 'submitAnswer' | 'getAttempt'>
   challengeId: string
   onReloadQuest: () => void
+  onOpenDiscovery?: (id: string) => void
   dataMode?: LocalApiDataMode
 }
 
-type ReceiptView = { attemptId: string; message: string; canCheck: boolean; reload?: boolean }
+type ReceiptView = { attemptId: string; message: string; canCheck: boolean; reload?: boolean; discoveryId?: string }
 type Failure = { message: string; reload?: true; retake?: true; retryAfterSeconds?: number }
 type Operation = { controller: AbortController; deadline?: ReturnType<typeof setTimeout> }
 
@@ -35,6 +36,7 @@ function receiptView(result: AttemptResult, durable: boolean, expectedId?: strin
       return { attemptId, canCheck: true, message: '回答を受け付けました。判定結果を確認できます。' }
     }
     return { attemptId, canCheck: false, message: durableMessages[result.outcome],
+      discoveryId: result.outcome === 'CORRECT' || result.outcome === 'ALREADY_CLEARED' ? result.optionalDiscoveryId : undefined,
       reload: result.outcome === 'QUEST_CHANGED' || result.outcome === 'QUEST_UNAVAILABLE' }
   }
   if (result.state === 'RECEIVED') {
@@ -72,11 +74,15 @@ export function DemoAnswerSubmission({ context, photo, metadata, disabled, onSub
   disabled: boolean
   onSubmissionStarted: () => void
 }) {
+  const onOpenDiscovery = context.onOpenDiscovery
   const durable = context.dataMode === 'durable-local'
   const [receipt, setReceipt] = useState<ReceiptView | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
   const [pending, setPending] = useState(false)
   const active = useRef<Operation | null>(null)
+  const automaticReads = useRef(0)
+  const automaticStopped = useRef(false)
+  const [pollLimit, setPollLimit] = useState(false)
   const idempotencyKey = useRef<string | null>(null)
   const abort = useCallback(() => {
     const operation = active.current
@@ -84,23 +90,48 @@ export function DemoAnswerSubmission({ context, photo, metadata, disabled, onSub
     if (operation) { clearTimeout(operation.deadline); operation.controller.abort() }
   }, [])
   useEffect(() => abort, [abort])
+  const openedDiscovery = useRef<string | null>(null)
+  useEffect(() => {
+    if (!receipt?.discoveryId || !onOpenDiscovery || openedDiscovery.current === receipt.discoveryId) return
+    openedDiscovery.current = receipt.discoveryId
+    onOpenDiscovery(receipt.discoveryId)
+  }, [receipt, onOpenDiscovery])
 
   useEffect(() => {
     if (!failure?.retryAfterSeconds) return
     const timer = setTimeout(() => {
-      setFailure((current) => current === failure ? { message: failure.message } : current)
+      setFailure((current) => current === failure ? (durable && receipt?.canCheck ? null : { message: failure.message }) : current)
     }, failure.retryAfterSeconds * 1000)
     return () => clearTimeout(timer)
-  }, [failure])
+  }, [failure, durable, receipt])
 
-  function cancel(message: string) {
+  const cancel = useCallback((message: string) => {
+    automaticStopped.current = true
     abort()
     setPending(false)
     setFailure({ message })
-  }
+  }, [abort])
 
-  async function exchange() {
+  const poll = useEffectEvent(() => { void exchange(true) })
+  useEffect(() => {
+    if (!durable || !receipt?.canCheck || pending || failure || automaticStopped.current) return
+    if (automaticReads.current >= 6) { setPollLimit(true); return }
+    const timer = setTimeout(() => {
+      automaticReads.current += 1
+      poll()
+    }, Math.min(1000 * 2 ** automaticReads.current, 8000))
+    return () => clearTimeout(timer)
+  }, [durable, receipt, pending, failure])
+
+  useEffect(() => {
+    const leave = () => cancel(receipt ? '受付状態の確認を中止しました。同じ受付IDで再確認できます。' : '送信を中止しました。受付済みか確認できませんでした。')
+    window.addEventListener('pagehide', leave)
+    return () => window.removeEventListener('pagehide', leave)
+  }, [cancel, receipt])
+
+  async function exchange(automatic = false) {
     if (active.current || failure?.reload || failure?.retake || failure?.retryAfterSeconds || (receipt && !receipt.canCheck)) return
+    if (!automatic) { automaticReads.current = 0; automaticStopped.current = false; setPollLimit(false) }
     const operation: Operation = { controller: new AbortController() }
     active.current = operation
     if (!receipt) onSubmissionStarted()
@@ -131,9 +162,10 @@ export function DemoAnswerSubmission({ context, photo, metadata, disabled, onSub
   return <div className="camera-actions" aria-label="開発用の回答受付">
     {receipt && <p role="status">{receipt.message}</p>}
     {failure && <p role="alert">{failure.message}</p>}
+    {pollLimit && <p role="status">自動確認をいったん終了しました。処理の失敗ではありません。同じ受付IDで再確認できます。</p>}
     {(failure?.reload || receipt?.reload) && <button type="button" className="retry-button" onClick={context.onReloadQuest}>問題を読み直す</button>}
     {!failure?.reload && !failure?.retake && (!receipt || receipt.canCheck) &&
-      <button type="button" className="primary-button" disabled={disabled || pending || !!failure?.retryAfterSeconds} onClick={exchange}>
+      <button type="button" className="primary-button" disabled={disabled || pending || !!failure?.retryAfterSeconds} onClick={() => void exchange()}>
         {pending ? '受付を確認しています…' : receipt ? (durable ? '判定結果を確認' : '受付状態を確認')
           : failure ? '同じ回答を再送' : durable ? '写真と位置をテスト送信' : '写真と位置をデモ送信'}
       </button>}

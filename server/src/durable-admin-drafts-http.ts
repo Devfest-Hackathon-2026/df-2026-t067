@@ -76,7 +76,7 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
         const { draft } = await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
         if (!suggestion) throw new HttpError(503, 'SYSTEM_ERROR', '下書き生成が未接続です。')
         const { referenceAssetId, materials } = draft
-        if (!referenceAssetId || !materials.name.trim() || !materials.evidence.trim() || !materials.photoRights.trim()) invalidInput()
+        if (!referenceAssetId || !materials.name.trim() || !materials.photoRights.trim()) invalidInput()
         if (response.destroyed || response.writableEnded) return true
         const { assets, generator } = suggestion
         const release = assets.acquire(uid)

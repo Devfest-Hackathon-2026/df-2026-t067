@@ -1,7 +1,7 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
-import { publicHintImagePath } from './admin-publication'
+import { publicHintImagePath, publicHintImagesPath } from './admin-publication'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { HttpError } from './errors'
 import { answerTransaction, isPublicationStatus, notFound, processingError, questChanged, storedId, validGeneration } from './firestore-answer-data'
@@ -50,7 +50,8 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
   const quests = path === '/api/v1/quests'
   const detail = /^\/api\/v1\/quests\/([^/]+)(?:\/hints\/([^/]+))?$/.exec(path)
   const hintImage = /^\/api\/v1\/quests\/([^/]+)\/hint-image$/.exec(path)
-  if (!areas && !quests && !detail && !hintImage) return false
+  const hintImages = /^\/api\/v1\/quests\/([^/]+)\/hint-images\/([^/]+)$/.exec(path)
+  if (!areas && !quests && !detail && !hintImage && !hintImages) return false
   if (request.method !== 'GET') {
     response.setHeader('Allow', 'GET')
     throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
@@ -73,12 +74,13 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
     const items = await answerTransaction(db, (tx) => listPublished(db, tx), true)
     const matching = areaId ? items.filter((quest) => quest.areaId === areaId) : items
     send(response, 200, paginate(matching, params, 'quests:' + (areaId ?? ''), (quest) => quest.questId))
-  } else if (hintImage) {
+  } else if (hintImage || hintImages) {
     validateQuery(params, ['expectedVersion'])
     if (!photos) throw notFound()
-    const questId = parseId(decodeURIComponent(hintImage[1]))
+    const questId = parseId(decodeURIComponent((hintImage ?? hintImages)![1]))
     const version = positiveRouteNumber(params.get('expectedVersion') ?? '')
-    const readHint = () => answerTransaction(db, (tx) => readHintAsset(db, tx, questId, version), true)
+    const index = hintImages ? positiveRouteNumber(decodeURIComponent(hintImages[2])) : undefined
+    const readHint = () => answerTransaction(db, (tx) => readHintAsset(db, tx, questId, version, index), true)
     const { orgId, assetId, generation } = await readHint()
     const { bytes } = await photos.readHint(orgId, assetId, generation)
     const current = await readHint()
@@ -107,14 +109,17 @@ export async function handlePublicCatalog(db: Firestore, request: IncomingMessag
   return true
 }
 
-async function readHintAsset(db: Firestore, tx: Transaction, questId: string, version: number) {
+async function readHintAsset(db: Firestore, tx: Transaction, questId: string, version: number, index?: number) {
   const [projection, current] = await tx.getAll(db.collection('questPublic').doc(questId), db.collection('quests').doc(questId))
   const published = readPublished(projection, current)
   if (!published) throw notFound()
   if (published.quest.version !== version) throw questChanged()
-  if (published.quest.optionalHintImage !== publicHintImagePath(questId, version)) throw notFound()
+  if (index === undefined && published.quest.optionalHintImage !== publicHintImagePath(questId, version)) throw notFound()
+  if (index !== undefined && (index > published.quest.hintCount ||
+    published.quest.hintImages?.[index - 1] !== publicHintImagesPath(questId, index, version))) throw notFound()
   const snapshot = await tx.get(db.collection('questVersions').doc(questId + ':' + version))
-  const hint = snapshot.get('publicHintImage')
+  const hint = index === undefined ? snapshot.get('publicHintImage') :
+    (snapshot.get('publicHintImages') as Array<unknown> | undefined)?.[index - 1]
   const orgId = storedId(current.get('orgId'))
   if (!hint || hint.orgId !== orgId || !validGeneration(hint.generation)) throw processingError()
   return { orgId, assetId: storedId(hint.assetId), generation: hint.generation }

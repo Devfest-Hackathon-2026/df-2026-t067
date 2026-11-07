@@ -8,6 +8,7 @@ import { AuthError, createFirebaseAuthClient } from '../auth/firebaseAuth'
 import { useServerIdentity } from '../explore/useQuestConnection'
 import { PausePublication } from './PausePublication'
 import QuestDraftForm from './QuestDraftForm'
+import { QuestTaskWorkspace } from './QuestTaskWorkspace'
 import { ShootingAreasEditor } from './ShootingAreasEditor'
 import { PublicationWorkspace } from './PublicationWorkspace'
 import { HintAssetEditor } from './HintAssetEditor'
@@ -27,7 +28,7 @@ function Pager({ cursor, next, onMove }: { cursor?: string; next?: string | null
   </div>
 }
 
-function OrganizationWorkspace({ api, member, teamPreview }: { api: ApiClient; member: OrgMembership; teamPreview: boolean }) {
+function OrganizationWorkspace({ api, member, teamPreview, durable }: { api: ApiClient; member: OrgMembership; teamPreview: boolean; durable: boolean }) {
   const [section, setSection] = useState<'quests' | 'reports'>('quests')
   const [cursor, setCursor] = useState<string>()
   const [notice, setNotice] = useState('')
@@ -40,10 +41,11 @@ function OrganizationWorkspace({ api, member, teamPreview }: { api: ApiClient; m
   function select(next: typeof section) { setNotice(''); setCursor(undefined); setSection(next) }
 
   function closeEditor() { setEditor(null); retry() }
+  if (editor?.kind === 'draft' && durable) return <QuestTaskWorkspace api={api} member={member} initial={editor.initial} onBack={closeEditor} />
   if (editor?.kind === 'draft') return <QuestDraftForm teamPreview={teamPreview} connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
-  if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
-  if (editor?.kind === 'hint') return <HintAssetEditor api={api} initial={editor.initial} member={member} onBack={closeEditor} />
-  if (editor?.kind === 'publication') return <PublicationWorkspace api={api} initial={editor.initial} member={member} onBack={closeEditor}
+  if (editor?.kind === 'areas') return <ShootingAreasEditor enableMap={durable} api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
+  if (editor?.kind === 'hint') return <HintAssetEditor rightsAssist={durable} api={api} initial={editor.initial} member={member} onBack={closeEditor} />
+  if (editor?.kind === 'publication') return <PublicationWorkspace rightsAssist={durable} api={api} initial={editor.initial} member={member} onBack={closeEditor}
     onPublished={() => { setNotice('開発用に公開しました。'); closeEditor() }} />
 
   return <section className="form-section" aria-labelledby="org-workspace-title">
@@ -79,12 +81,12 @@ function OrganizationWorkspace({ api, member, teamPreview }: { api: ApiClient; m
   </section>
 }
 
-function Memberships({ api, teamPreview }: { api: ApiClient; teamPreview: boolean }) {
+function Memberships({ api, teamPreview, durable }: { api: ApiClient; teamPreview: boolean; durable: boolean }) {
   const [cursor, setCursor] = useState<string>()
   const [selected, setSelected] = useState<string | null>(null)
   const read = useCallback((signal: AbortSignal) => api.listMemberships({ cursor, limit: 20 }, { signal }), [api, cursor])
   const { result, retry } = useRemote(true, read)
-  const current = result.status === 'ready' ? result.value.items.find((member) => member.orgId === selected) : undefined
+  const current = result.status === 'ready' ? result.value.items.find((member) => member.orgId === selected) ?? (durable && !cursor && !result.value.nextCursor && result.value.items.length === 1 ? result.value.items[0] : undefined) : undefined
   return <>
     <section className="form-section" aria-labelledby="membership-title">
       <h2 id="membership-title">所属する組織</h2>
@@ -99,7 +101,7 @@ function Memberships({ api, teamPreview }: { api: ApiClient; teamPreview: boolea
       <Pager cursor={cursor} next={result.status === 'ready' ? result.value.nextCursor : undefined}
         onMove={(next) => { setSelected(null); setCursor(next) }} />
     </section>
-    {current && <OrganizationWorkspace key={JSON.stringify([current.orgId, current.role])} api={api} member={current} teamPreview={teamPreview} />}
+    {current && <OrganizationWorkspace key={JSON.stringify([current.orgId, current.role])} api={api} member={current} teamPreview={teamPreview} durable={durable} />}
   </>
 }
 
@@ -137,7 +139,7 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
       {(auth.status === 'unconfigured' || auth.status === 'unavailable') && <p>Googleログインの設定を確認してください。</p>}
       {error && <p role="alert">{error}</p>}
     </section>
-    {!pending && auth.status === 'signed-in' && (identity.result?.status === 'ready' ? <Memberships key={auth.user.uid} api={api} teamPreview={teamPreview} />
+    {!pending && auth.status === 'signed-in' && (identity.result?.status === 'ready' ? <Memberships key={auth.user.uid} api={api} teamPreview={teamPreview} durable={dataMode === 'durable-local'} />
       : identity.result?.status === 'error' ? <div className="form-section"><p role="alert">{teamPreview && identity.result.code === 'FORBIDDEN'
         ? 'このアカウントは共有検証に招待されていません。' : 'ログインを確認できませんでした。'}</p>
         <button type="button" onClick={identity.retry}>ログインを確認し直す</button></div>
