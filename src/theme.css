@@ -46,7 +46,7 @@ button:disabled { cursor: not-allowed; }
 :focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 5px; }
 input, textarea, select { accent-color: var(--ui-ink); }
 input::placeholder, textarea::placeholder { color: var(--ui-muted); opacity: 1; }
-:where(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button) {
+:where(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle) {
   border: var(--ui-border-width) solid var(--ui-line);
   border-radius: var(--ui-radius);
   box-shadow: var(--ui-control-shadow);
@@ -56,24 +56,24 @@ input::placeholder, textarea::placeholder { color: var(--ui-muted); opacity: 1; 
   font-weight: var(--ui-weight-control);
   transition: transform 100ms ease-out, box-shadow 100ms ease-out, background-color 140ms ease-out;
 }
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):disabled {
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):disabled {
   background: var(--ui-disabled);
   color: var(--ui-muted);
   border-color: var(--ui-disabled-line);
   box-shadow: none;
   opacity: 1;
 }
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:active {
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:active {
   transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale));
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:hover { transform: translate(var(--ui-hover-shift), var(--ui-hover-shift)); box-shadow: var(--ui-hover-shadow); }
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):enabled:active { transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale)); box-shadow: none; }
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:hover { transform: translate(var(--ui-hover-shift), var(--ui-hover-shift)); box-shadow: var(--ui-hover-shadow); }
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:active { transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale)); box-shadow: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button):is(:hover, :active) { transform: none !important; transition: none !important; }
+  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):is(:hover, :active) { transform: none !important; transition: none !important; }
   .map-canvas { transition: none !important; }
 }
 
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button) { border-color: var(--ui-control-line); }
+:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle) { border-color: var(--ui-control-line); }
