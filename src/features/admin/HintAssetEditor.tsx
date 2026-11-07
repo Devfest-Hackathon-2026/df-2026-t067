@@ -4,9 +4,9 @@ import type { ApiClient, ManagedQuest, OrgMembership } from '../../shared/api'
 import { normalizeHintAssets } from './hintAssets'
 import { useLocalDraftSave } from './useLocalDraftSave'
 
-export function HintAssetEditor({ api, initial, member, onBack }: { api: ApiClient; initial: ManagedQuest; member: OrgMembership; onBack: () => void }) {
+export function HintAssetEditor({ api, initial, member, onBack, initialSlot = 1, backLabel = '問題一覧へ戻る' }: { api: ApiClient; initial: ManagedQuest; member: OrgMembership; onBack: () => void; initialSlot?: number; backLabel?: string }) {
   const { record, state, save } = useLocalDraftSave({ api, initial, member, onBack })
-  const [slot, setSlot] = useState(1)
+  const [slot, setSlot] = useState(initialSlot)
   const [file, setFile] = useState<File | null>(null)
   const [rights, setRights] = useState('')
   const input = useRef<HTMLInputElement>(null)
@@ -39,7 +39,7 @@ export function HintAssetEditor({ api, initial, member, onBack }: { api: ApiClie
     <h2 id="hint-asset-title">ヒントごとの画像</h2>
     <p>{current.draft.content.title || '無題の下書き'}・下書き版 {current.draftRevision}</p>
     <p>各ヒントに公開用画像を1枚設定できます。権利を確認した画像を選んでください。</p>
-    <button type="button" disabled={state.status === 'saving'} onClick={onBack}>問題一覧へ戻る</button>
+    <button type="button" disabled={state.status === 'saving'} onClick={onBack}>{backLabel}</button>
     {current.draft.content.hints.map((hint, index) => {
       const number = index + 1
       const assetId = assets[index] ?? (number === 1 ? current.draft.hintAssetId : null)

@@ -141,7 +141,7 @@ describe('APIから問題を表示', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: '地図の公開地域を選択' }))
     expect(await screen.findByRole('heading', { name: second.title })).toBeVisible()
     expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-b')
-    expect(screen.getByRole('combobox', { name: '公開APIの問題を選択' })).toHaveValue('quest-b')
+    expect(screen.getByRole('button', { name: '森の謎を開く' })).toHaveAttribute('aria-pressed', 'true')
     expect(new URL(window.location.href).searchParams.get('area')).toBe('area-b')
     expect(new URL(window.location.href).searchParams.get('quest')).toBe('quest-b')
   })
@@ -921,9 +921,6 @@ it('keeps the durable selected quest through login, verified session and challen
   expect(getUserMedia).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
   expect(auth.signInWithGoogle).toHaveBeenCalledOnce()
-  expect(await screen.findByRole('button', { name: '挑戦を始める' })).toBeEnabled()
-  expect(getUserMedia).not.toHaveBeenCalled()
-  await user.click(screen.getByRole('button', { name: '挑戦を始める' }))
   await waitFor(() => expect(screen.getByLabelText('カメラ映像')).toHaveProperty('srcObject', stream))
   expect(screen.getByText('挑戦を開始しました。写真と位置を確認してからテスト送信できます。')).toBeVisible()
   const start = fetcher.mock.calls.find(([path]) => path === '/api/v1/challenges')!
@@ -936,4 +933,13 @@ it('keeps the durable selected quest through login, verified session and challen
   expect(await screen.findByText('自分の記録はまだありません。')).toBeVisible()
   const recordRead = fetcher.mock.calls.find(([path]) => String(path).startsWith('/api/v1/me/discoveries?'))!
   expect(new Headers(recordRead[1]?.headers).get('Authorization')).toBe('Bearer traveler-token')
+})
+
+it('opens a durable quest directly from its public card with a region list fallback', async () => {
+  const api = apiFixture()
+  render(<ApiQuestApp api={api} authClient={signedOutAuth()} dataMode="durable-local" />)
+  fireEvent.click(await screen.findByRole('button', { name: '森の謎を開く' }))
+  expect(await screen.findByRole('region', { name: 'サンプル問題の詳細' })).toBeVisible()
+  expect(api.getQuest).toHaveBeenLastCalledWith(second.questId, expect.anything())
+  expect(screen.getByRole('combobox', { name: '地域を選択' })).toBeVisible()
 })
