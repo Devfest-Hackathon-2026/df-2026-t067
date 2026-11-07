@@ -40,9 +40,9 @@ VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 
 保存環境の停止・破棄でもデータを残すには、その環境自身の永続化設定が必要です。API再起動で消えるメモリデモとは区別してください。実機、実写真照合、本番接続の確認範囲は各資料を参照してください。
 
-[共有用の開発プレビュー](https://tour-513804.web.app/)は静的プレビューで、上記の永続側の通し確認先ではありません。[Hostingの手順](docs/hosting.md)。このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
+[共有サイトの旅行者画面](https://quest-team-preview-kufuezpzga-an.a.run.app/)では、地図と公開問題を閲覧できます。招待された4人は[自治体画面](https://quest-team-preview-kufuezpzga-an.a.run.app/admin)から編集・公開できます。[共有検証の構成と確認手順](docs/team-preview.md)
 
-4人で同じデータを操作する環境は、[共有検証の構成と確認手順](docs/team-preview.md)を参照してください。
+このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
 
 ## 開発用の後退
 

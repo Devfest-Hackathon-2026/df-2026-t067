@@ -128,7 +128,7 @@ export function LocalAdminWorkspace({ authClient: providedAuth, apiClient: provi
 
   return <main className="admin-demo">
     <header className="admin-header"><h1>{teamPreview ? '自治体向け共有検証' : '自治体向けローカル管理'}</h1><a href="/">旅行者画面へ</a></header>
-    <p className="demo-notice">{teamPreview ? '下書きと合成素材はチームの検証用データとして保存します。'
+    <p className="demo-notice">{teamPreview ? '架空のデータを使ってください。公開した問題と公開ヒントは誰でも閲覧できます。'
       : '架空の組織と開発用APIを使います。' + (dataMode === 'durable-local' ? '下書きと報告はローカル永続ストアに保存されます。' : '下書きと報告はサーバーの一時領域に保存されます。')}</p>
     <section className="form-section" aria-label="担当者ログイン">
       {auth.status === 'signed-out' && <button type="button" disabled={pending} onClick={() => void authenticate('login')}>Googleログイン</button>}
