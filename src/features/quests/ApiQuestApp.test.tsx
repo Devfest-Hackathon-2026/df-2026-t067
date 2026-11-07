@@ -463,6 +463,36 @@ describe('APIから問題を表示', () => {
     expect(await screen.findByRole('heading', { name: first.title })).toBeVisible()
   })
 
+  it('地図選択と地域selectを同期し、切替後に前の問題とヒントを破棄する', async () => {
+    const user = userEvent.setup()
+    const hinted = { ...first, hintCount: 1, hintImages: ['/region-a-hint', null, null] }
+    const api = apiFixture()
+    api.listQuests.mockImplementation(async (query?: { areaId?: string }) => query?.areaId === 'area-b'
+      ? page([]) : page([hinted, second]))
+    api.getQuest.mockImplementation(async (id: string) => id === hinted.questId ? hinted : second)
+    api.getHint.mockResolvedValue({ questId: hinted.questId, version: hinted.version, index: 1, text: 'REGION_A_HINT' })
+    render(<ApiQuestApp api={api} />)
+
+    await user.click(await screen.findByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+    expect(await screen.findByText('REGION_A_HINT')).toBeVisible()
+    const oldImage = document.querySelector('img.optional-hint-image')!
+    expect(oldImage).toHaveAttribute('src', '/region-a-hint')
+
+    await user.click(screen.getByRole('button', { name: '地図の公開地域を選択' }))
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-b')
+    expect(api.listQuests).toHaveBeenCalledWith({ areaId: 'area-b', limit: 100, cursor: undefined }, expect.anything())
+    expect(await screen.findByRole('heading', { name: '公開問題はありません' })).toBeVisible()
+    expect(screen.queryByText('REGION_A_HINT')).not.toBeInTheDocument()
+    expect(oldImage).not.toBeInTheDocument()
+    fireEvent.error(oldImage)
+    expect(document.querySelector('img.optional-hint-image')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: hinted.title })).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: '地域を選択' }), 'area-a')
+    expect(await screen.findByRole('heading', { name: hinted.title })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '地域を選択' })).toHaveValue('area-a')
+  })
+
   it('地域0件でも全国へ戻れる', async () => {
     const user = userEvent.setup()
     const api = apiFixture()

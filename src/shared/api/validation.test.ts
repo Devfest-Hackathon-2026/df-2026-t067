@@ -21,6 +21,12 @@ describe('public data boundary', () => {
     expect(() => parsePublicQuest({ ...quest, shootingConditions: { ...shootingConditions, requiresBoat: 'true' } })).toThrow(ContractError)
     expect(() => parsePublicQuest({ ...quest, shootingConditions: { ...shootingConditions, zones: [] } })).toThrow(ContractError)
   })
+  it('validates nullable per-hint image paths without changing legacy image fields', () => {
+    const value = { ...quest, optionalHintImage: '/legacy-image', hintImages: [null, '/hint-2-image', null] }
+    expect(parsePublicQuest(value)).toEqual(value)
+    expect(() => parsePublicQuest({ ...value, hintImages: ['/hint-1', '/hint-2'] })).toThrow(ContractError)
+    expect(() => parsePublicQuest({ ...value, hintImages: ['//external.test/image', null, null] })).toThrow(ContractError)
+  })
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'])('rejects invalid public version %s', (version) => {
     expect(() => parsePublicQuest({ ...quest, version })).toThrow(ContractError)
   })

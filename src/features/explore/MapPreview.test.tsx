@@ -208,7 +208,7 @@ describe('Google map panel', () => {
     expect(getCurrentPosition).toHaveBeenCalledTimes(3)
     act(() => success?.({ coords: { latitude: 35.6812, longitude: 139.7671 } }))
     expect(setCenter).toHaveBeenCalledWith({ lat: 35.6812, lng: 139.7671 })
-    expect(setZoom).toHaveBeenCalledWith(12)
+    expect(setZoom).toHaveBeenCalledWith(14)
     expect(document.querySelector('.map-location-status')).toHaveTextContent('現在地を地図の中心に表示しました')
     expect(onSelectArea).not.toHaveBeenCalled()
     unmount()

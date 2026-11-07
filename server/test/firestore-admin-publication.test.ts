@@ -85,7 +85,7 @@ test('durable publishing freezes the tested version and pausing stops all public
     materials: { name: '非公開の対象名', evidence: '架空の根拠', requiresBoat: true, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成画像' },
     content: { title: '公開する問題', question: '問題文', hints: ['一つ目', '二つ目', '三つ目'], verifiedFeatures: durableFixtureFeatures[0], draftingNotes: '' },
     afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説' },
-    referenceAssetId: reference.assetId, hintAssetId: hint.assetId,
+    referenceAssetId: reference.assetId, hintAssetId: null, hintAssetIds: [hint.assetId, hint.assetId, hint.assetId],
   }
   const { questId } = await editor.createManagedQuest(orgId, draft)
   const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 25 }]
@@ -126,13 +126,18 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.doesNotMatch(JSON.stringify(visible), /非公開|クリア後|latitude|referenceAssetId/)
   assert.deepEqual(visible.shootingConditions, { requiresBoat: true, requiresPaidFacility: false })
   assert.equal((await traveler.getHint({ questId, index: 1, expectedVersion: 1 })).text, '一つ目')
-  assert(visible.optionalHintImage)
-  const displayedHint = await fetch(second.base + visible.optionalHintImage)
+  assert(visible.hintImages?.[1])
+  assert.equal(visible.optionalHintImage, undefined)
+  const displayedHint = await fetch(second.base + visible.hintImages[1])
   assert.equal(displayedHint.headers.get('Content-Type'), 'image/jpeg')
   assert.deepEqual(await displayedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
-  const protectedHint = await teamTraveler.getPublishedHintPhoto(questId, 1)
+  for (const index of [1, 2, 3]) {
+    const photo = await teamTraveler.getPublishedHintPhoto(questId, 1, index)
+    assert.deepEqual(await photo.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
+  }
+  const protectedHint = await teamTraveler.getPublishedHintPhoto(questId, 1, 2)
   assert.deepEqual(await protectedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
-  const anonymousHint = await fetch(team.base + visible.optionalHintImage)
+  const anonymousHint = await fetch(team.base + visible.hintImages[1])
   assert.equal(anonymousHint.status, 401)
   await anonymousHint.body?.cancel()
   const v1 = db.collection('questVersions').doc(questId + ':1')
@@ -151,9 +156,12 @@ test('durable publishing freezes the tested version and pausing stops all public
   await assert.rejects(publisher.pauseManagedQuest(orgId, questId, { ...pause, reason: '別の理由' }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.getQuest(questId), { code: 'NOT_FOUND' })
   await assert.rejects(teamTraveler.getPublishedHintPhoto(questId, 1), { code: 'NOT_FOUND' })
+  for (const index of [1, 2, 3]) {
+    await assert.rejects(teamTraveler.getPublishedHintPhoto(questId, 1, index), { code: 'NOT_FOUND' })
+  }
   assert.equal((await traveler.listAreas()).items[0].publishedCount, 0)
   await assert.rejects(traveler.createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
-  const hiddenHint = await fetch(second.base + visible.optionalHintImage)
+  const hiddenHint = await fetch(second.base + visible.hintImages[1])
   assert.equal(hiddenHint.status, 404)
   await hiddenHint.body?.cancel()
 
@@ -165,7 +173,7 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.equal((await publisher.publishManagedQuest(orgId, questId, { ...input, expectedDraftRevision: paused.draftRevision,
     matchTestId: newMatch.testId, mismatchTestId: newMismatch.testId })).publishedVersion, 2)
   assert.equal((await traveler.getQuest(questId)).title, '改版した問題')
-  const oldImage = await fetch(second.base + visible.optionalHintImage)
+  const oldImage = await fetch(second.base + visible.hintImages[1])
   assert.equal(oldImage.status, 409)
   await oldImage.body?.cancel()
   const capturedAt = new Date().toISOString()

@@ -728,3 +728,27 @@ describe('A03 admin demo', () => {
     expect(storageSpy).not.toHaveBeenCalled()
   })
 })
+
+
+it.each([false, true])('investigates PR119 with durable form, saved=%s, photo and corrected input', async (saved) => {
+  const user = userEvent.setup()
+  const draft: ManagedQuestDraft = {
+    materials: { name: '保存済み対象', evidence: '保存済み根拠', requiresBoat: false, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成' },
+    content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
+    afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: null, hintAssetId: null,
+  }
+  const initial: ManagedQuest = { questId: 'investigation', orgId: 'org', areaId: 'area', draftRevision: 1, publishedVersion: null, status: 'draft', source: 'real', shootingAreaStatus: 'unconfigured', draft }
+  render(<QuestDraftForm teamPreview connection={{ api: createApiClient({ expectedDataMode: 'durable-local' }), initial: saved ? initial : null, member: { orgId: 'org', areaId: 'area', label: '架空', role: 'editor' }, onBack: vi.fn() }} />)
+  if (saved) {
+    await user.clear(screen.getByLabelText('対象名'))
+    await user.clear(screen.getByLabelText('対象とする理由（確認した内容）'))
+  }
+  await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('対象名と対象とする理由')
+  await pasteText(user, '対象とする理由（確認した内容）', '　入力済みの根拠　')
+  await pasteText(user, '対象名', '　入力済み対象　')
+  await user.upload(screen.getByLabelText('参考写真（公開ヒントには自動流用しません）'), image())
+  await user.click(screen.getByRole('button', { name: '下書き・編集へ' }))
+  expect(screen.getByRole('heading', { name: 'A04 下書き・編集（AI未接続）' })).toHaveFocus()
+  expect(screen.queryByText(/対象名と対象とする理由を入力/)).not.toBeInTheDocument()
+})
