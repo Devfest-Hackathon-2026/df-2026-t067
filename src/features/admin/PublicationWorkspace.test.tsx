@@ -66,3 +66,17 @@ it('keeps publishing unavailable for an editor and stops work on an old draft', 
   expect(review).toBeDisabled()
   expect(screen.getByRole('button', { name: '写真試験を送信' })).toBeDisabled()
 })
+
+it('requires explicit rights application to a replacement private test photo', async () => {
+  const user = userEvent.setup()
+  const testManagedQuest = vi.fn().mockResolvedValue({ orgId: org.orgId, questId: initial.questId, draftRevision: 4, source: 'mock', testId: 't', outcome: 'MATCH' })
+  render(<PublicationWorkspace rightsAssist api={{ ...createApiClient(), testManagedQuest }} initial={initial} member={org} onBack={vi.fn()} onPublished={vi.fn()} />)
+  await user.upload(screen.getByLabelText('試験写真'), new File(['a'], 'a.png', { type: 'image/png' }))
+  await user.type(screen.getByLabelText('試験写真の利用権'), 'A用の権利文')
+  await user.upload(screen.getByLabelText('試験写真'), new File(['b'], 'b.png', { type: 'image/png' }))
+  const send = screen.getByRole('button', { name: '写真試験を送信' })
+  expect(send).toBeDisabled()
+  await user.click(screen.getByLabelText('差し替えた写真を非公開試験に使う権利を確認し、入力済みの権利文を適用する'))
+  await user.click(send)
+  expect(testManagedQuest).toHaveBeenCalledOnce()
+})

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SetStateAction } from 'react'
 import './admin.css'
+import { PhotoRightsInput } from './PhotoRightsInput'
+import { HoursInput } from './HoursInput'
+import { PriceInput } from './PriceInput'
 import DraftEditor, { type DraftFields } from './DraftEditor'
 import { DraftCandidate } from './DraftCandidate'
 import TravelerPreview, { type PreviewMode } from './TravelerPreview'
@@ -59,8 +62,12 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
   const [explanation, setExplanation] = useState(initial?.afterClear.explanation ?? '')
   const [price, setPrice] = useState(initial?.materials.price ?? '')
   const [photoNote, setPhotoNote] = useState(initial?.materials.photoNote ?? '')
+  const [inputError, setInputError] = useState('')
+  const [rightsReuseNeeded, setRightsReuseNeeded] = useState(false)
   const [rightsError, setRightsError] = useState(false)
   const rightsRef = useRef<HTMLTextAreaElement>(null)
+  const rightsPhotoRef = useRef<File | null>(null)
+  const hadReference = useRef(Boolean(initial?.referenceAssetId))
   const [photoRights, setPhotoRights] = useState(initial?.materials.photoRights ?? '')
   const [showSummary, setShowSummary] = useState(false)
   const [step, setStep] = useState<'A03' | 'A04' | 'A05'>('A03')
@@ -119,7 +126,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
   }
 
   function validateHours() {
-    const error = hoursMode === 'specified' ? specifiedHoursError(startTime, endTime, hoursNextDay) : ''
+    const error = !focused && hoursMode === 'specified' ? specifiedHoursError(startTime, endTime, hoursNextDay) : ''
     setHoursError(error)
     if (!error) return true
     setAfterClearOpen(true)
@@ -172,6 +179,8 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
     try {
       const url = URL.createObjectURL(file)
       setPhotoLoadFailed(false)
+      if (focused && photoRights.trim() && (rightsPhotoRef.current || hadReference.current || referenceAssetId)) setRightsReuseNeeded(true)
+      rightsPhotoRef.current = file
       setPhoto({ file, url })
       return true
     } catch {
@@ -219,6 +228,16 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
 
   function saveDraft(destination?: 'areas' | 'publication' | 1 | 2 | 3) {
     if (!validateHours()) return
+    if (focused && (hours.length > 2000 || price.length > 2000)) {
+      setInputError('時間と料金はそれぞれ2000文字以内で入力してください。')
+      setStep('A03'); setAfterClearOpen(true)
+      return
+    }
+    setInputError('')
+    if (photo && rightsReuseNeeded) {
+      setInputError('差し替えた写真に入力済みの権利文を適用できるか確認してください。')
+      setStep('A03'); return
+    }
     if (photo && !photoRights.trim()) {
       setRightsError(true)
       setStep('A03')
@@ -275,7 +294,8 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
         {photo && <div className="photo-preview" role="region" aria-label="選択中の参考写真"><img src={photo.url} alt={`選択した参考写真：${photo.file.name}`} onError={() => setPhotoLoadFailed(true)} /><div><span>選択中：{photo.file.name}</span><button type="button" onClick={() => inputRef.current?.click()}>変更</button><button type="button" onClick={clearPhoto}>削除</button>{photoLoadFailed && <button type="button" onClick={() => inputRef.current?.click()}>再試行</button>}</div></div>}
       </section>
       <section className="form-section" aria-labelledby="rights-heading"><h2 id="rights-heading">写真の権利</h2>
-        <p className="helper">非公開。写真の出典・利用許諾を確認してください。写真を添えて保存するときに必須です。写真なしの下書きは空欄でも保存でき、確認依頼までに記入が必要です。</p><label>写真の出典と利用権<textarea ref={rightsRef} aria-invalid={rightsError && !photoRights.trim()} aria-describedby={rightsError && !photoRights.trim() ? "rights-error" : undefined} value={photoRights} onChange={event => { setPhotoRights(event.target.value); setRightsError(false); markMaterialChange() }} rows={2} placeholder="出典・撮影者・利用許諾など" /></label>
+        <p className="helper">非公開。写真の出典・利用許諾を確認してください。写真を添えて保存するときに必須です。写真なしの下書きは空欄でも保存でき、確認依頼までに記入が必要です。</p>{focused ? <PhotoRightsInput key={photo?.url ?? "saved"} purpose="reference" label="写真の出典と利用権" textareaRef={rightsRef} invalid={rightsError && !photoRights.trim()} describedBy={rightsError && !photoRights.trim() ? "rights-error" : undefined} value={photoRights} onChange={value => { setPhotoRights(value); setRightsError(false); setRightsReuseNeeded(false); markMaterialChange() }} /> : <label>写真の出典と利用権<textarea ref={rightsRef} aria-invalid={rightsError && !photoRights.trim()} aria-describedby={rightsError && !photoRights.trim() ? "rights-error" : undefined} value={photoRights} onChange={event => { setPhotoRights(event.target.value); setRightsError(false); markMaterialChange() }} rows={2} placeholder="出典・撮影者・利用許諾など" /></label>}
+        {focused && photo && rightsReuseNeeded && <label><input type="checkbox" checked={false} onChange={() => { setRightsReuseNeeded(false); setInputError('') }} />差し替えた写真を非公開照合に使う権利を確認し、入力済みの権利文を適用する</label>}
         {rightsError && !photoRights.trim() && <p id="rights-error" role="alert" className="field-error">写真の出典と利用権を入力してください。</p>}
       </section>
       <section className="form-section" aria-labelledby="area-heading"><h2 id="area-heading">公開する探索エリア</h2>
@@ -287,7 +307,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
       </section>
       <section className="form-section" aria-labelledby="conditions-heading"><h2 id="conditions-heading">挑戦前に伝える条件</h2><p className="helper">旅行者に公開。条件の選択・補足は任意ですが、安全上の制約や必要な費用がある場合は必ず記載してください。</p>
         <fieldset><legend>撮影に必要な条件</legend><div className="check-grid"><label className="check-option"><input type="checkbox" checked={requiresBoat} onChange={event => { setRequiresBoat(event.target.checked); markMaterialChange() }} />船上・海上での撮影が必要</label><label className="check-option"><input type="checkbox" checked={requiresPaidFacility} onChange={event => { setRequiresPaidFacility(event.target.checked); markMaterialChange() }} />有料施設内での撮影が必要</label></div><p className="helper">陸から撮影できる場合、船上・海上の条件は選びません。</p></fieldset>
-        <label>料金<input value={price} onChange={event => { setPrice(event.target.value); markMaterialChange() }} placeholder="例：大人500円／無料／要確認" /></label>
+        {focused ? <PriceInput value={price} onChange={value => { setPrice(value); markMaterialChange() }} /> : <label>料金<input value={price} onChange={event => { setPrice(event.target.value); markMaterialChange() }} placeholder="例：大人500円／無料／要確認" /></label>}
         <label>撮影時の注意<textarea value={photoNote} onChange={event => { setPhotoNote(event.target.value); markMaterialChange() }} rows={2} placeholder="撮影できる時間や安全上の制約は、挑戦前にここへ記載" /></label>
       </section>
       <details className="form-section" open={afterClearOpen} onToggle={event => setAfterClearOpen(event.currentTarget.open)}><summary>クリア後の紹介・解説（任意）</summary><p className="helper">クリアした旅行者に公開。アクセス・時間・地域の紹介・答えの背景を後から補足できます。</p>
@@ -301,7 +321,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
         {focused && <p className="helper">AIによる紹介・解説の自動入力は未提供です。</p>}
         <p className="helper">入力した紹介コメントと解説は、内容を確認・編集してから「下書き・編集へ」進んでください。</p>
         <label>アクセス補足<textarea value={access} onChange={event => { setAccess(event.target.value); markMaterialChange() }} rows={2} placeholder="例：駅から徒歩約10分" /></label>
-        <fieldset><legend>利用できる時間</legend>
+        {focused ? <HoursInput value={hours} onChange={value => { setHours(value); markMaterialChange() }} /> : <fieldset><legend>利用できる時間</legend>
           <div role="radiogroup" aria-label="利用できる時間の設定">
             {([['unset', '未設定'], ['all-day', '終日'], ['specified', '時間を指定'], ['supplement', '補足を入力']] as const).map(([value, label]) =>
               <label key={value}><input type="radio" name="hours-mode" value={value} checked={hoursMode === value} onChange={() => changeHoursMode(value)} />{label}</label>)}
@@ -314,7 +334,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
           </div>}
           {hoursMode === 'supplement' && <label>時間の補足<input value={hoursSupplement} onChange={event => { setHoursSupplement(event.target.value); setHours(event.target.value); setShowSummary(false); markMaterialChange() }} placeholder="例：季節により異なります" /></label>}
           {hoursError && <p ref={hoursErrorRef} id="hours-error" role="alert" tabIndex={-1} className="field-error">{hoursError}</p>}
-        </fieldset>
+        </fieldset>}
         <label>自治体のアピールコメント<textarea value={promoComment} onChange={event => { setPromoComment(event.target.value); markMaterialChange() }} rows={2} placeholder="例：地域で大切に受け継いできた風景です。" /></label>
         <label>解説<textarea value={explanation} onChange={event => { setExplanation(event.target.value); markMaterialChange() }} rows={3} placeholder="例：この建物が建てられた背景や、地域との関わり" /></label>
       </details>
@@ -338,6 +358,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
       {record && <p>下書き版 {record.draftRevision}</p>}
       {saveState.status === 'saved' && <p role="status">下書きを保存しました。</p>}
       {saveState.status === 'error' && <p role="alert">{saveState.message}</p>}
+      {inputError && <p role="alert">{inputError}</p>}
       <div className="admin-list-actions">
         <button type="button" disabled={saving || (saveState.status === 'error' && saveState.reload)} onClick={() => {
           saveDraft()

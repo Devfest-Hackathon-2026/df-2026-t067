@@ -81,3 +81,19 @@ it.each([null, 'A'])('removes hint 2 directly without losing legacy (%s)', async
     hintAssetId: first ? 'L' : null, hintAssetIds: [first ?? 'L', null, null],
   })
 })
+
+it('requires explicit rights application to a replacement public hint photo', async () => {
+  const user = userEvent.setup()
+  const uploadOrgAsset = vi.fn().mockResolvedValue({ assetId: 'new-hint' })
+  const updateManagedQuest = vi.fn().mockResolvedValue(initial)
+  render(<HintAssetEditor rightsAssist api={{ ...createApiClient(), uploadOrgAsset, updateManagedQuest }} initial={initial} member={member} onBack={vi.fn()} />)
+  await user.upload(screen.getByLabelText('公開ヒント画像'), new File(['a'], 'a.png', { type: 'image/png' }))
+  await user.type(screen.getByLabelText('画像の出典と利用権'), 'A用の権利文')
+  await user.upload(screen.getByLabelText('公開ヒント画像'), new File(['b'], 'b.png', { type: 'image/png' }))
+  const save = screen.getByRole('button', { name: 'ヒント画像を保存' })
+  expect(save).toBeDisabled()
+  expect(screen.getByLabelText('画像の出典と利用権')).toHaveValue('A用の権利文')
+  await user.click(screen.getByLabelText('差し替えた写真を公開ヒントに使う権利を確認し、入力済みの権利文を適用する'))
+  await user.click(save)
+  expect(uploadOrgAsset).toHaveBeenCalledOnce()
+})
