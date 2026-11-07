@@ -27,6 +27,16 @@ test('team preview requires four distinct accounts and rejects emulator and Vert
   ]) assert.throws(() => readConfig({ ...teamEnv, ...override }))
 })
 
+test('team preview answer trial is an explicit opt-in and defaults to off', () => {
+  const off = readConfig(teamEnv)
+  assert.equal(off.mode, 'team-preview')
+  if (off.mode === 'team-preview') assert.equal(off.answerTrial, false)
+  const on = readConfig({ ...teamEnv, QUEST_TEAM_ANSWER_TRIAL: 'vertex-trial' })
+  if (on.mode === 'team-preview') assert.equal(on.answerTrial, true)
+  assert.throws(() => readConfig({ ...teamEnv, QUEST_TEAM_ANSWER_TRIAL: 'on' }))
+  assert.throws(() => readConfig({ ...teamEnv, QUEST_TEAM_ANSWER_TRIAL: 'true' }))
+})
+
 test('team preview serves public catalog reads and protects membership, private photos and writes', async (t) => {
   const webDirectory = await mkdtemp(join(tmpdir(), 't067-team-web-'))
   t.after(() => rm(webDirectory, { force: true, recursive: true }))
@@ -107,4 +117,41 @@ test('team preview serves public catalog reads and protects membership, private 
   for (const path of ['/api/v1/challenges', '/api/v1/challenges/fixture/answers', '/api/v1/reports', '/api/v1/me/discoveries']) {
     assert.equal((await fetch(base + path, { method: 'POST', headers: { Authorization: 'Bearer publisher' } })).status, 404)
   }
+})
+
+test('answer trial opens traveler routes only to invited accounts and keeps reports closed', async (t) => {
+  const webDirectory = await mkdtemp(join(tmpdir(), 't067-team-web-'))
+  t.after(() => rm(webDirectory, { force: true, recursive: true }))
+  await writeFile(join(webDirectory, 'index.html'), '<main>共有検証の画面</main>')
+  const unexpected = async (): Promise<never> => { throw new Error('Unexpected access to data') }
+  const policy = { maximum: 1, windowMs: 1000 }
+  const brokenDb = {
+    collection: (name: string) => ({ doc: (id: string) => name + '/' + id }),
+    runTransaction: async (): Promise<never> => { throw new Error('No data in this test') },
+  }
+  const options = {
+    db: brokenDb as unknown as Firestore, photos: { writeIncoming: unexpected, readRecord: unexpected, deleteRecord: unexpected },
+    verifier: { verify: async (token: string) => ({ uid: token }) },
+    challengePolicy: policy, answerPolicy: policy, acquireUpload: () => () => {},
+    teamPreview: { allowedUids: new Set(['editor', 'publisher', 'traveler-a', 'traveler-b']), webDirectory },
+    answerTrial: true,
+  }
+  const { base } = await listenServer(t, createDurableAnswerServer(options))
+  // Invited accounts pass the route gate; the stub data layer then fails the
+  // request, which proves the route was reached instead of returning 404.
+  const start = await fetch(base + '/api/v1/challenges', {
+    method: 'POST', headers: { Authorization: 'Bearer traveler-a', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questId: 'fixture', expectedVersion: 1 }),
+  })
+  assert.notEqual(start.status, 404)
+  assert.notEqual(start.status, 403)
+  const records = await fetch(base + '/api/v1/me/discoveries', { headers: { Authorization: 'Bearer traveler-a' } })
+  assert.notEqual(records.status, 404)
+  // Accounts outside the invitation stay forbidden on the opened routes.
+  for (const path of ['/api/v1/challenges', '/api/v1/me/discoveries']) {
+    const denied = await fetch(base + path, { method: path.endsWith('challenges') ? 'POST' : 'GET', headers: { Authorization: 'Bearer outsider' } })
+    assert.equal(denied.status, 403)
+  }
+  // Reports are not part of the trial and stay closed even for invited accounts.
+  assert.equal((await fetch(base + '/api/v1/reports', { method: 'POST', headers: { Authorization: 'Bearer publisher' } })).status, 404)
 })

@@ -46,6 +46,34 @@ it('lets a signed-out traveler browse the map, published problem and public hint
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:team-hint')
 })
 
+it('answer trial build lets an invited traveler open the capture flow and records', async () => {
+  vi.stubEnv('VITE_QUEST_TEAM_ANSWER_TRIAL', 'true')
+  const signedIn = { status: 'signed-in', user: { uid: 'traveler-a', displayName: null } } as const
+  const auth: AuthClient = {
+    getSnapshot: () => signedIn, subscribe: () => () => {},
+    signInWithGoogle: vi.fn(), signOut: vi.fn(), getIdToken: vi.fn(async () => 'team-token'),
+  }
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    const path = String(input)
+    if (path.startsWith('/api/v1/areas?')) return Response.json({ items: [area], nextCursor: null }, { headers })
+    if (path.startsWith('/api/v1/quests?')) return Response.json({ items: [quest], nextCursor: null }, { headers })
+    if (path === '/api/v1/quests/' + quest.questId) return Response.json(quest, { headers })
+    if (path === '/api/v1/session') {
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer team-token')
+      return Response.json({ uid: 'traveler-a' }, { headers })
+    }
+    throw new Error('Unexpected request: ' + path)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const user = userEvent.setup()
+  render(<TeamPreview authClient={auth} />)
+  expect(await screen.findByRole('heading', { name: quest.title })).toBeVisible()
+  expect(screen.getAllByRole('button', { name: /自分の記録/ }).length).toBeGreaterThan(0)
+  await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+  expect(await screen.findByRole('button', { name: '挑戦を始める' })).toBeVisible()
+  vi.unstubAllEnvs()
+})
+
 it('shows the nationwide map even before the first problem is published', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ items: [], nextCursor: null }, { headers })))
   render(<TeamPreview />)

@@ -31,6 +31,7 @@ export interface TeamPreviewConfig {
   firebaseProjectId: string
   projectNumber: string
   allowedUids: ReadonlySet<string>
+  answerTrial: boolean
 }
 
 type ServerConfig = DemoServerConfig | DurableLocalConfig | TeamPreviewConfig
@@ -139,7 +140,13 @@ function readTeamPreviewConfig(env: NodeJS.ProcessEnv, port: number): TeamPrevie
   if (uids.length !== 4 || allowedUids.size !== 4 || uids.some((uid) => !/^[A-Za-z0-9_-]{1,128}$/.test(uid))) {
     throw new Error('QUEST_TEAM_UIDS must contain four distinct Firebase user IDs.')
   }
-  return { mode: 'team-preview', port, firebaseProjectId, projectNumber, allowedUids }
+  // The answer trial is opt-in per deployment. Any other value fails closed
+  // at startup instead of silently leaving real photo matching disabled.
+  if (env.QUEST_TEAM_ANSWER_TRIAL !== undefined && env.QUEST_TEAM_ANSWER_TRIAL !== 'vertex-trial') {
+    throw new Error('QUEST_TEAM_ANSWER_TRIAL must be vertex-trial when set.')
+  }
+  return { mode: 'team-preview', port, firebaseProjectId, projectNumber, allowedUids,
+    answerTrial: env.QUEST_TEAM_ANSWER_TRIAL === 'vertex-trial' }
 }
 
 function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLocalConfig {

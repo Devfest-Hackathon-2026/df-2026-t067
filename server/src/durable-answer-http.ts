@@ -38,6 +38,7 @@ interface DurableAnswerHttpOptions {
   answerPolicy: AdmissionPolicy
   dataMode?: 'durable-local'
   teamPreview?: { allowedUids: ReadonlySet<string>; webDirectory: string }
+  answerTrial?: boolean
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
   suggestDraft?: DraftSuggester
@@ -83,7 +84,14 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
       if (await serveTeamPreviewWeb(team.webDirectory, request, response, path)) return
       if (!path.startsWith('/api/v1/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
       await authenticate(request)
-      if (path !== '/api/v1/session' && path !== '/api/v1/me/memberships' && path !== '/api/v1/areas' &&
+      // With the answer trial enabled, the invited accounts may also run the
+      // traveler flow end to end (challenges, answers, attempt status and
+      // their own records). Every other path stays closed in team mode.
+      const trialPath = options.answerTrial === true && (path === '/api/v1/challenges' ||
+        path.startsWith('/api/v1/challenges/') || path.startsWith('/api/v1/attempts/') ||
+        path === '/api/v1/me/discoveries' || path.startsWith('/api/v1/me/discoveries/') ||
+        path.startsWith('/api/v1/me/deletions/'))
+      if (!trialPath && path !== '/api/v1/session' && path !== '/api/v1/me/memberships' && path !== '/api/v1/areas' &&
         path !== '/api/v1/quests' && !path.startsWith('/api/v1/quests/') && !path.startsWith('/api/v1/orgs/')) {
         throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
       }

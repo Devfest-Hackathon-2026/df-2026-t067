@@ -49,7 +49,9 @@ async function readResponse(response: Response, signal: AbortSignal): Promise<un
   } finally { void reader.cancel().catch(() => {}) }
 }
 
-export function createVertexTrialTransport(file: string, options: TransportOptions = {}): VertexTransport {
+export type TrialSlot = (signal: AbortSignal, work: (used: number) => Promise<unknown>) => Promise<unknown>
+
+export function createVertexTransport(slot: TrialSlot, options: TransportOptions = {}): VertexTransport {
   const auth = new GoogleAuth({ projectId: 'tour-513804', clientOptions: { quotaProjectId: 'tour-513804' }, scopes: ['https://www.googleapis.com/auth/cloud-platform'] })
   const getAccessToken = options.getAccessToken ?? (() => auth.getAccessToken())
   const http = options.http ?? fetch
@@ -68,7 +70,7 @@ export function createVertexTrialTransport(file: string, options: TransportOptio
         generationConfig: { ...request.generationConfig, candidateCount: 1, maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'LOW' } },
       })
       if (Buffer.byteLength(body) > 6 * 1024 * 1024) throw photoSystemError(false)
-      return await withTrialSlot(file, signal, async () => {
+      return await slot(signal, async () => {
         const response = await http(trialEndpoint, { method: 'POST', redirect: 'error', signal,
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'x-goog-user-project': 'tour-513804' }, body,
         })
@@ -80,4 +82,8 @@ export function createVertexTrialTransport(file: string, options: TransportOptio
       throw photoSystemError(error instanceof HttpError ? error.retryable : true)
     } finally { clearTimeout(deadline) }
   }
+}
+
+export function createVertexTrialTransport(file: string, options: TransportOptions = {}): VertexTransport {
+  return createVertexTransport((signal, work) => withTrialSlot(file, signal, work), options)
 }
