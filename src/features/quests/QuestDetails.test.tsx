@@ -225,13 +225,16 @@ it('disposes the current protected image when the authenticated photo provider c
 
 it('fetches each public hint only on explicit request, retries failures, and gives 404 its own state', async () => {
   const user = userEvent.setup()
-  const quest = { ...demoQuest, hintCount: 2 }
+  const quest = { ...demoQuest, hintCount: 3 }
   const reload = vi.fn()
   const getHint = vi.fn().mockRejectedValueOnce(new ApiError('NOT_FOUND', { status: 404 }))
     .mockResolvedValueOnce({ questId: quest.questId, version: quest.version, index: 1, text: '第一段階' })
     .mockResolvedValueOnce({ questId: quest.questId, version: quest.version, index: 2, text: '第二段階' })
+    .mockResolvedValueOnce({ questId: quest.questId, version: quest.version, index: 3, text: '第三段階' })
   render(<QuestDetails quest={quest} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} getHint={getHint} onReloadQuest={reload} />)
   expect(getHint).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'ヒント1を見る' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('見つかりません（404）')
   expect(reload).not.toHaveBeenCalled()
@@ -245,15 +248,45 @@ it('fetches each public hint only on explicit request, retries failures, and giv
   expect(screen.getByRole('button', { name: 'ヒント1を再試行' })).toHaveFocus()
   await user.keyboard('{Enter}')
   expect(await screen.findByText('第一段階')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'ヒント2を見る' })).toBeVisible()
   expect(screen.getByRole('button', { name: 'ヒント1を閉じる' })).toHaveFocus()
   await user.click(screen.getByRole('button', { name: 'ヒント1を閉じる' }))
+  expect(screen.getByRole('button', { name: 'ヒント2を見る' })).toBeVisible()
   await user.click(screen.getByRole('button', { name: 'ヒント2を見る' }))
   expect(await screen.findByText('第二段階')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'ヒント3を見る' })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'ヒント2を閉じる' }))
+  expect(screen.getByRole('button', { name: 'ヒント3を見る' })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'ヒント3を見る' }))
+  expect(await screen.findByText('第三段階')).toBeVisible()
   expect(getHint.mock.calls.map(([input]) => input)).toEqual([
     { questId: quest.questId, expectedVersion: quest.version, index: 1 },
     { questId: quest.questId, expectedVersion: quest.version, index: 1 },
     { questId: quest.questId, expectedVersion: quest.version, index: 2 },
+    { questId: quest.questId, expectedVersion: quest.version, index: 3 },
   ])
+})
+
+it('resets unlocked hint buttons when the quest version changes', async () => {
+  const user = userEvent.setup()
+  const quest = { ...demoQuest, hintCount: 2 }
+  const getHint = vi.fn(async ({ index, expectedVersion }: { questId: string; expectedVersion: number; index: number }) => ({
+    questId: quest.questId, version: expectedVersion, index, text: `ヒント${index}`,
+  }))
+  const props = { quest, areaLabel: '地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '', onToggle: vi.fn(), onStart: vi.fn(), getHint }
+  const { rerender } = render(<QuestDetails {...props} />)
+  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  expect(await screen.findByText('ヒント1')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'ヒント2を見る' })).toBeVisible()
+  rerender(<QuestDetails {...props} quest={{ ...quest, version: quest.version + 1 }} />)
+  expect(screen.getByRole('button', { name: 'ヒント1を見る' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  expect(await screen.findByText('ヒント1')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'ヒント2を見る' })).toBeVisible()
+  rerender(<QuestDetails {...props} quest={{ ...quest, questId: 'different-quest' }} />)
+  expect(screen.getByRole('button', { name: 'ヒント1を見る' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
 })
 
 it('offers manual quest reload for INVALID_INPUT, invoked once with Enter, but not for transport errors', async () => {
@@ -278,7 +311,7 @@ it('offers manual quest reload for INVALID_INPUT, invoked once with Enter, but n
   expect(reload).toHaveBeenCalledTimes(1)
 })
 
-it('keeps one title reload for multiple invalid hints and clears it when all failures resolve or details close', async () => {
+it('keeps later hints locked through failures and clears reload state when the first hint succeeds or details close', async () => {
   const user = userEvent.setup()
   const quest = { ...demoQuest, hintCount: 2 }
   const getHint = vi.fn()
@@ -289,14 +322,16 @@ it('keeps one title reload for multiple invalid hints and clears it when all fai
   const { rerender } = render(<QuestDetails {...base} open />)
   await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
   await screen.findByText(/見つかりません（404）/)
+  expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: '問題を読みなおす' })).toHaveLength(1)
-  await user.click(screen.getByRole('button', { name: 'ヒント2を見る' }))
+  await user.click(screen.getByRole('button', { name: 'ヒント1を再試行' }))
   await screen.findByText(/ヒント番号が無効/)
   expect(screen.getAllByRole('button', { name: '問題を読みなおす' })).toHaveLength(1)
-  await user.click(screen.getByRole('button', { name: 'ヒント1を閉じる' }))
-  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  expect(screen.queryByRole('button', { name: 'ヒント2を見る' })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'ヒント1を再試行' }))
   await screen.findByText('復旧済み')
-  expect(screen.getAllByRole('button', { name: '問題を読みなおす' })).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'ヒント2を見る' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: '問題を読みなおす' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
   rerender(<QuestDetails {...base} open={false} />)
   rerender(<QuestDetails {...base} open />)

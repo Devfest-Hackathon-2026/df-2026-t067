@@ -203,6 +203,7 @@ describe('Google map panel', () => {
     await user.click(screen.getByRole('button', { name: '現在地へ戻る' }))
     act(() => failure?.({ code: 1 }))
     expect(document.querySelector('.map-location-status')).toHaveTextContent('位置情報が許可されませんでした')
+    expect(document.querySelector('.map-location-status')).toHaveTextContent('アドレスバーのサイト情報から位置情報を「確認」または「許可」に変更')
     await user.click(screen.getByRole('button', { name: '現在地へ戻る' }))
     expect(getCurrentPosition).toHaveBeenCalledTimes(3)
     act(() => success?.({ coords: { latitude: 35.6812, longitude: 139.7671 } }))
@@ -210,6 +211,29 @@ describe('Google map panel', () => {
     expect(setZoom).toHaveBeenCalledWith(12)
     expect(document.querySelector('.map-location-status')).toHaveTextContent('現在地を地図の中心に表示しました')
     expect(onSelectArea).not.toHaveBeenCalled()
+    unmount()
+    delete window.google
+  })
+
+  it('cancels a pending location request when the selected region changes without a usable boundary', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key')
+    vi.resetModules()
+    let success: ((position: { coords: { latitude: number; longitude: number } }) => void) | undefined
+    const getCurrentPosition = vi.fn((callback: typeof success) => { success = callback })
+    const setCenter = vi.fn()
+    const map = { ...mapInstance, setCenter, fitBounds: vi.fn() }
+    class Data { setMap() {} addGeoJson() {} setStyle() {} addListener() { return { remove() {} } } forEach() {} remove() {} }
+    window.google = { maps: { Map: class { constructor() { return map } }, Data, LatLngBounds: class { extend() {} }, event: { addListener: () => ({ remove() {} }) } } as never }
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition } }))
+    const { MapPreview: ConfiguredMapPreview } = await import('./MapPreview')
+    const { userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    const { rerender, unmount } = render(<ConfiguredMapPreview selectedAreaId="area-a" />)
+    await user.click(await screen.findByRole('button', { name: '現在地へ戻る' }))
+    rerender(<ConfiguredMapPreview selectedAreaId="area-b" />)
+    act(() => success?.({ coords: { latitude: 35, longitude: 139 } }))
+    expect(setCenter).not.toHaveBeenCalled()
+    expect(document.querySelector('.map-location-status')).not.toBeInTheDocument()
     unmount()
     delete window.google
   })
