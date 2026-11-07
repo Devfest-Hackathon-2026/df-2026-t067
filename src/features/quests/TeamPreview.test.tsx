@@ -121,11 +121,11 @@ it('recovers a public hint image after revision and removes it after publication
     imageAuthError = 'UNAUTHENTICATED'
     await user.click(screen.getByRole('button', { name: 'ヒント画像を閉じる' }))
     await user.click(screen.getByRole('button', { name: 'ヒント画像を見る' }))
-    expect(await screen.findByText(/画面上部のログアウトからGoogleログインし直した後/)).toBeVisible()
+    expect(await screen.findByText(/ページを開き直してから再試行/)).toBeVisible()
     expect(screen.queryByRole('button', { name: '問題を読みなおす' })).not.toBeInTheDocument()
     imageAuthError = 'FORBIDDEN'
     await user.click(screen.getByRole('button', { name: 'ヒント画像を再試行' }))
-    expect(await screen.findByText(/共有検証の参加権限を確認/)).toBeVisible()
+    expect(await screen.findByText(/ヒント画像へのアクセスが拒否されました/)).toBeVisible()
     expect(screen.queryByRole('button', { name: '問題を読みなおす' })).not.toBeInTheDocument()
     imageAuthError = null
     await user.click(screen.getByRole('button', { name: 'ヒント画像を再試行' }))

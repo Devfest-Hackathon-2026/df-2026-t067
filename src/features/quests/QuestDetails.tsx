@@ -234,8 +234,8 @@ function OptionalHintImage({ url, quest, getPhoto, onVersionChanged, onReloadNee
       </div>}
       {expanded && status === 'reload' && <div role="alert"><p>公開情報が変わった可能性があります。問題を読みなおしてください。</p></div>}
       {expanded && status === 'auth' && <div role="alert"><p>{authCode === 'UNAUTHENTICATED'
-        ? 'ヒント画像を表示できません。画面上部のログアウトからGoogleログインし直した後、再試行してください。'
-        : 'このアカウントではヒント画像を表示できません。共有検証の参加権限を確認してください。'}</p>
+        ? 'ヒント画像を表示できません。ページを開き直してから再試行してください。'
+        : 'ヒント画像へのアクセスが拒否されました。もう一度お試しください。'}</p>
         <button type="button" className="optional-hint-retry" onClick={() => {
           toggleRef.current?.focus()
           attemptRef.current++
