@@ -240,9 +240,10 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
     setSelectedAreaId(areaId)
     setSelectedId('')
   }
+  const FallbackHeading = dataMode === 'team-preview' ? 'h2' : 'h1'
   const fallback = !quest ? <section className="api-load-state" aria-live="polite">
-      <p className="eyebrow">{dataMode === 'team-preview' ? 'チーム共有検証' : dataMode === 'durable-local' ? '永続API・ローカル' : '公開APIデモ'}</p>
-      <h1 id="explore-title">{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</h1>
+      {dataMode !== 'team-preview' && <p className="eyebrow">{dataMode === 'durable-local' ? '永続API・ローカル' : '公開APIデモ'}</p>}
+      <FallbackHeading id={dataMode === 'team-preview' ? undefined : 'explore-title'}>{state === 'loading' ? '公開問題を読み込み中' : state === 'empty' ? '公開問題はありません' : '公開問題を取得できませんでした'}</FallbackHeading>
       {state === 'loading' && <p role="status">サーバーから問題を取得しています。</p>}
       {state === 'empty' && <p>{selectedAreaId ? 'この地域に公開問題はありません。地域を変えるか全国からお選びください。' : '現在選べる公開問題はありません。'}</p>}
       {state === 'error' && <p role="alert">{current?.missing

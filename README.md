@@ -4,6 +4,12 @@
 
 自治体の担当者が観光スポットを題材に謎を作ります。旅行者は全国共通の地図から謎を選び、指定の撮影範囲で対象を撮って回答します。クリア時の写真と初回クリア日が本人の記録に残ります。
 
+## チーム開発と共有サイトの更新
+
+この開発用リポジトリでPRを確認し、`main` にマージします。[Actions](https://github.com/endgitcode/df-2026-t067-dev/actions) でWebとサーバーの確認、ビルド、公開の結果を見られます。公開に成功したら[共有サイト](https://quest-team-preview-kufuezpzga-an.a.run.app/)で変更を確認します。
+
+提出時は[運営の提出用リポジトリ](https://github.com/Devfest-Hackathon-2026/df-2026-t067)に最終版を反映します。
+
 ## 審査・開発で使う本体
 
 本体は **durable-local（永続側）** を基準に確認します。FirebaseのGoogleログイン、Firestoreエミュレーター、GCS代替サーバーを使い、旅行者の回答・本人記録と自治体の下書き・素材・撮影範囲をAPI経由で保存します。実Firestore/Storageへの本番接続ではありません。既定の写真照合は合成フィクスチャ用で、実旅行者の写真判定や実自治体の運用が完成したことを意味しません。
@@ -40,9 +46,9 @@ VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 
 保存環境の停止・破棄でもデータを残すには、その環境自身の永続化設定が必要です。API再起動で消えるメモリデモとは区別してください。実機、実写真照合、本番接続の確認範囲は各資料を参照してください。
 
-[共有用の開発プレビュー](https://tour-513804.web.app/)は静的プレビューで、上記の永続側の通し確認先ではありません。[Hostingの手順](docs/hosting.md)。このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
+[共有サイトの旅行者画面](https://quest-team-preview-kufuezpzga-an.a.run.app/)では、地図と公開問題を閲覧できます。招待された4人は[自治体画面](https://quest-team-preview-kufuezpzga-an.a.run.app/admin)から編集・公開できます。[共有検証の構成と確認手順](docs/team-preview.md)
 
-4人で同じデータを操作する環境は、[共有検証の構成と確認手順](docs/team-preview.md)を参照してください。
+このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
 
 ## 開発用の後退
 

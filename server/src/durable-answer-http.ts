@@ -77,6 +77,8 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const reportHandler = dataMode === 'durable-local' ? createDurableReportHandler(new FirestoreReportStore(options.db), authenticate) : undefined
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
+    const allowCatalogBeforeAuth = !team || request.method === 'GET'
+    if (allowCatalogBeforeAuth && await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (team && path !== '/health') {
       if (await serveTeamPreviewWeb(team.webDirectory, request, response, path)) return
       if (!path.startsWith('/api/v1/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
@@ -86,7 +88,7 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
         throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
       }
     }
-    if (await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
+    if (!allowCatalogBeforeAuth && await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (await discoveryHandler(request, response, path, params)) return
     if (await draftHandler?.(request, response, path, params)) return
     if (await reportHandler?.(request, response, path, params)) return

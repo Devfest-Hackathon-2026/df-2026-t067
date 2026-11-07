@@ -157,7 +157,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Accept', init.photo ? 'image/jpeg' : 'application/json')
-    if (init.authenticated || options.expectedDataMode === 'team-preview') {
+    if (init.authenticated) {
       let token: string | null | undefined
       try { token = await options.getIdToken?.() }
       catch (error) {
@@ -248,8 +248,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
     }
   }
 
-  async function privatePhoto(path: string, init: RequestOptions): Promise<Blob> {
-    const response = await exchange(path, { ...init, authenticated: true, photo: true })
+  async function requestPhoto(path: string, init: RequestOptions): Promise<Blob> {
+    const response = await exchange(path, { ...init, photo: true })
     if (!response.ok) {
       let payload: unknown
       try { payload = await response.json() } catch { /* Preserve non-JSON HTTP failures. */ }
@@ -280,7 +280,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request('/orgs/' + id(orgId) + '/assets/' + id(assetId), orgAsset(orgId, assetId), { ...call, authenticated: true, assets: true })
     },
     async getOrgAssetPhoto(orgId: string, assetId: string, call: CallOptions = {}) {
-      return privatePhoto('/orgs/' + id(orgId) + '/assets/' + id(assetId) + '/photo', { ...call, assets: true })
+      return requestPhoto('/orgs/' + id(orgId) + '/assets/' + id(assetId) + '/photo', { ...call, authenticated: true, assets: true })
     },
     async listMemberships(query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
       return request('/me/memberships' + queryString(query), (data) => parsePage(data, parseOrgMembership), { ...call, authenticated: true })
@@ -386,7 +386,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request('/quests/' + id(questId), parsePublicQuest, call)
     },
     async getPublishedHintPhoto(questId: string, version: number, call: CallOptions = {}) {
-      return privatePhoto('/quests/' + id(questId) + '/hint-image?expectedVersion=' + positiveInteger(version), call)
+      return requestPhoto('/quests/' + id(questId) + '/hint-image?expectedVersion=' + positiveInteger(version), call)
     },
     async getHint(input: { questId: string; expectedVersion: number; index: number }, call: CallOptions = {}) {
       const questId = id(input.questId)
@@ -448,7 +448,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }, { ...call, authenticated: true, records: true })
     },
     async getDiscoveryPhoto(discoveryId: string, call: CallOptions = {}) {
-      return privatePhoto('/me/discoveries/' + id(discoveryId) + '/photo', { ...call, records: true })
+      return requestPhoto('/me/discoveries/' + id(discoveryId) + '/photo', { ...call, authenticated: true, records: true })
     },
     async deleteDiscovery(discoveryId: string, call: CallOptions = {}) {
       return request('/me/discoveries/' + id(discoveryId), parseDeletionReceipt, { ...call, authenticated: true, records: true, method: 'DELETE' })

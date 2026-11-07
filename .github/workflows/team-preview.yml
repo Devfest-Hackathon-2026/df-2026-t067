@@ -1,0 +1,107 @@
+name: Publish shared preview
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: quest-team-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      IMAGE: asia-northeast1-docker.pkg.dev/tour-513804/quest-team-preview/web-api:${{ github.sha }}
+      SITE_URL: https://quest-team-preview-kufuezpzga-an.a.run.app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.7.0'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Check web and server
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix server ci --ignore-scripts --no-audit --no-fund
+          npm run check
+          npm --prefix server run check
+
+      - name: Build the shared preview image
+        shell: bash
+        env:
+          QUEST_TEAM_WEB_CONFIG: ${{ secrets.QUEST_TEAM_WEB_CONFIG }}
+        run: |
+          while IFS='=' read -r name value; do
+            case "$name" in
+              '')
+                ;;
+              VITE_FIREBASE_API_KEY|VITE_FIREBASE_AUTH_DOMAIN|VITE_FIREBASE_PROJECT_ID|VITE_FIREBASE_STORAGE_BUCKET|VITE_FIREBASE_MESSAGING_SENDER_ID|VITE_FIREBASE_APP_ID|VITE_GOOGLE_MAPS_API_KEY)
+                export "$name=$value"
+                ;;
+              *)
+                echo 'Unexpected shared preview browser setting' >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$QUEST_TEAM_WEB_CONFIG"
+          unset QUEST_TEAM_WEB_CONFIG
+          test "$VITE_FIREBASE_PROJECT_ID" = tour-513804
+          test -n "$VITE_GOOGLE_MAPS_API_KEY"
+          docker build --platform linux/amd64 -f Dockerfile.team-preview -t "$IMAGE" \
+            --build-arg VITE_FIREBASE_API_KEY \
+            --build-arg VITE_FIREBASE_AUTH_DOMAIN \
+            --build-arg VITE_FIREBASE_PROJECT_ID \
+            --build-arg VITE_FIREBASE_STORAGE_BUCKET \
+            --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID \
+            --build-arg VITE_FIREBASE_APP_ID \
+            --build-arg VITE_GOOGLE_MAPS_API_KEY \
+            .
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: tour-513804
+          workload_identity_provider: projects/756962374261/locations/global/workloadIdentityPools/quest-preview-github/providers/team-main
+          service_account: quest-preview-ci@tour-513804.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Publish the latest main revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+          docker push "$IMAGE"
+          published=$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}')
+          case "$published" in
+            asia-northeast1-docker.pkg.dev/tour-513804/quest-team-preview/web-api@sha256:*) ;;
+            *) echo 'Could not identify the pushed image digest' >&2; exit 1 ;;
+          esac
+
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$GITHUB_SHA" != "$main_sha" ]]; then
+            echo 'A newer main revision is available. Skipping deployment.'
+            exit 0
+          fi
+
+          gcloud run services update quest-team-preview \
+            --project=tour-513804 --region=asia-northeast1 \
+            --image="$published" --update-labels="source-commit=$GITHUB_SHA" --quiet
+
+          curl -fsS --retry 3 "$SITE_URL/health" | jq -e '.dataMode == "team-preview"'
+          curl -fsS --retry 3 -o /dev/null "$SITE_URL/"
+          curl -fsS --retry 3 -o /dev/null "$SITE_URL/admin"
