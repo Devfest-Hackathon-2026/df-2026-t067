@@ -100,6 +100,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
   const teamPreview = apiMode && apiDataMode === 'team-preview'
+  const railFallback = teamPreview ? catalogFallback : undefined
   const getHint = providedGetHint ?? (source === 'preview' && !apiMode && !externalQuest && !catalogFallback ? getPreviewHint : undefined)
   const localApiMode = apiMode || source === 'local-api'
   const durableLocal = apiMode && apiDataMode === 'durable-local'
@@ -250,7 +251,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
               ? <><p role="alert">ログインを確認できませんでした。</p><button type="button" className="retry-button" onClick={serverIdentity.retry}>ログインを確認し直す</button></>
               : <p role="status">ログインを確認しています…</p>)}
           {feedback && <p className="auth-feedback" role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
-        </section> : catalogFallback ?? <>
+        </section> : (!teamPreview ? catalogFallback : undefined) ?? <>
         <section className="explore" aria-labelledby="explore-title">
           <div className="explore-heading">
             <div>
@@ -264,8 +265,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
 
             <aside className="quest-rail" aria-label="選べる謎">
               <div className="rail-heading"><h2>選べる謎</h2>{!apiMode && <span>1件</span>}</div>
-              {questPicker}
-              <div ref={questCard}>
+              {railFallback ?? questPicker}
+              {!railFallback && <div ref={questCard}>
                 {quest ? <QuestDetails quest={quest} areaLabel={areaLabel} sourceLabel={teamPreview ? '共有検証用の問題' : apiMode ? '公開APIデモデータ' : undefined} open={isQuestOpen}
                   getHint={getHint ?? api.getHint} getHintPhoto={teamPreview ? api.getPublishedHintPhoto : undefined} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
@@ -290,8 +291,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                       signInPending={visiblePending !== null} onSignIn={() => void login()} />}
                   </QuestDetails>
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
-              </div>
-              {!teamPreview && <p className="browse-note">問題の閲覧にログインは必要ありません。</p>}
+              </div>}
+              <p className="browse-note">問題の閲覧にログインは必要ありません。</p>
               <div className="demo-note"><span className="demo-note-dot" /><p>{teamPreview ? '自治体画面で公開した架空の問題を確認できます。' : durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
             </aside>
           </div>
