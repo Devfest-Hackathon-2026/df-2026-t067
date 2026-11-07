@@ -94,7 +94,7 @@ it.each([
       materials: { name: '架空の対象', evidence: '確認材料', price: '', photoNote: '', photoRights: '自作',
         requiresBoat: false, requiresPaidFacility: false },
       content: { title: '手入力の題名', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
-      afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: 'ref', hintAssetId: null,
+      afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: 'ref', hintAssetId: 'legacy-hint', hintAssetIds: ['hint-a', 'hint-b', null],
     },
   }
   const candidate = { ...initial.draft.content, title: '合成素材の候補', question: '架空の問題文', hints: ['1', '2', '3'],
@@ -119,7 +119,7 @@ it.each([
   expect(updateManagedQuest).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '下書きを保存' }))
   expect(await screen.findByText('下書きを保存しました。')).toBeVisible()
-  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate } })
+  expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 3, draft: { content: candidate, hintAssetId: 'legacy-hint', hintAssetIds: ['hint-a', 'hint-b', null] } })
 })
 
 describe('A03 admin demo', () => {

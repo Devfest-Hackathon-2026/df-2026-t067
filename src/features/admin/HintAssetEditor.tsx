@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ApiClient, ManagedQuest, OrgMembership } from '../../shared/api'
+import { normalizeHintAssets } from './hintAssets'
 import { useLocalDraftSave } from './useLocalDraftSave'
 
 export function HintAssetEditor({ api, initial, member, onBack }: { api: ApiClient; initial: ManagedQuest; member: OrgMembership; onBack: () => void }) {
@@ -29,15 +30,9 @@ export function HintAssetEditor({ api, initial, member, onBack }: { api: ApiClie
   }
 
   function remove(index: number) {
-    const next = [...assets]
-    next[index - 1] = null
-    const legacyHintAssetId = current.draft.hintAssetId
-    if (index === 1 && current.draft.hintAssetIds === undefined) {
-      void save({ ...current.draft, hintAssetId: null, hintAssetIds: next }, undefined, clearSelection)
-    } else {
-      if (index !== 1 && legacyHintAssetId && current.draft.hintAssetIds === undefined) next[0] = legacyHintAssetId
-      void save({ ...current.draft, hintAssetId: null, hintAssetIds: next }, undefined, clearSelection)
-    }
+    const { hintAssetIds, hintAssetId } = normalizeHintAssets(current.draft)
+    hintAssetIds[index - 1] = null
+    void save({ ...current.draft, hintAssetId, hintAssetIds }, undefined, clearSelection)
   }
 
   return <section className="form-section" aria-labelledby="hint-asset-title">

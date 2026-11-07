@@ -289,7 +289,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
           void save({
             materials: { name, evidence, requiresBoat, requiresPaidFacility, price, photoNote, photoRights },
             content: draft, afterClear: { access, hours, promoComment, explanation }, referenceAssetId,
-            hintAssetId: hintAssetIds ? null : legacyHintAssetId,
+            hintAssetId: record?.draft.hintAssetIds ? legacyHintAssetId : null,
             ...(hintAssetIds ? { hintAssetIds } : {}),
           }, photo ? { file: photo.file, purpose: 'reference', photoRights } : undefined, (saved) => {
             setReferenceAssetId(saved.draft.referenceAssetId)
