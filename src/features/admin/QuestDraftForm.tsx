@@ -284,10 +284,13 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
       <div className="admin-list-actions">
         <button type="button" disabled={saving || (saveState.status === 'error' && saveState.reload)} onClick={() => {
           if (!validateHours()) return
+          const legacyHintAssetId = record?.draft.hintAssetId ?? null
+          const hintAssetIds = record?.draft.hintAssetIds ?? (legacyHintAssetId ? [legacyHintAssetId, null, null] : undefined)
           void save({
             materials: { name, evidence, requiresBoat, requiresPaidFacility, price, photoNote, photoRights },
             content: draft, afterClear: { access, hours, promoComment, explanation }, referenceAssetId,
-            hintAssetId: record?.draft.hintAssetId ?? null,
+            hintAssetId: record?.draft.hintAssetIds ? legacyHintAssetId : null,
+            ...(hintAssetIds ? { hintAssetIds } : {}),
           }, photo ? { file: photo.file, purpose: 'reference', photoRights } : undefined, (saved) => {
             setReferenceAssetId(saved.draft.referenceAssetId)
             clearPhoto()

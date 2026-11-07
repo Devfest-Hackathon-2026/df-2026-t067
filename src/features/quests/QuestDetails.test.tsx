@@ -55,6 +55,28 @@ it('opens an optional public hint image only on request and supports loading, fa
   expect(document.querySelector('img.optional-hint-image')).toBeInTheDocument()
 })
 
+it('shows a per-hint image inline after its hint is opened without a second button', async () => {
+  const user = userEvent.setup()
+  const imageUrl = '/api/v1/quests/demo-quest/hint-images/2?expectedVersion=1'
+  const quest = { ...demoQuest, hintCount: 2, hintImages: [null, imageUrl, null] }
+  const getHint = vi.fn(async ({ index }: { index: number }) => ({ questId: quest.questId, version: quest.version, index, text: `ヒント${index}本文` }))
+  render(<QuestDetails quest={quest} getHint={getHint} areaLabel="地域" open disabled={false} buttonLabel="挑戦する" note="" onToggle={vi.fn()} onStart={vi.fn()} />)
+  await user.click(screen.getByRole('button', { name: 'ヒント1を見る' }))
+  await screen.findByText('ヒント1本文')
+  await user.click(screen.getByRole('button', { name: 'ヒント2を見る' }))
+  await screen.findByText('ヒント2本文')
+  const image = document.querySelector('img.optional-hint-image') as HTMLImageElement
+  expect(image).toHaveAttribute('src', imageUrl)
+  expect(screen.queryByRole('button', { name: 'ヒント画像を見る' })).not.toBeInTheDocument()
+  fireEvent.error(image)
+  expect(screen.getByText('ヒント2本文')).toBeVisible()
+  await user.click(screen.getByRole('button', { name: '再試行' }))
+  expect(screen.getByRole('button', { name: 'ヒント2を閉じる' })).toHaveFocus()
+  const retriedImage = document.querySelector('img.optional-hint-image') as HTMLImageElement
+  fireEvent.load(retriedImage)
+  expect(retriedImage).toBeVisible()
+})
+
 it('shows only the required shooting conditions on the quest card', () => {
   const props = { areaLabel: '架空の地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '',
     onToggle: vi.fn(), onStart: vi.fn() }
@@ -392,4 +414,29 @@ it('times out even when the transport ignores AbortSignal', async () => {
   expect(screen.getByRole('alert')).toHaveTextContent('タイムアウト')
   expect(screen.getByRole('button', { name: 'ヒント1を再試行' })).toBeInTheDocument()
   vi.useRealTimers()
+})
+
+
+it.each(['quest', 'version'] as const)('releases all three authenticated hint images on %s change', async (change) => {
+  const user = userEvent.setup()
+  const getHint = vi.fn(async ({ index }: { index: number }) => ({ questId: demoQuest.questId, version: demoQuest.version, index, text: `本文${index}` }))
+  const getPhoto = vi.fn(async () => new Blob(['synthetic']))
+  const createObjectURL = vi.fn().mockReturnValueOnce('blob:one').mockReturnValueOnce('blob:two').mockReturnValueOnce('blob:three')
+  const revokeObjectURL = vi.fn()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL })
+  try {
+    const quest = { ...demoQuest, hintCount: 3, hintImages: ['/one', '/two', '/three'] }
+    const props = { areaLabel: '地域', open: true, disabled: false, buttonLabel: '挑戦する', note: '', onToggle: vi.fn(), onStart: vi.fn(), getHint, getHintPhoto: getPhoto }
+    const { rerender } = render(<QuestDetails {...props} quest={quest} />)
+    for (const index of [1, 2, 3]) {
+      await user.click(screen.getByRole('button', { name: `ヒント${index}を見る` }))
+      await screen.findByText(`本文${index}`)
+      expect(getPhoto).toHaveBeenNthCalledWith(index, quest.questId, quest.version, index, { signal: expect.any(AbortSignal) })
+    }
+    expect(document.querySelectorAll('img.optional-hint-image')).toHaveLength(3)
+    rerender(<QuestDetails {...props} quest={{ ...quest, ...(change === 'quest' ? { questId: 'another-quest' } : { version: quest.version + 1 }) }} />)
+    expect(document.querySelectorAll('img.optional-hint-image')).toHaveLength(0)
+    expect(revokeObjectURL.mock.calls.map(([url]) => url)).toEqual(['blob:one', 'blob:two', 'blob:three'])
+    expect(screen.queryByText('本文1')).not.toBeInTheDocument()
+  } finally { vi.unstubAllGlobals() }
 })

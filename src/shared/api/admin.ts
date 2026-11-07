@@ -27,6 +27,7 @@ export interface ManagedQuestDraft {
   afterClear: AfterClearContent
   referenceAssetId: string | null
   hintAssetId: string | null
+  hintAssetIds?: (string | null)[]
 }
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
@@ -158,7 +159,7 @@ export function parseDraftSuggestion(input: unknown): DraftSuggestion {
 }
 
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
-  const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId'], 'draft')
+  const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId', 'hintAssetIds'], 'draft')
   const m = fields(d.materials, ['name', 'evidence', 'requiresBoat', 'requiresPaidFacility', 'price', 'photoNote', 'photoRights'], 'materials')
   return {
     materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
@@ -168,7 +169,13 @@ export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
     afterClear: parseAfterClearContent(d.afterClear),
     referenceAssetId: d.referenceAssetId === null ? null : identifier(d.referenceAssetId, 'referenceAssetId'),
     hintAssetId: d.hintAssetId === null ? null : identifier(d.hintAssetId, 'hintAssetId'),
+    ...(d.hintAssetIds === undefined ? {} : { hintAssetIds: parseHintAssetIds(d.hintAssetIds) }),
   }
+}
+
+function parseHintAssetIds(input: unknown): (string | null)[] {
+  if (!Array.isArray(input) || input.length !== 3) throw new ContractError('hintAssetIds')
+  return input.map((value, index) => value === null ? null : identifier(value, 'hintAssetIds.' + index))
 }
 
 export function parseCreateManagedQuest(input: unknown): { draft: ManagedQuestDraft } {

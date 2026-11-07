@@ -23,6 +23,7 @@ import type { IdTokenVerifier } from './firebase-auth'
 import { authenticateRequest, createQuestHttpServer, requestTarget, send } from './http-server'
 import { intersectsBbox, paginate, parseAreaQuery, parseId, positiveRouteNumber, validateQuery } from './query'
 import { DemoReportStore } from './reports'
+import { publicHintImagesPath } from './admin-publication'
 
 export interface ServerOptions {
   mode: 'demo'
@@ -69,12 +70,13 @@ export function createServer(options: ServerOptions) {
     if (await adminHandler(request, response, path, params)) return
     const hintPath = /^\/api\/v1\/quests\/([^/]+)\/hints\/([^/]+)$/.exec(path)
     const hintImagePath = /^\/api\/v1\/quests\/([^/]+)\/hint-image$/.exec(path)
+    const hintImagesPath = /^\/api\/v1\/quests\/([^/]+)\/hint-images\/([^/]+)$/.exec(path)
     const isDetail = path.startsWith('/api/v1/quests/')
     const isStart = path === '/api/v1/challenges'
     const isReport = path === '/api/v1/reports'
     const answerPath = /^\/api\/v1\/challenges\/([^/]+)\/answers$/.exec(path)
     const attemptPath = /^\/api\/v1\/attempts\/([^/]+)$/.exec(path)
-    if (isDetail && !hintPath && !hintImagePath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
+    if (isDetail && !hintPath && !hintImagePath && !hintImagesPath && path.slice('/api/v1/quests/'.length).includes('/')) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const known = ['/health', '/api/v1/areas', '/api/v1/quests', '/api/v1/session'].includes(path) || isDetail || isStart || isReport || answerPath || attemptPath
     if (!known) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
     const method = isStart || isReport || answerPath ? 'POST' : 'GET'
@@ -82,16 +84,17 @@ export function createServer(options: ServerOptions) {
       response.setHeader('Allow', method)
       throw new HttpError(405, 'HTTP_ERROR', 'このメソッドは利用できません。')
     }
-    if (hintPath || hintImagePath) {
+    if (hintPath || hintImagePath || hintImagesPath) {
       validateQuery(params, ['expectedVersion'])
-      const questId = parseId(decodeURIComponent((hintPath ?? hintImagePath)![1]))
+      const questId = parseId(decodeURIComponent((hintPath ?? hintImagePath ?? hintImagesPath)![1]))
       const index = hintPath ? positiveRouteNumber(decodeURIComponent(hintPath[2])) : undefined
+      const imageIndex = hintImagesPath ? positiveRouteNumber(decodeURIComponent(hintImagesPath[2])) : undefined
       const version = positiveRouteNumber(params.get('expectedVersion') ?? '')
       const publication = admin.getPublished(questId)
       const quest = publication?.quest ?? quests.find((item) => item.questId === questId)
       if (!quest) throw new HttpError(404, 'NOT_FOUND', '公開中の問題が見つかりません。')
       if (quest.version !== version) throw new HttpError(409, 'QUEST_CHANGED', '問題の版が変更されています。')
-      if (index === undefined) {
+      if (index === undefined && imageIndex === undefined) {
         const assetId = publication?.hintAssetId
         if (!publication || !assetId || options.adminAssets?.getOwned(publication.orgId, assetId)?.purpose !== 'public_hint') {
           throw new HttpError(404, 'NOT_FOUND', 'ヒント画像が見つかりません。')
@@ -102,6 +105,19 @@ export function createServer(options: ServerOptions) {
         response.end(bytes)
         return
       }
+      if (imageIndex !== undefined) {
+        const assetId = publication?.hintAssetIds?.[imageIndex - 1] ?? (imageIndex === 1 ? publication?.hintAssetId : null)
+        if (imageIndex > quest.hintCount || quest.hintImages?.[imageIndex - 1] !== publicHintImagesPath(questId, imageIndex, version) ||
+          !assetId || options.adminAssets?.getOwned(publication!.orgId, assetId)?.purpose !== 'public_hint') {
+          throw new HttpError(404, 'NOT_FOUND', 'ヒント画像が見つかりません。')
+        }
+        const bytes = options.adminAssets?.getPhotoOwned(publication!.orgId, assetId)
+        if (!bytes) throw new HttpError(404, 'NOT_FOUND', 'ヒント画像が見つかりません。')
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': bytes.length, 'Content-Disposition': 'inline' })
+        response.end(bytes)
+        return
+      }
+      if (index === undefined) throw new HttpError(404, 'NOT_FOUND', 'ヒントが見つかりません。')
       const text = (publication?.hints ?? hints.get(questId))?.[index - 1]
       if (!text || index > quest.hintCount) throw new HttpError(404, 'NOT_FOUND', 'ヒントが見つかりません。')
       send(response, 200, parseQuestHint({ questId, version: quest.version, index, text }))

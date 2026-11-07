@@ -22,16 +22,16 @@ export class FirestoreManagedPublication {
   async publish(uid: string, orgId: string, questId: string, input: PublishManagedQuest): Promise<ManagedQuest> {
     const prepare = (tx: Transaction) => this.readPublishable(tx, uid, orgId, questId, input.expectedDraftRevision)
     const verified = await answerTransaction(this.db, prepare, true)
-    if (verified.hint) {
-      const [reference, hint] = await Promise.all([
-        this.photos.readReference(orgId, verified.reference.assetId, verified.reference.generation),
-        this.photos.readHint(orgId, verified.hint.assetId, verified.hint.generation),
-      ])
-      if (reference.bytes.equals(hint.bytes)) throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
+    if (verified.hint || verified.hintAssets.some(Boolean)) {
+      const reference = await this.photos.readReference(orgId, verified.reference.assetId, verified.reference.generation)
+      const hints = await Promise.all(verified.hintAssets.map((asset) => asset && this.photos.readHint(orgId, asset.assetId, asset.generation)))
+      const legacy = verified.hint && await this.photos.readHint(orgId, verified.hint.assetId, verified.hint.generation)
+      if ([...hints, legacy].some((hint) => hint && reference.bytes.equals(hint.bytes))) throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
     }
     return answerTransaction(this.db, async (tx) => {
-      const { quest, ref, data, reference, hint, features, zones } = await prepare(tx)
-      if (!sameAsset(reference, verified.reference) || !sameAsset(hint, verified.hint)) throw draftConflict()
+      const { quest, ref, data, reference, hint, hintAssets, features, zones } = await prepare(tx)
+      if (!sameAsset(reference, verified.reference) || !sameAsset(hint, verified.hint) ||
+        hintAssets.some((asset, index) => !sameAsset(asset, verified.hintAssets[index]))) throw draftConflict()
       const evidence = this.db.collection('adminPhotoTestEvidence')
       const [match, mismatch] = await tx.getAll(evidence.doc(input.matchTestId), evidence.doc(input.mismatchTestId))
       const matchDigest = evidenceDigest(match, quest, reference, 'MATCH')
@@ -57,7 +57,8 @@ export class FirestoreManagedPublication {
         placeName: quest.draft.materials.name.trim(), descriptionSnapshot: afterClear.explanation.trim(),
         revealedLocation: { latitude, longitude }, afterClear,
         answerMaterial: { orgId, referenceAssetId: reference.assetId, referenceGeneration: reference.generation, features, zones },
-        ...(hint ? { publicHintImage: { orgId, ...hint } } : {}) })
+        ...(hint ? { publicHintImage: { orgId, ...hint } } : {}),
+        ...(hintAssets.some(Boolean) ? { publicHintImages: hintAssets.map((asset) => asset ? { orgId, ...asset } : null) } : {}) })
       tx.set(catalog.doc(questId), projectManagedQuest(quest, version))
       tx.update(ref, { publishedVersion: version, latestPublishedVersion: version, status: 'published', pauseReason: null })
       return { ...quest, publishedVersion: version, status: 'published' }
@@ -90,14 +91,18 @@ export class FirestoreManagedPublication {
     if (quest.draftRevision !== revision) throw draftConflict()
     if (quest.status !== 'review_pending' && quest.status !== 'published') throw reviewRequired()
     const { referenceAssetId, hintAssetId, content } = quest.draft
-    const [reference, hint] = await Promise.all([
+    const hintAssetIds = (quest.draft.hintAssetIds ?? [null, null, null]).map((assetId, index) =>
+      assetId ?? (index === 0 ? hintAssetId : null))
+    const [reference, hint, ...hintAssets] = await Promise.all([
       this.readAsset(tx, orgId, referenceAssetId, 'reference'),
       this.readAsset(tx, orgId, hintAssetId, 'public_hint'),
+      ...hintAssetIds.map((assetId) => this.readAsset(tx, orgId, assetId, 'public_hint')),
     ])
     const features = draftPhotoFeatures(content.verifiedFeatures)
     const missing = missingReviewFields(quest, { reference: reference !== null, public_hint: hint !== null })
-    if (!reference || !features || !zones.length || missing.length) throw reviewRequired()
-    return { ...owned, reference, hint, features }
+    if (!reference || !features || !zones.length || missing.length ||
+      hintAssetIds.some((assetId, index) => assetId !== null && hintAssets[index] === null)) throw reviewRequired()
+    return { ...owned, reference, hint, hintAssets, features }
   }
 
   private async readAsset(tx: Transaction, orgId: string, assetId: string | null, purpose: AssetPurpose): Promise<AssetVersion | null> {
