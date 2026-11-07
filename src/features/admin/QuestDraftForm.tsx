@@ -112,14 +112,24 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
 
   function enterDraft() {
     if (!validateHours()) return
-    if (!name.trim() || !evidence.trim()) {
-      setDraftEntryError('A04へ進む前に、対象名と対象とする根拠を入力してください。')
-      setStep('A03')
-      return
-    }
+    if (!validateMaterials()) return
     setDraftEntryError('')
     setVisitedDraft(true)
     setStep('A04')
+  }
+
+  function validateMaterials() {
+    const missingName = !name.trim()
+    const missingEvidence = !evidence.trim()
+    if (missingName || missingEvidence) {
+      setShowSummary(false)
+      setDraftEntryError('対象名と対象とする理由を入力してください。')
+      setStep('A03')
+      draftErrorRef.current?.focus()
+      return false
+    }
+    setDraftEntryError('')
+    return true
   }
 
   function clearPhoto() {
@@ -196,16 +206,16 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
     <p className="demo-notice" role="note">{connection
       ? teamPreview ? '「下書きを保存」で入力と選択した合成参考写真をチームの検証用データとして保存します。'
         : '「下書きを保存」で入力と選択した合成参考写真をローカルAPIへ送ります。保存先はAPIの起動モードに従います（demoは一時領域、durable-localはローカル永続ストア）。'
-      : '未認証です。入力と写真の送信・保存は行いません。再読み込みで入力は消えます。AI・認証・認可・正解判定・公開は未接続です。'}</p>
+      : '未認証です。入力と写真の送信・保存はしていません。再読み込みで入力は消えます。AI・認証・認可・正解判定・公開は未接続です。'}</p>
 
     {step === 'A03' ? <form onSubmit={event => {
       event.preventDefault()
-      if (validateHours()) setShowSummary(true)
+      if (validateHours() && validateMaterials()) setShowSummary(true)
     }}>
       <section className="form-section" aria-labelledby="target-heading"><h2 id="target-heading" ref={a03HeadingRef} tabIndex={-1}>A03 素材・場所登録：対象と根拠</h2>
-        <label>対象名<input value={name} onChange={event => { setName(event.target.value); markMaterialChange() }} placeholder="例：広場の時計" /></label>
-        <label>対象とする根拠<textarea value={evidence} onChange={event => { setEvidence(event.target.value); markMaterialChange() }} rows={3} placeholder="例：自治体が管理する施設で、撮影可能なことを確認" /></label>
-        <label className="file-label">参考写真（公開ヒントには自動流用しません）<input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photo-help photo-error" onChange={event => { if (choosePhoto(event.target.files?.[0])) markMaterialChange(); event.currentTarget.value = '' }} /></label>
+        <label>対象名<input value={name} onChange={event => { setName(event.target.value); markMaterialChange(); setDraftEntryError('') }} placeholder="例：広場の時計" /></label>
+        <label>対象とする理由（確認した内容）<textarea value={evidence} onChange={event => { setEvidence(event.target.value); markMaterialChange(); setDraftEntryError('') }} rows={3} placeholder="例：自治体が管理し、安全に撮影できることを確認済み" /></label>
+        <label className="file-label">参考写真（公開ヒントには自動流用しません）<input className="reference-photo-input" ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photo-help photo-error" onChange={event => { if (choosePhoto(event.target.files?.[0])) markMaterialChange(); event.currentTarget.value = '' }} /></label>
         <p id="photo-help" className="helper">{connection ? 'JPEG / PNG / WebP、送信上限4 MiB。合成素材を使ってください。'
           : 'JPEG / PNG / WebP、選択上限5 MB。参考写真の選択・プレビューのみです。'}</p>
         {!photo && referenceAssetId && <p>保存済みの参考写真 <button type="button" onClick={() => {
@@ -213,7 +223,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
         }}>参照を外す</button></p>}
         {photoError && <p id="photo-error" role="alert" className="field-error">{photoError}</p>}
         {photoLoadFailed && <p role="alert" className="field-error">画像を読み込めませんでした。もう一度選ぶか、画像を削除してください。</p>}
-        {photo && <div className="photo-preview"><img src={photo.url} alt={`選択した参考写真：${photo.file.name}`} onError={() => setPhotoLoadFailed(true)} /><div><span>{photo.file.name}</span><button type="button" onClick={() => inputRef.current?.click()}>変更</button><button type="button" onClick={clearPhoto}>削除</button>{photoLoadFailed && <button type="button" onClick={() => inputRef.current?.click()}>再試行</button>}</div></div>}
+        {photo && <div className="photo-preview" role="region" aria-label="選択中の参考写真"><img src={photo.url} alt={`選択した参考写真：${photo.file.name}`} onError={() => setPhotoLoadFailed(true)} /><div><span>選択中：{photo.file.name}</span><button type="button" onClick={() => inputRef.current?.click()}>変更</button><button type="button" onClick={clearPhoto}>削除</button>{photoLoadFailed && <button type="button" onClick={() => inputRef.current?.click()}>再試行</button>}</div></div>}
       </section>
       <section className="form-section" aria-labelledby="area-heading"><h2 id="area-heading">公開する探索エリア</h2>
         {areaLabel ? <p>開発用の所属と公開探索エリア：{areaLabel}</p> : <>
@@ -224,10 +234,18 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
       </section>
       <section className="form-section" aria-labelledby="conditions-heading"><h2 id="conditions-heading">挑戦前に伝える条件</h2>
         <fieldset><legend>撮影に必要な条件</legend><div className="check-grid"><label className="check-option"><input type="checkbox" checked={requiresBoat} onChange={event => { setRequiresBoat(event.target.checked); markMaterialChange() }} />船上・海上での撮影が必要</label><label className="check-option"><input type="checkbox" checked={requiresPaidFacility} onChange={event => { setRequiresPaidFacility(event.target.checked); markMaterialChange() }} />有料施設内での撮影が必要</label></div><p className="helper">陸から撮影できる場合、船上・海上の条件は選びません。</p></fieldset>
-        <label>料金<input value={price} onChange={event => { setPrice(event.target.value); markMaterialChange() }} placeholder="例：入館料が必要" /></label>
+        <label>料金<input value={price} onChange={event => { setPrice(event.target.value); markMaterialChange() }} placeholder="例：大人500円／無料／要確認" /></label>
         <label>撮影時の注意<textarea value={photoNote} onChange={event => { setPhotoNote(event.target.value); markMaterialChange() }} rows={2} placeholder="撮影できる時間や安全上の制約は、挑戦前にここへ記載" /></label>
       </section>
       <section className="form-section" aria-labelledby="after-clear-heading"><h2 id="after-clear-heading">クリア後の紹介・解説</h2>
+        <fieldset><legend>紹介・解説の入力方法</legend>
+          <div role="radiogroup" aria-label="紹介・解説の入力方法">
+            <label><input type="radio" name="after-clear-entry-mode" value="manual" defaultChecked />手入力</label>
+            <label><input type="radio" name="after-clear-entry-mode" value="ai" disabled aria-describedby="after-clear-ai-status" />AI自動入力（準備中）</label>
+          </div>
+          <p id="after-clear-ai-status" className="helper">AIによる紹介・解説の自動入力は準備中です。生成APIは未接続です。</p>
+        </fieldset>
+        <p className="helper">入力した紹介コメントと解説は、内容を確認・編集してから「下書き・編集へ」進んでください。</p>
         <label>アクセス補足<textarea value={access} onChange={event => { setAccess(event.target.value); markMaterialChange() }} rows={2} placeholder="例：駅から徒歩約10分" /></label>
         <fieldset><legend>利用できる時間</legend>
           <div role="radiogroup" aria-label="利用できる時間の設定">
@@ -243,8 +261,8 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
           {hoursMode === 'supplement' && <label>時間の補足<input value={hoursSupplement} onChange={event => { setHoursSupplement(event.target.value); setHours(event.target.value); setShowSummary(false); markMaterialChange() }} placeholder="例：季節により異なります" /></label>}
           {hoursError && <p ref={hoursErrorRef} id="hours-error" role="alert" tabIndex={-1} className="field-error">{hoursError}</p>}
         </fieldset>
-        <label>自治体のアピールコメント<textarea value={promoComment} onChange={event => { setPromoComment(event.target.value); markMaterialChange() }} rows={2} /></label>
-        <label>解説<textarea value={explanation} onChange={event => { setExplanation(event.target.value); markMaterialChange() }} rows={3} /></label>
+        <label>自治体のアピールコメント<textarea value={promoComment} onChange={event => { setPromoComment(event.target.value); markMaterialChange() }} rows={2} placeholder="例：地域で大切に受け継いできた風景です。" /></label>
+        <label>解説<textarea value={explanation} onChange={event => { setExplanation(event.target.value); markMaterialChange() }} rows={3} placeholder="例：この建物が建てられた背景や、地域との関わり" /></label>
       </section>
       <section className="form-section" aria-labelledby="rights-heading"><h2 id="rights-heading">写真の権利</h2>
         <label>写真の出典と利用権<textarea value={photoRights} onChange={event => { setPhotoRights(event.target.value); markMaterialChange() }} rows={2} placeholder="出典・撮影者・利用許諾など" /></label>
