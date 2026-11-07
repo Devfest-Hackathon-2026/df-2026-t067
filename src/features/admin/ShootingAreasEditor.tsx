@@ -79,13 +79,13 @@ function ShootingAreasForm({ api, initial, onReload }: { api: ApiClient; initial
   </form>
 }
 
-export function ShootingAreasEditor({ api, orgId, questId, onBack }: { api: ApiClient; orgId: string; questId: string; onBack: () => void }) {
+export function ShootingAreasEditor({ api, orgId, questId, onBack, backLabel = '問題一覧へ戻る' }: { api: ApiClient; orgId: string; questId: string; onBack: () => void; backLabel?: string }) {
   const read = useCallback((signal: AbortSignal) => api.getShootingAreas(orgId, questId, { signal }), [api, orgId, questId])
   const { result, retry } = useRemote(true, read)
   return <section className="form-section" aria-labelledby="shooting-editor-title">
     <h2 id="shooting-editor-title">非公開の撮影範囲</h2>
     <p>架空の緯度・経度・半径を最大10件設定できます。旅行者向けの地図や通常のヒントには表示しません。</p>
-    <button type="button" onClick={onBack}>問題一覧へ戻る</button>
+    <button type="button" onClick={onBack}>{backLabel}</button>
     {result.status === 'loading' && <p role="status">撮影範囲を読み込んでいます…</p>}
     {result.status === 'error' && <><p role="alert">撮影範囲を取得できませんでした。</p><button type="button" onClick={retry}>読み直す</button></>}
     {result.status === 'ready' && <ShootingAreasForm api={api} initial={result.value} onReload={retry} />}

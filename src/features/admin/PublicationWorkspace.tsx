@@ -35,8 +35,8 @@ function publicationFailure(cause: unknown): Failure {
   }
 }
 
-export function PublicationWorkspace({ api, initial, member, onBack, onPublished }: {
-  api: ApiClient; initial: ManagedQuest; member: OrgMembership; onBack: () => void; onPublished: () => void
+export function PublicationWorkspace({ api, initial, member, onBack, onPublished, backLabel = '問題一覧へ戻る' }: {
+  api: ApiClient; initial: ManagedQuest; member: OrgMembership; backLabel?: string; onBack: () => void; onPublished: () => void
 }) {
   const [quest, setQuest] = useState(initial)
   const [photo, setPhoto] = useState<File | null>(null)
@@ -112,7 +112,7 @@ export function PublicationWorkspace({ api, initial, member, onBack, onPublished
     <h2 id="publication-workspace-title">開発用の写真試験と公開確認</h2>
     <p>{quest.draft.content.title || '無題の下書き'}・下書き版 {draftRevision}</p>
     <p>合成写真を使います。同じ画面で試験と確認を終えてください。</p>
-    <button type="button" onClick={onBack}>問題一覧へ戻る</button>
+    <button type="button" onClick={onBack}>{backLabel}</button>
     {failure && <p role="alert">{failure.message}</p>}
     {busy && <p role="status">操作結果を確認しています…</p>}
     <form onSubmit={trial}>

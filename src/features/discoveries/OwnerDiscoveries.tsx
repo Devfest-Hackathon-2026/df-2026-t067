@@ -73,8 +73,8 @@ function DiscoveryDetail({ api, id, onBack, onDeleted }: { api: ApiClient; id: s
   </section>
 }
 
-export function OwnerDiscoveries({ api }: { api: ApiClient }) {
-  const [selected, setSelected] = useState<string | null>(null)
+export function OwnerDiscoveries({ api, initialId }: { api: ApiClient; initialId?: string }) {
+  const [selected, setSelected] = useState<string | null>(initialId ?? null)
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [deleted, setDeleted] = useState(false)
   const read = useCallback((signal: AbortSignal) => api.listDiscoveries({ limit: 20, cursor }, { signal }), [api, cursor])

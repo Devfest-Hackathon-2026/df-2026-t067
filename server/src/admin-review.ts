@@ -5,7 +5,6 @@ export function missingReviewFields(quest: ManagedQuest, assets: Record<AssetPur
   const { materials, content, referenceAssetId, hintAssetId } = quest.draft
   const missing: ReviewField[] = []
   if (!materials.name.trim()) missing.push('materials.name')
-  if (!materials.evidence.trim()) missing.push('materials.evidence')
   if (!materials.photoRights.trim()) missing.push('materials.photoRights')
   if (!referenceAssetId || !assets.reference) missing.push('referenceAssetId')
   if (hintAssetId && !assets.public_hint) missing.push('hintAssetId')

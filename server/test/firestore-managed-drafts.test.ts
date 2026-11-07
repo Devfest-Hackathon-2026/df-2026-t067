@@ -90,7 +90,7 @@ test('durable managed drafts isolate organizations and use one revision for text
     const incomplete = await colleague.submitManagedQuestReview(orgId, initial.questId, initial.draftRevision)
     assert.equal(incomplete.quest.status, 'draft')
     assert.deepEqual(incomplete.missing, [
-      'materials.evidence', 'materials.photoRights', 'referenceAssetId', 'shootingAreas',
+      'materials.photoRights', 'referenceAssetId', 'shootingAreas',
       'content.question', 'content.hints', 'content.verifiedFeatures',
     ])
 

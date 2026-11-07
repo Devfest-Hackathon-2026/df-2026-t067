@@ -52,8 +52,8 @@ it('confirms durable identity and membership before saving a real-source shootin
   vi.stubGlobal('fetch', fetcher)
   try {
     render(<LocalAdminWorkspace authClient={authClient} dataMode="durable-local" />)
-    await user.click(await screen.findByRole('button', { name: /永続の架空自治体/ }))
     expect(await screen.findByText(quest.draft.content.title)).toBeVisible()
+    expect(screen.getByRole('button', { name: /永続の架空自治体/ })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '撮影範囲を設定' }))
     await user.click(await screen.findByRole('button', { name: '範囲を追加' }))
     await user.type(screen.getByLabelText('緯度'), '0')

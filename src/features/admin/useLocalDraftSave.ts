@@ -5,9 +5,11 @@ import { normalizeHintAssets } from './hintAssets'
 import { useRequestAction } from '../../shared/useRequestAction'
 
 export interface LocalDraftConnection {
+  taskFocused?: boolean
   api: Pick<ApiClient, 'uploadOrgAsset' | 'createManagedQuest' | 'updateManagedQuest' | 'generateManagedQuestDraft'>
   initial: ManagedQuest | null
   member: OrgMembership
+  onContinue?: (record: ManagedQuest, destination: 'areas' | 'publication' | 1 | 2 | 3) => void
   onBack: () => void
 }
 
