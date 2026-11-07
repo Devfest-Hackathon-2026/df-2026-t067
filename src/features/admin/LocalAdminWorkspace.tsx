@@ -43,9 +43,9 @@ function OrganizationWorkspace({ api, member, teamPreview, durable }: { api: Api
   function closeEditor() { setEditor(null); retry() }
   if (editor?.kind === 'draft' && durable) return <QuestTaskWorkspace api={api} member={member} initial={editor.initial} onBack={closeEditor} />
   if (editor?.kind === 'draft') return <QuestDraftForm teamPreview={teamPreview} connection={{ api, member, initial: editor.initial, onBack: closeEditor }} />
-  if (editor?.kind === 'areas') return <ShootingAreasEditor api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
-  if (editor?.kind === 'hint') return <HintAssetEditor api={api} initial={editor.initial} member={member} onBack={closeEditor} />
-  if (editor?.kind === 'publication') return <PublicationWorkspace api={api} initial={editor.initial} member={member} onBack={closeEditor}
+  if (editor?.kind === 'areas') return <ShootingAreasEditor enableMap={durable} api={api} orgId={member.orgId} questId={editor.questId} onBack={closeEditor} />
+  if (editor?.kind === 'hint') return <HintAssetEditor rightsAssist={durable} api={api} initial={editor.initial} member={member} onBack={closeEditor} />
+  if (editor?.kind === 'publication') return <PublicationWorkspace rightsAssist={durable} api={api} initial={editor.initial} member={member} onBack={closeEditor}
     onPublished={() => { setNotice('開発用に公開しました。'); closeEditor() }} />
 
   return <section className="form-section" aria-labelledby="org-workspace-title">

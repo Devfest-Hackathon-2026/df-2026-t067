@@ -1,9 +1,10 @@
 export interface GoogleMapsApi {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance
   Marker?: new (options: Record<string, unknown>) => unknown
+  Circle?: new (options: Record<string, unknown>) => { setMap(map: MapInstance | null): void }
   Data: new () => DataLayer
   LatLngBounds: new () => Bounds
-  event: { addListener(target: unknown, name: string, callback: () => void): { remove(): void } }
+  event: { addListener(target: unknown, name: string, callback: (event?: { latLng?: { lat(): number; lng(): number } }) => void): { remove(): void } }
 }
 
 export interface Bounds { extend(point: { lat: number; lng: number }): void }

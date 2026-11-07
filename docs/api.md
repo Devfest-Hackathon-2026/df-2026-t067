@@ -245,3 +245,5 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 ### 2026-11-08 対象理由と回答結果の継続
 
 materials.evidenceはキーと文字列型を維持し、空文字を確認依頼・公開前検証でも許容する。ReviewFieldの旧値は応答互換のため維持する。対象名・権利・特徴・範囲・試験の必須条件は変えない。生成HTTP入口ではevidenceの非空を要求しないが、Vertex合成試験では指定evidenceとの完全一致が引き続き必要。任意の実写真に対する生成機能ではない。回答APIのschemaは変更せず、COMPLETEDかつCORRECT/ALREADY_CLEAREDのoptionalDiscoveryIdを既存本人詳細への遷移に使う。
+
+永続側A03〜A06の地図・時間・料金・写真権利の入力支援は[管理入力支援](admin-input-ux.md)を参照。保存API/strict schema/公開DTOの変更はなく、既存文字列と非公開範囲専用APIを使用する。

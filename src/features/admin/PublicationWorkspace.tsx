@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, parsePublishManagedQuest } from '../../shared/api'
 import type { ApiClient, ManagedQuest, OrgMembership, PhotoDecision, PublishManagedQuest, ReviewField } from '../../shared/api'
+import { PhotoRightsInput } from './PhotoRightsInput'
 import { useRequestAction } from '../../shared/useRequestAction'
 
 const reviewLabels: Record<ReviewField, string> = {
@@ -35,12 +36,14 @@ function publicationFailure(cause: unknown): Failure {
   }
 }
 
-export function PublicationWorkspace({ api, initial, member, onBack, onPublished, backLabel = '問題一覧へ戻る' }: {
-  api: ApiClient; initial: ManagedQuest; member: OrgMembership; backLabel?: string; onBack: () => void; onPublished: () => void
+export function PublicationWorkspace({ api, initial, member, onBack, onPublished, rightsAssist = false, backLabel = '問題一覧へ戻る' }: {
+  api: ApiClient; initial: ManagedQuest; member: OrgMembership; rightsAssist?: boolean; backLabel?: string; onBack: () => void; onPublished: () => void
 }) {
   const [quest, setQuest] = useState(initial)
   const [photo, setPhoto] = useState<File | null>(null)
   const [rights, setRights] = useState('')
+  const [reuseNeeded, setReuseNeeded] = useState(false)
+  const previousPhoto = useRef<File | null>(null)
   const key = useRef<string | null>(null)
   const [outcome, setOutcome] = useState<PhotoDecision | null>(null)
   const [proofs, setProofs] = useState<TestProofs>({})
@@ -78,7 +81,7 @@ export function PublicationWorkspace({ api, initial, member, onBack, onPublished
 
   function trial(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!photoValid || !rights.trim()) return
+    if (!photoValid || !rights.trim() || reuseNeeded) return
     void perform((signal) => api.testManagedQuest(orgId, questId, {
       expectedDraftRevision: draftRevision, photo, photoRights: rights,
       idempotencyKey: key.current ??= crypto.randomUUID(),
@@ -119,13 +122,17 @@ export function PublicationWorkspace({ api, initial, member, onBack, onPublished
       <fieldset disabled={disabled}>
         <legend>A05 写真試験</legend>
         <label>試験写真<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
-          setPhoto(event.target.files?.[0] ?? null); key.current = null; setOutcome(null)
+          const next = event.target.files?.[0] ?? null
+          if (rightsAssist && next && previousPhoto.current && rights.trim()) setReuseNeeded(true)
+          if (next) previousPhoto.current = next
+          setPhoto(next); key.current = null; setOutcome(null)
         }} /></label>
-        <label>試験写真の利用権<input maxLength={2000} value={rights} onChange={(event) => {
-          setRights(event.target.value); key.current = null; setOutcome(null)
-        }} /></label>
+        {rightsAssist ? <PhotoRightsInput key={photo ? `${photo.name}:${photo.lastModified}` : 'empty'} purpose="test" label="試験写真の利用権" value={rights} onChange={(value) => {
+          setRights(value); setReuseNeeded(false); key.current = null; setOutcome(null)
+        }} /> : <label>試験写真の利用権<textarea value={rights} onChange={event => { setRights(event.target.value); key.current = null; setOutcome(null) }} /></label>}
+        {reuseNeeded && <label><input type="checkbox" checked={false} onChange={() => setReuseNeeded(false)} />差し替えた写真を非公開試験に使う権利を確認し、入力済みの権利文を適用する</label>}
         {photo && !photoValid && <p>4 MiB以内のJPEG・PNG・WebPを選んでください。</p>}
-        <button type="submit" disabled={!photoValid || !rights.trim()}>写真試験を送信</button>
+        <button type="submit" disabled={!photoValid || !rights.trim() || reuseNeeded}>写真試験を送信</button>
       </fieldset>
     </form>
     {proofs.MATCH && <p role="status">一致試験を確認しました。</p>}
