@@ -107,3 +107,14 @@
 }
 
 .admin-demo input:not([type=checkbox]):not([type=file]):not([type=radio]), .admin-demo textarea, .admin-demo select, .admin-demo button, .admin-demo input::file-selector-button { border-color: var(--ui-control-line); }
+
+.admin-demo details.form-section > summary,
+.admin-editor details.form-section > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-demo [aria-invalid="true"],
+.admin-editor [aria-invalid="true"] {
+  border-color: var(--ui-error);
+}
