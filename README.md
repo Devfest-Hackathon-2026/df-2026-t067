@@ -40,7 +40,7 @@ VITE_QUEST_DATA_SOURCE=durable-local npm run dev
 
 保存環境の停止・破棄でもデータを残すには、その環境自身の永続化設定が必要です。API再起動で消えるメモリデモとは区別してください。実機、実写真照合、本番接続の確認範囲は各資料を参照してください。
 
-[共有サイトの旅行者画面](https://quest-team-preview-kufuezpzga-an.a.run.app/)では、地図と公開問題を閲覧できます。招待された4人は[自治体画面](https://quest-team-preview-kufuezpzga-an.a.run.app/admin)から編集・公開できます。[共有検証の構成と確認手順](docs/team-preview.md)
+[共有サイトの旅行者画面](https://quest-team-preview-kufuezpzga-an.a.run.app/)では、地図と公開問題を閲覧できます。招待された4人は[自治体画面](https://quest-team-preview-kufuezpzga-an.a.run.app/admin)から編集・公開できます。回答試験を有効化した配置では、4人に限り撮影・回答・本人記録まで試せます。[共有検証の構成と確認手順](docs/team-preview.md)
 
 このリポジトリはGitHub Actions / Pagesに依存しません。運営の提出案内は後半に原文を掲載しています。
 

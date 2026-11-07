@@ -43,8 +43,8 @@ async function readPages<T>(read: (cursor?: string) => Promise<Page<T>>, signal:
   return items
 }
 
-export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, dataMode = 'demo' }: {
-  api?: Api; syncUrl?: boolean; authClient?: AuthClient; dataMode?: LocalApiDataMode
+export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, dataMode = 'demo', teamAnswerTrial = false }: {
+  api?: Api; syncUrl?: boolean; authClient?: AuthClient; dataMode?: LocalApiDataMode; teamAnswerTrial?: boolean
 }) {
   const api = useMemo(() => providedApi ?? createApiClient({ expectedDataMode: dataMode }), [providedApi, dataMode])
   const [initialSelection] = useState(() => syncUrl ? readSelectionFromUrl() : { areaId: '', questId: '' })
@@ -255,7 +255,7 @@ export function ApiQuestApp({ api: providedApi, syncUrl = true, authClient, data
     </section> : undefined
   return <App authClient={authClient} quest={quest} mapAreas={availableAreas} selectedAreaId={selectedAreaId} onSelectArea={selectArea}
     areaLabel={current?.area?.label ?? '探索地域名は未掲載です'}
-    questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} getHint={api.getHint}
+    questPicker={<>{picker}{refreshControl}</>} catalogFallback={fallback} apiMode apiDataMode={dataMode} teamAnswerTrial={teamAnswerTrial} getHint={api.getHint}
     questStale={!!quest && staleQuest?.questId === quest.questId && staleQuest.version === quest.version}
     onHintVersionStale={() => { if (quest) setStaleQuest({ questId: quest.questId, version: quest.version }) }}
     onReloadQuest={(event) => reload(event)} />

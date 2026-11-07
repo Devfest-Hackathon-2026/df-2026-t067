@@ -47,6 +47,7 @@ type AppProps = {
   catalogFallback?: ReactNode
   apiMode?: boolean
   apiDataMode?: LocalApiDataMode
+  teamAnswerTrial?: boolean
   apiClient?: ApiClient
   onReloadQuest?: (event?: MouseEvent<HTMLButtonElement>) => void
   getHint?: ApiClient['getHint']
@@ -91,7 +92,7 @@ function waitForSignedIn(authClient: AuthClient, signal: AbortSignal): Promise<b
   })
 }
 
-export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, mapAreas = [], selectedAreaId = '', onSelectArea, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false, apiDataMode = 'demo' }: AppProps = {}) {
+export default function App({ authClient: providedClient, apiClient: providedApi, onStartChallenge, onReloadQuest, getHint: providedGetHint, questStale: providedQuestStale = false, onHintVersionStale, quest: externalQuest, mapAreas = [], selectedAreaId = '', onSelectArea, areaLabel: externalAreaLabel, questPicker, catalogFallback, apiMode = false, apiDataMode = 'demo', teamAnswerTrial: teamAnswerTrialProp = false }: AppProps = {}) {
   const [openState, setOpenState] = useState<{ quest?: PublicQuest; open: boolean }>({ open: false })
   const isQuestOpen = openState.quest === externalQuest && openState.open
   const [recordsOpen, setRecordsOpen] = useState(false)
@@ -100,6 +101,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const auth = useSyncExternalStore(authClient.subscribe, authClient.getSnapshot, authClient.getSnapshot)
   const source = readDataSource(import.meta.env.VITE_QUEST_DATA_SOURCE, import.meta.env.DEV)
   const teamPreview = apiMode && apiDataMode === 'team-preview'
+  const teamAnswerTrial = teamPreview && teamAnswerTrialProp
   const railFallback = teamPreview ? catalogFallback : undefined
   const getHint = providedGetHint ?? (source === 'preview' && !apiMode && !externalQuest && !catalogFallback ? getPreviewHint : undefined)
   const localApiMode = apiMode || source === 'local-api'
@@ -114,7 +116,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
   const questKey = quest ? `${quest.questId}:${quest.version}` : ''
   const [localStaleQuestKey, setLocalStaleQuestKey] = useState('')
   const questStale = providedQuestStale || (questKey !== '' && localStaleQuestKey === questKey)
-  const serverIdentity = useServerIdentity(!teamPreview && (apiMode || source === 'local-api'), api, auth)
+  const serverIdentity = useServerIdentity((!teamPreview || teamAnswerTrial) && (apiMode || source === 'local-api'), api, auth)
   const uid = auth.status === 'signed-in' ? auth.user.uid : null
   const canUseCamera = uid !== null && (!(apiMode || source === 'local-api') || serverIdentity.result?.status === 'ready')
   const [cameraOwner, setCameraOwner] = useState<{ auth: AuthSnapshot; confirmation: typeof serverIdentity.result; questId: string; version: number } | null>(null)
@@ -218,7 +220,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
         <nav className="desktop-nav" aria-label="主要ナビゲーション">
           <a className={showRecords ? undefined : 'nav-active'} href="#explore-title" aria-current={showRecords ? undefined : 'page'}
             onClick={() => navigateToRecords(false)}><Icon name="map" />謎を探す</a>
-          {teamPreview ? <a href="/admin">自治体画面</a> : <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
+          {teamPreview && <a href="/admin">自治体画面</a>}
+          {(!teamPreview || teamAnswerTrial) && <button type="button" className={showRecords ? 'nav-active' : undefined} aria-current={showRecords ? 'page' : undefined}
             disabled={!localApiMode || visiblePending !== null} onClick={() => navigateToRecords(true)}>
             <Icon name="book" />自分の記録{!localApiMode && <span>準備中</span>}
           </button>}
@@ -271,7 +274,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                   getHint={getHint ?? api.getHint} getHintPhoto={teamPreview ? api.getPublishedHintPhoto : undefined} stale={questStale}
                   onHintVersionChanged={() => { closeCamera(); selectionGeneration.current++; waitController.current?.abort(); setLocalStaleQuestKey(questKey); onHintVersionStale?.() }}
                   onReloadQuest={(event) => { if (externalQuest) onReloadQuest?.(event); else connection.retry() }}
-                  hideStartAction={teamPreview || (!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null)}
+                  hideStartAction={(teamPreview && !teamAnswerTrial) || (!onStartChallenge && (apiMode || source === 'local-api') && canUseCamera && visiblePending === null)}
                   disabled={questStale || visiblePending !== null || (auth.status !== 'signed-out' && auth.status !== 'signed-in') || (auth.status === 'signed-in' && (onStartChallenge ? false : !canUseCamera || cameraVisible))}
                   buttonLabel={visiblePending === 'sign-in' ? '処理中…' : auth.status === 'signed-in' ? (onStartChallenge ? '挑戦を開始する' : cameraVisible ? '撮影中' : serverIdentity.result?.status === 'loading' ? 'ログインの確認中…' : serverIdentity.result?.status === 'error' ? 'ログインの確認待ち' : '撮影を始める') : 'Googleログインして挑戦する'}
                   note={questStale ? '問題の版を確認できていません。最新版を読み直すまで挑戦できません。'
@@ -293,7 +296,7 @@ export default function App({ authClient: providedClient, apiClient: providedApi
                   : connection.result.status === 'loading' ? <p role="status" aria-label="問題の読み込み">問題を読み込んでいます…</p> : <div role="alert">{source === 'invalid' ? '表示設定を確認してください。' : '問題を読み込めませんでした。'}<button type="button" className="retry-button" onClick={connection.retry}>問題を再読み込み</button></div>}
               </div>}
               <p className="browse-note">問題の閲覧にログインは必要ありません。</p>
-              <div className="demo-note"><span className="demo-note-dot" /><p>{teamPreview ? '自治体画面で公開した架空の問題を確認できます。' : durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
+              <div className="demo-note"><span className="demo-note-dot" /><p>{teamAnswerTrial ? '自治体画面で公開した架空の問題を確認できます。招待された4人は撮影と回答も試せます。' : teamPreview ? '自治体画面で公開した架空の問題を確認できます。' : durableLocal ? '永続APIの確認用です。回答の送信には合成画像と架空の座標を使ってください。' : apiMode ? '公開APIが返す架空のデモデータです。実際に訪問できる場所ではありません。' : '今はデザイン確認用の架空の1問を表示しています。実際に訪問できる場所ではありません。'}</p></div>
             </aside>
           </div>
         </section>
@@ -303,7 +306,8 @@ export default function App({ authClient: providedClient, apiClient: providedApi
       <footer className="site-footer"><span>場所・問題は架空の開発用デモです。</span></footer>
       <nav className="mobile-nav" aria-label="スマホ用ナビゲーション">
         <a href="#explore-title" aria-current={showRecords ? undefined : 'page'} onClick={() => navigateToRecords(false)}><Icon name="map" /><span>謎を探す</span></a>
-        {teamPreview ? <a href="/admin">自治体画面</a> : <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!localApiMode || visiblePending !== null}
+        {teamPreview && <a href="/admin">自治体画面</a>}
+        {(!teamPreview || teamAnswerTrial) && <button type="button" aria-current={showRecords ? 'page' : undefined} disabled={!localApiMode || visiblePending !== null}
           onClick={() => navigateToRecords(true)}><Icon name="book" /><span>自分の記録{!localApiMode && <small>準備中</small>}</span></button>}
       </nav>
     </>
