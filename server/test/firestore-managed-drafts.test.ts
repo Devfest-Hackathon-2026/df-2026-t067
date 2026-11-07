@@ -33,7 +33,7 @@ test('durable managed drafts isolate organizations and use one revision for text
   for (const [uid, org] of [['editor', orgId], ['colleague', orgId], ['other', 'other-org']]) {
     batch.create(member(uid, org), { uid, orgId: org, active: true, role: 'editor', label: '架空の自治体', areaId })
   }
-  for (const [assetId, org, purpose] of [['reference', orgId, 'reference'], ['hint', orgId, 'public_hint'], ['foreign', 'other-org', 'reference']]) {
+  for (const [assetId, org, purpose] of [['reference', orgId, 'reference'], ['hint', orgId, 'public_hint'], ['foreign', 'other-org', 'reference'], ['foreign-hint', 'other-org', 'public_hint']]) {
     batch.create(db.collection('orgAssets').doc(assetId), { generation: '1', digest: 'a'.repeat(64),
       asset: { assetId, orgId: org, purpose, photoRights: '架空', contentType: 'image/jpeg', width: 2, height: 2, byteLength: 10, source: 'real' } })
   }
@@ -56,6 +56,11 @@ test('durable managed drafts isolate organizations and use one revision for text
   await assert.rejects(first('traveler').createManagedQuest(orgId, draft), { code: 'FORBIDDEN' })
   for (const referenceAssetId of ['hint', 'foreign', 'missing']) {
     await assert.rejects(editor.createManagedQuest(orgId, { ...draft, referenceAssetId }), { code: 'INVALID_INPUT' })
+  }
+  for (const index of [0, 1, 2]) {
+    const hintAssetIds = [null, null, null] as (string | null)[]
+    hintAssetIds[index] = 'foreign-hint'
+    await assert.rejects(editor.createManagedQuest(orgId, { ...draft, hintAssetIds }), { code: 'INVALID_INPUT' })
   }
   const created = await editor.createManagedQuest(orgId, { ...draft, referenceAssetId: 'reference', hintAssetId: 'hint' })
   const { questId, draftRevision } = created

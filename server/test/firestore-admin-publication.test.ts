@@ -4,6 +4,7 @@ import { Storage } from '@google-cloud/storage'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import test from 'node:test'
+import sharp from 'sharp'
 import type { ManagedQuestDraft } from '../../src/shared/api/admin'
 import { createApiClient } from '../../src/shared/api/client'
 import { AnswerPhotoStorage } from '../src/answer-photo-storage'
@@ -53,12 +54,16 @@ test('durable publishing freezes the tested version and pausing stops all public
   const matcher = await createFixturePhotoMatcher()
   let duplicate = false
   let revokeDuringHintRead = false
+  let afterHintRead: (() => Promise<void>) | undefined
   const publisherId = createHash('sha256').update(JSON.stringify(['publisher', orgId])).digest('hex')
   const publisherMembership = db.collection('memberships').doc(publisherId)
   const publication = {
     readReference: photos.readReference.bind(photos),
     async readHint(...args: Parameters<AnswerPhotoStorage['readHint']>) {
       const picture = await photos.readHint(...args)
+      const action = afterHintRead
+      afterHintRead = undefined
+      await action?.()
       if (revokeDuringHintRead) await publisherMembership.update({ role: 'editor' })
       return picture
     },
@@ -77,15 +82,43 @@ test('durable publishing freezes the tested version and pausing stops all public
   const team = await start({ allowedUids: new Set(['editor', 'publisher', 'traveler', 'other']), webDirectory: '' })
   const editor = team.api('editor'), publisher = team.api('publisher'), traveler = second.api('traveler')
   const teamTraveler = team.api('traveler')
-  await assert.rejects(team.api('outsider').listQuests(), { code: 'FORBIDDEN' })
+  assert.deepEqual((await team.api('outsider').listQuests()).items, [])
+  const anonymousList = await fetch(team.base + '/api/v1/quests')
+  assert.equal(anonymousList.status, 200)
+  assert.deepEqual((await anonymousList.json()).items, [])
+  await assert.rejects(team.api('outsider').listManagedQuests(orgId), { code: 'FORBIDDEN' })
   await assert.rejects(teamTraveler.listManagedQuests(orgId), { code: 'FORBIDDEN' })
   const reference = await editor.uploadOrgAsset(orgId, { purpose: 'reference', photoRights: '合成画像', photo: image(syntheticPng), idempotencyKey: 'reference' })
   const hint = await editor.uploadOrgAsset(orgId, { purpose: 'public_hint', photoRights: '合成画像', photo: image(otherSyntheticPng), idempotencyKey: 'hint' })
+  const hints = [hint]
+  for (const [index, background] of ['#123456', '#abcdef'].entries()) {
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background } }).png().toBuffer()
+    hints.push(await editor.uploadOrgAsset(orgId, { purpose: 'public_hint', photoRights: '合成画像',
+      photo: image(bytes), idempotencyKey: 'hint-' + index }))
+  }
+  const hintBytes = await Promise.all(hints.map(async (asset) => Buffer.from(
+    await (await editor.getOrgAssetPhoto(orgId, asset.assetId)).arrayBuffer())))
+  assert.equal(new Set(hintBytes.map((bytes) => bytes.toString('base64'))).size, 3)
   const draft: ManagedQuestDraft = {
     materials: { name: '非公開の対象名', evidence: '架空の根拠', requiresBoat: true, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成画像' },
     content: { title: '公開する問題', question: '問題文', hints: ['一つ目', '二つ目', '三つ目'], verifiedFeatures: durableFixtureFeatures[0], draftingNotes: '' },
     afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説' },
-    referenceAssetId: reference.assetId, hintAssetId: hint.assetId,
+    referenceAssetId: reference.assetId, hintAssetId: null, hintAssetIds: hints.map((asset) => asset.assetId),
+  }
+  const foreignHint = await second.api('other').uploadOrgAsset('other-org', { purpose: 'public_hint',
+    photoRights: '合成画像', photo: image(otherSyntheticPng), idempotencyKey: 'foreign-hint' })
+  for (const index of [0, 1, 2]) {
+    const ids = [...draft.hintAssetIds!]
+    ids[index] = foreignHint.assetId
+    await assert.rejects(editor.createManagedQuest(orgId, { ...draft, hintAssetIds: ids }), { code: 'INVALID_INPUT' })
+  }
+  for (const path of ['/api/v1/orgs/' + orgId + '/assets/' + reference.assetId + '/photo',
+    '/api/v1/me/discoveries/private-record/photo']) {
+    for (const [headers, status] of [[{}, 401], [{ Authorization: 'Bearer outsider' }, 403]] as const) {
+      const denied = await fetch(team.base + path, { headers })
+      assert.equal(denied.status, status)
+      await denied.body?.cancel()
+    }
   }
   const { questId } = await editor.createManagedQuest(orgId, draft)
   const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 25 }]
@@ -126,15 +159,25 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.doesNotMatch(JSON.stringify(visible), /非公開|クリア後|latitude|referenceAssetId/)
   assert.deepEqual(visible.shootingConditions, { requiresBoat: true, requiresPaidFacility: false })
   assert.equal((await traveler.getHint({ questId, index: 1, expectedVersion: 1 })).text, '一つ目')
-  assert(visible.optionalHintImage)
-  const displayedHint = await fetch(second.base + visible.optionalHintImage)
+  assert(visible.hintImages?.[1])
+  assert.equal(visible.optionalHintImage, undefined)
+  const displayedHint = await fetch(second.base + visible.hintImages[1])
   assert.equal(displayedHint.headers.get('Content-Type'), 'image/jpeg')
-  assert.deepEqual(await displayedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
-  const protectedHint = await teamTraveler.getPublishedHintPhoto(questId, 1)
-  assert.deepEqual(await protectedHint.arrayBuffer(), await (await editor.getOrgAssetPhoto(orgId, hint.assetId)).arrayBuffer())
-  const anonymousHint = await fetch(team.base + visible.optionalHintImage)
-  assert.equal(anonymousHint.status, 401)
-  await anonymousHint.body?.cancel()
+  assert.deepEqual(Buffer.from(await displayedHint.arrayBuffer()), hintBytes[1])
+  for (const index of [1, 2, 3]) {
+    const photo = await teamTraveler.getPublishedHintPhoto(questId, 1, index)
+    assert.deepEqual(Buffer.from(await photo.arrayBuffer()), hintBytes[index - 1])
+  }
+  const protectedHint = await teamTraveler.getPublishedHintPhoto(questId, 1, 2)
+  assert.deepEqual(Buffer.from(await protectedHint.arrayBuffer()), hintBytes[1])
+  const anonymousHint = await fetch(team.base + visible.hintImages[1])
+  assert.equal(anonymousHint.status, 200)
+  assert.equal(anonymousHint.headers.get('Cache-Control'), 'no-store')
+  assert.deepEqual(Buffer.from(await anonymousHint.arrayBuffer()), hintBytes[1])
+  assert.deepEqual((await team.api('outsider').listQuests()).items, [visible])
+  const publicList = await fetch(team.base + '/api/v1/quests')
+  assert.equal(publicList.status, 200)
+  assert.deepEqual((await publicList.json()).items, [visible])
   const v1 = db.collection('questVersions').doc(questId + ':1')
   assert.deepEqual((await v1.get()).get('answerMaterial.zones'), zones)
   assert.equal((await v1.get()).get('descriptionSnapshot'), draft.afterClear.explanation)
@@ -145,15 +188,22 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.equal((await traveler.getQuest(questId)).title, visible.title)
   const pause = { expectedPublishedVersion: 1, reason: '架空の休止' }
   await assert.rejects(editor.pauseManagedQuest(orgId, questId, pause), { code: 'FORBIDDEN' })
-  const paused = await publisher.pauseManagedQuest(orgId, questId, pause)
+  let paused!: Awaited<ReturnType<typeof publisher.pauseManagedQuest>>
+  afterHintRead = async () => { paused = await publisher.pauseManagedQuest(orgId, questId, pause) }
+  const interrupted = await fetch(team.base + visible.hintImages[1])
+  assert.equal(interrupted.status, 404)
+  await interrupted.body?.cancel()
   assert.equal(paused.draftRevision, edited.draftRevision + 1)
   assert.deepEqual(await second.api('publisher').pauseManagedQuest(orgId, questId, pause), paused)
   await assert.rejects(publisher.pauseManagedQuest(orgId, questId, { ...pause, reason: '別の理由' }), { code: 'QUEST_UNAVAILABLE' })
   await assert.rejects(traveler.getQuest(questId), { code: 'NOT_FOUND' })
   await assert.rejects(teamTraveler.getPublishedHintPhoto(questId, 1), { code: 'NOT_FOUND' })
+  for (const index of [1, 2, 3]) {
+    await assert.rejects(teamTraveler.getPublishedHintPhoto(questId, 1, index), { code: 'NOT_FOUND' })
+  }
   assert.equal((await traveler.listAreas()).items[0].publishedCount, 0)
   await assert.rejects(traveler.createChallenge({ questId, expectedVersion: 1 }), { code: 'QUEST_UNAVAILABLE' })
-  const hiddenHint = await fetch(second.base + visible.optionalHintImage)
+  const hiddenHint = await fetch(second.base + visible.hintImages[1])
   assert.equal(hiddenHint.status, 404)
   await hiddenHint.body?.cancel()
 
@@ -165,7 +215,7 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.equal((await publisher.publishManagedQuest(orgId, questId, { ...input, expectedDraftRevision: paused.draftRevision,
     matchTestId: newMatch.testId, mismatchTestId: newMismatch.testId })).publishedVersion, 2)
   assert.equal((await traveler.getQuest(questId)).title, '改版した問題')
-  const oldImage = await fetch(second.base + visible.optionalHintImage)
+  const oldImage = await fetch(second.base + visible.hintImages[1])
   assert.equal(oldImage.status, 409)
   await oldImage.body?.cancel()
   const capturedAt = new Date().toISOString()

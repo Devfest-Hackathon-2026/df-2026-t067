@@ -385,8 +385,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
     async getQuest(questId: string, call: CallOptions = {}) {
       return request('/quests/' + id(questId), parsePublicQuest, call)
     },
-    async getPublishedHintPhoto(questId: string, version: number, call: CallOptions = {}) {
-      return requestPhoto('/quests/' + id(questId) + '/hint-image?expectedVersion=' + positiveInteger(version), call)
+    async getPublishedHintPhoto(questId: string, version: number, indexOrCall: number | CallOptions = {}, call: CallOptions = {}) {
+      const index = typeof indexOrCall === 'number' ? positiveInteger(indexOrCall) : undefined
+      const options = typeof indexOrCall === 'number' ? call : indexOrCall
+      const path = index === undefined ? '/hint-image' : '/hint-images/' + index
+      return requestPhoto('/quests/' + id(questId) + path + '?expectedVersion=' + positiveInteger(version), options)
     },
     async getHint(input: { questId: string; expectedVersion: number; index: number }, call: CallOptions = {}) {
       const questId = id(input.questId)

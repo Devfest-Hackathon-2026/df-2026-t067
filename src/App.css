@@ -187,13 +187,12 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
   .preview-label { display: none; }
   .preview-label.api-source { display: inline-flex; }
   .map-preview { height: 338px; border-radius: var(--ui-radius); }
-  .map-topline { top: 12px; left: 12px; right: 12px; gap: 6px; }
-  .map-location-action { max-width: 52%; }
+  .map-topline { top: 12px; left: 12px; right: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; gap: 4px 6px; }
   .map-scope { padding: 7px 9px; font-size: 12px; gap: 6px; }
   .map-scope .icon { width: 14px; height: 14px; }
-  .map-location-action { gap: 2px; }
-  .map-location-action button { min-height: 44px; padding: 6px 8px; font-size: 12px; }
-  .map-location-action span { max-width: 170px; text-align: right; font-size: 9px; }
+  .map-location-action { display: contents; }
+  .map-location-action button { justify-self: end; min-height: 44px; padding: 6px 8px; font-size: 12px; pointer-events: auto; }
+  .map-location-action span { grid-column: 1 / -1; justify-self: end; text-align: right; overflow-wrap: anywhere; font-size: 10px; }
   .map-location-status { position: relative; inset: auto; z-index: auto; max-width: none; margin: 8px 12px 0; padding: 7px 9px; font-size: 11px; }
   .demo-map-label { font-size: 12px; padding: 3px 5px; }
   .map-zoom { right: 11px; bottom: 72px; }
@@ -312,6 +311,9 @@ h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: var(--ui-weight-display
 .optional-hint-toggle, .optional-hint-content button { min-height: 44px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-ink); padding: 9px 14px; font: inherit; cursor: pointer; }
 .optional-hint-content { margin-top: 12px; color: var(--ui-muted); font-size: 13px; line-height: 1.7; }
 .optional-hint-image { display: block; width: 100%; max-width: 100%; height: auto; max-height: 70vh; object-fit: contain; border-radius: var(--ui-radius); }
+@media (max-width: 640px) {
+  .hint-item .optional-hint-image { max-height: min(320px, 45svh); }
+}
 .quest-hints { display: grid; gap: 10px; margin: 18px 0; }
 .quest-hints h4 { margin: 0; }
 .hint-item, .hint-version-changed { padding: 12px; border: var(--ui-border-width) solid var(--ui-line); border-radius: var(--ui-radius); background: var(--ui-tint); }

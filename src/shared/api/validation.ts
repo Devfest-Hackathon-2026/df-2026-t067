@@ -118,13 +118,17 @@ export function parseShootingConditions(input: unknown): ShootingConditions {
 }
 
 export function parsePublicQuest(input: unknown): PublicQuest {
-  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'optionalHintImage', 'visitConditions', 'hintCount', 'shootingConditions'], 'PublicQuest')
+  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'optionalHintImage', 'hintImages', 'visitConditions', 'hintCount', 'shootingConditions'], 'PublicQuest')
   const result: PublicQuest = {
     questId: text(d.questId, 'questId'), version: integer(d.version, 'version', 1),
     title: text(d.title, 'title'), clue: text(d.clue, 'clue'), areaId: text(d.areaId, 'areaId'),
     visitConditions: text(d.visitConditions, 'visitConditions'), hintCount: integer(d.hintCount, 'hintCount'),
   }
   if (d.optionalHintImage !== undefined) result.optionalHintImage = imageUrl(d.optionalHintImage, 'optionalHintImage')
+  if (d.hintImages !== undefined) {
+    if (!Array.isArray(d.hintImages) || d.hintImages.length !== 3) throw new ContractError('hintImages')
+    result.hintImages = d.hintImages.map((value, index) => value === null ? null : imageUrl(value, 'hintImages.' + index))
+  }
   if (d.shootingConditions !== undefined) result.shootingConditions = parseShootingConditions(d.shootingConditions)
   return result
 }
