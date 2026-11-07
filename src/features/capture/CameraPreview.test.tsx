@@ -431,6 +431,7 @@ describe('local camera preview', () => {
     await loadFrame(media.stream)
     await media.user.click(screen.getByRole('button', { name: '撮影する' }))
     expect(screen.getByRole('alert')).toHaveTextContent(code === 1 ? '許可されませんでした' : '取得できませんでした')
+    if (code === 1) expect(screen.getByRole('alert')).toHaveTextContent('ブラウザが再確認を表示しない場合は、アドレスバーのサイト情報から位置情報を許可')
     expect(document.body).not.toHaveTextContent('private-location-details')
     expect(await screen.findByRole('img', { name: '撮影した写真のプレビュー' })).toBeVisible()
     expect(screen.queryByRole('button', { name: '撮影地を見る' })).not.toBeInTheDocument()

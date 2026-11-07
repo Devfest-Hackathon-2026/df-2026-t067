@@ -161,7 +161,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
           setError(null)
         } catch { locationFailed('撮影地の位置情報を確認できませんでした。') }
       }, (cause) => locationFailed(cause.code === cause.PERMISSION_DENIED
-        ? '撮影地の取得が許可されませんでした。ブラウザの位置情報設定を確認してください。'
+        ? '撮影地の取得が許可されませんでした。ブラウザが再確認を表示しない場合は、アドレスバーのサイト情報から位置情報を許可してから再試行してください。'
         : '撮影地を取得できませんでした。位置情報を確認してください。'),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     } catch { locationFailed('撮影地を取得できませんでした。位置情報を確認してください。') }
