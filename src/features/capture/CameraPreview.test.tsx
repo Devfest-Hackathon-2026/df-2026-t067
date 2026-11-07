@@ -93,6 +93,17 @@ describe('local camera preview', () => {
     expect(media.onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('requests camera access again after a persistent permission denial and explains site settings', async () => {
+    const media = setup()
+    media.getUserMedia.mockRejectedValue(new DOMException('private-device-details', 'NotAllowedError'))
+    render(<CameraPreview onClose={media.onClose} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('もう一度確認します')
+    await media.user.click(screen.getByRole('button', { name: 'カメラを再試行' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('ブラウザのサイト設定でカメラを許可')
+    expect(media.getUserMedia).toHaveBeenCalledTimes(2)
+    expect(document.body).not.toHaveTextContent('private-device-details')
+  })
+
   it('allows closing when camera APIs are unavailable', async () => {
     const media = setup()
     vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: undefined }))
