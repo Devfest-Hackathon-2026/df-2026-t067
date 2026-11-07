@@ -27,6 +27,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
   const [areaAttempt, setAreaAttempt] = useState(0)
   const [areaFailed, setAreaFailed] = useState(false)
   const lastViewportSelection = useRef<{ map: MapInstance; areaId: string } | null>(null)
+  const lastAreaSelection = useRef<{ map: MapInstance; areaId: string } | null>(null)
   const areaFailureTimer = useRef<number | undefined>(undefined)
   const cancelLocationRequest = (updateState = true) => {
     locationRequest.current += 1
@@ -139,7 +140,8 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
     const instance = map.current
     const google = window.google?.maps
     if (!API_KEY || !instance || !google || !showPublicAreas || status !== 'ready') return
-    if (lastViewportSelection.current?.map === instance && lastViewportSelection.current.areaId !== selectedAreaId) cancelLocationRequest()
+    if (lastAreaSelection.current?.map === instance && lastAreaSelection.current.areaId !== selectedAreaId) cancelLocationRequest()
+    lastAreaSelection.current = { map: instance, areaId: selectedAreaId }
     if (lastViewportSelection.current?.map === instance && lastViewportSelection.current.areaId === selectedAreaId) return
     if (!selectedAreaId) { instance.setCenter(JAPAN); instance.setZoom(INITIAL_ZOOM); lastViewportSelection.current = { map: instance, areaId: '' }; return }
     try {
@@ -194,7 +196,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
         requestedMap.setZoom(LOCATION_ZOOM)
         settle('現在地を地図の中心に表示しました。')
       }, (error) => {
-        const message = error.code === 1 ? '位置情報が許可されませんでした。設定を確認して、もう一度お試しください。'
+        const message = error.code === 1 ? '位置情報が許可されませんでした。ブラウザが再確認を表示しない場合は、アドレスバーのサイト情報から位置情報を「確認」または「許可」に変更して、もう一度お試しください。'
           : error.code === 3 ? '現在地を取得できませんでした。もう一度お試しください。'
             : '現在地を取得できません。位置情報を確認して、もう一度お試しください。'
         settle(message)
@@ -203,6 +205,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
   }
 
   return (
+    <div className="map-preview-shell">
     <section className="map-preview" aria-label="全国の謎">
       <div className="map-topline"><span className="map-scope"><Icon name="map" />全国の謎</span>{status === 'ready' && <div className="map-location-action"><button type="button" onClick={locate} disabled={locating}>現在地へ戻る</button><span>位置情報はGoogle Mapsに送信されます</span></div>}</div>
       {API_KEY && <div ref={target} className="google-map-canvas" aria-label="日本地図" />}
@@ -214,7 +217,6 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
               : <button type="button" onClick={() => { setStatus('loading'); setAttempt((value) => value + 1) }}>地図を再試行</button>}</>}
       </div>}
       {status === 'ready' && areaFailed && <div className="map-state map-area-error" role="alert"><strong>地域エリアを表示できませんでした</strong><button type="button" onClick={() => { window.clearTimeout(areaFailureTimer.current); areaFailureTimer.current = undefined; setAreaFailed(false); setAreaAttempt((value) => value + 1) }}>地域エリアを再試行</button></div>}
-      {status === 'ready' && locationStatus && <div className="map-location-status" role="status">{locationStatus}</div>}
       {status === 'ready' && <div className="map-zoom" aria-label="地図の表示操作">
         <button type="button" aria-label="地図を拡大" disabled={zoom >= MAX_ZOOM} onClick={() => changeZoom(1)}><Icon name="plus" /></button>
         <button type="button" aria-label="地図を縮小" disabled={zoom <= MIN_ZOOM} onClick={() => changeZoom(-1)}><Icon name="minus" /></button>
@@ -222,5 +224,7 @@ export function MapPreview({ areas = [], selectedAreaId = '', onSelectArea, show
       </div>}
       {status === 'ready' && <output className="sr-only" aria-label="地図の表示倍率">{zoom}</output>}
     </section>
+      {status === 'ready' && locationStatus && <div className="map-location-status" role="status">{locationStatus}</div>}
+    </div>
   )
 }

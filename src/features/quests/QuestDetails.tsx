@@ -20,8 +20,8 @@ function getHintIdentity(getHint?: GetHint) {
   return identity
 }
 
-function HintItem({ questId, version, index, getHint, onVersionChanged, onReloadNeeded }: {
-  questId: string; version: number; index: number; getHint: GetHint; onVersionChanged(): void; onReloadNeeded(index: number, needed: boolean): void
+function HintItem({ questId, version, index, getHint, onVersionChanged, onReloadNeeded, onReady }: {
+  questId: string; version: number; index: number; getHint: GetHint; onVersionChanged(): void; onReloadNeeded(index: number, needed: boolean): void; onReady(index: number): void
 }) {
   const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
@@ -52,6 +52,7 @@ function HintItem({ questId, version, index, getHint, onVersionChanged, onReload
       const hint = await getHint({ questId, expectedVersion: version, index }, { signal: controller.signal })
       if (controller.signal.aborted || generation.current !== currentGeneration) return
       setState({ status: 'ready', text: hint.text })
+      onReady(index)
     } catch (error) {
       if (generation.current !== currentGeneration) return
       if (error instanceof ApiError && error.code === 'QUEST_CHANGED') {
@@ -97,18 +98,20 @@ function HintItem({ questId, version, index, getHint, onVersionChanged, onReload
 
 function QuestHints({ quest, getHint, stale, onVersionChanged, onReloadNeeded }: { quest: PublicQuest; getHint?: GetHint; stale: boolean; onVersionChanged(): void; onReloadNeeded(index: number, needed: boolean): void }) {
   const [changed, setChanged] = useState(false)
+  const [unlockedThrough, setUnlockedThrough] = useState(1)
+  if (stale || changed) return <div role="alert" className="hint-version-changed"><p>問題の版が変わりました。すべてのヒントと挑戦を無効にしました。</p></div>
   if (!getHint) return null
   if (!quest.hintCount) return <p className="hints-note">この問題には通常ヒントがありません。</p>
-  if (stale || changed) return <div role="alert" className="hint-version-changed"><p>問題の版が変わりました。すべてのヒントと挑戦を無効にしました。</p></div>
   return <div className="quest-hints" aria-label="段階ヒント">
     <h4>段階ヒント</h4>
-    {Array.from({ length: quest.hintCount }, (_, offset) => offset + 1).map(index =>
-      <HintItem key={`${quest.questId}:${quest.version}:${index}`} questId={quest.questId} version={quest.version} index={index} getHint={getHint} onVersionChanged={() => { setChanged(true); onVersionChanged() }} onReloadNeeded={onReloadNeeded} />)}
-    <p className="hints-note">各ヒントは選んだ番号だけ取得します。最終案内は含みません。</p>
+    {Array.from({ length: Math.min(quest.hintCount, unlockedThrough) }, (_, offset) => offset + 1).map(index =>
+      <HintItem key={`${quest.questId}:${quest.version}:${index}`} questId={quest.questId} version={quest.version} index={index} getHint={getHint} onVersionChanged={() => { setChanged(true); onVersionChanged() }} onReloadNeeded={onReloadNeeded} onReady={(readyIndex) => setUnlockedThrough(current => Math.max(current, readyIndex + 1))} />)}
+    <p className="hints-note">ヒントは順番に開けます。最終案内は含みません。</p>
   </div>
 }
 
 type HintPhoto = ReturnType<typeof createApiClient>['getPublishedHintPhoto']
+const hintImageReloadIndex = 0
 const getPhotoIdentities = new WeakMap<HintPhoto, number>()
 let nextGetPhotoIdentity = 1
 function getPhotoIdentity(getPhoto?: HintPhoto) {
@@ -120,9 +123,11 @@ function getPhotoIdentity(getPhoto?: HintPhoto) {
 
 function ProtectedHintImage({ getPhoto, questId, version, alt, hidden, onLoad, onError }: {
   getPhoto: HintPhoto; questId: string; version: number; alt: string; hidden: boolean
-  onLoad(): void; onError(): void
+  onLoad(): void; onError(error?: unknown): void
 }) {
   const [source, setSource] = useState<string>()
+  const onErrorRef = useRef(onError)
+  useEffect(() => { onErrorRef.current = onError }, [onError])
   useEffect(() => {
     const controller = new AbortController()
     let url: string | undefined
@@ -130,20 +135,23 @@ function ProtectedHintImage({ getPhoto, questId, version, alt, hidden, onLoad, o
       if (controller.signal.aborted) return
       url = URL.createObjectURL(photo)
       setSource(url)
-    }).catch(() => { if (!controller.signal.aborted) onError() })
+    }).catch((error: unknown) => { if (!controller.signal.aborted) onErrorRef.current(error) })
     return () => {
       controller.abort()
       if (url) URL.revokeObjectURL(url)
     }
-  }, [getPhoto, questId, version, onError])
+  }, [getPhoto, questId, version])
   return source && <img src={source} alt={alt} className="optional-hint-image"
     style={{ display: hidden ? 'none' : undefined }} onLoad={onLoad} onError={onError} />
 }
 
-function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: PublicQuest; getPhoto?: HintPhoto }) {
+function OptionalHintImage({ url, quest, getPhoto, onVersionChanged, onReloadNeeded }: {
+  url: string; quest: PublicQuest; getPhoto?: HintPhoto; onVersionChanged(): void; onReloadNeeded(needed: boolean): void
+}) {
   const toggleRef = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'error' | 'timeout'>('loading')
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error' | 'timeout' | 'reload' | 'auth'>('loading')
+  const [authCode, setAuthCode] = useState<'UNAUTHENTICATED' | 'FORBIDDEN'>('UNAUTHENTICATED')
   const [attempt, setAttempt] = useState(0)
   const alt = `${quest.title}のヒント画像`
   const attemptRef = useRef(0)
@@ -166,7 +174,7 @@ function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: Publi
     }
   }, [expanded, attempt, status])
 
-  const finishAttempt = useCallback((nextStatus: 'loaded' | 'error', imageAttempt: number) => {
+  const finishAttempt = useCallback((nextStatus: 'loaded' | 'error' | 'reload' | 'auth', imageAttempt: number) => {
     if (!expanded || imageAttempt !== attemptRef.current || finishedAttemptRef.current === imageAttempt) return
     finishedAttemptRef.current = imageAttempt
     if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
@@ -174,7 +182,25 @@ function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: Publi
     setStatus(nextStatus)
   }, [expanded])
   const onLoad = useCallback(() => finishAttempt('loaded', attempt), [attempt, finishAttempt])
-  const onError = useCallback(() => finishAttempt('error', attempt), [attempt, finishAttempt])
+  const onError = useCallback((error?: unknown) => {
+    if (!expanded || attempt !== attemptRef.current || finishedAttemptRef.current === attempt) return
+    if (error instanceof ApiError && error.code === 'QUEST_CHANGED') {
+      finishAttempt('reload', attempt)
+      onVersionChanged()
+      return
+    }
+    if (error instanceof ApiError && (error.code === 'NOT_FOUND' || error.code === 'INVALID_INPUT')) {
+      finishAttempt('reload', attempt)
+      onReloadNeeded(true)
+      return
+    }
+    if (error instanceof ApiError && (error.code === 'UNAUTHENTICATED' || error.code === 'FORBIDDEN')) {
+      setAuthCode(error.code)
+      finishAttempt('auth', attempt)
+      return
+    }
+    finishAttempt('error', attempt)
+  }, [attempt, expanded, finishAttempt, onReloadNeeded, onVersionChanged])
   return <div className="optional-hint">
     <button ref={toggleRef} type="button" className="optional-hint-toggle" aria-expanded={expanded}
       onClick={() => {
@@ -185,6 +211,7 @@ function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: Publi
           setExpanded(false)
           setStatus('loading')
         } else {
+          onReloadNeeded(false)
           attemptRef.current++
           finishedAttemptRef.current = -1
           setAttempt(attemptRef.current)
@@ -204,6 +231,18 @@ function OptionalHintImage({ url, quest, getPhoto }: { url: string; quest: Publi
           setAttempt(attemptRef.current)
           setStatus('loading')
         }}>再試行</button>
+      </div>}
+      {expanded && status === 'reload' && <div role="alert"><p>公開情報が変わった可能性があります。問題を読みなおしてください。</p></div>}
+      {expanded && status === 'auth' && <div role="alert"><p>{authCode === 'UNAUTHENTICATED'
+        ? 'ヒント画像を表示できません。画面上部のログアウトからGoogleログインし直した後、再試行してください。'
+        : 'このアカウントではヒント画像を表示できません。共有検証の参加権限を確認してください。'}</p>
+        <button type="button" className="optional-hint-retry" onClick={() => {
+          toggleRef.current?.focus()
+          attemptRef.current++
+          finishedAttemptRef.current = -1
+          setAttempt(attemptRef.current)
+          setStatus('loading')
+        }}>ヒント画像を再試行</button>
       </div>}
       {(status === 'loading' || status === 'loaded') && (getPhoto
         ? <ProtectedHintImage key={attempt} getPhoto={getPhoto} questId={quest.questId} version={quest.version}
@@ -247,6 +286,17 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
   }
   const reloadNeededHints = reloadNeededState.identity === hintIdentity && reloadNeededState.open === open ? reloadNeededState.indexes : new Set<number>()
   const questStale = stale || staleHintIdentity === hintIdentity
+  const markImageVersionChanged = useCallback(() => {
+    setStaleHintIdentity(hintIdentity)
+    onHintVersionChanged()
+  }, [hintIdentity, onHintVersionChanged])
+  const markImageReloadNeeded = useCallback((needed: boolean) => {
+    setReloadNeededState(current => {
+      const indexes = current.identity === hintIdentity && current.open === open ? new Set(current.indexes) : new Set<number>()
+      if (needed) indexes.add(hintImageReloadIndex); else indexes.delete(hintImageReloadIndex)
+      return { identity: hintIdentity, open, indexes }
+    })
+  }, [hintIdentity, open])
   return (
     <article className={'quest-card' + (open ? ' is-open' : '')} aria-labelledby={`${detailsId}-title`}>
       <header className="quest-card-heading">
@@ -275,7 +325,8 @@ export function QuestDetails({ quest, areaLabel, open, disabled, buttonLabel, no
               if (needed) indexes.add(index); else indexes.delete(index)
               return { identity: hintIdentity, open, indexes }
             })} />
-            {hintUrl && !questStale && <OptionalHintImage key={`image:${hintIdentity}`} url={hintUrl} quest={quest} getPhoto={getHintPhoto} />}
+            {hintUrl && !questStale && <OptionalHintImage key={`image:${hintIdentity}`} url={hintUrl} quest={quest} getPhoto={getHintPhoto}
+              onVersionChanged={markImageVersionChanged} onReloadNeeded={markImageReloadNeeded} />}
             {!hideStartAction && <><button type="button" className="primary-button" disabled={disabled || questStale} onClick={() => { if (!questStale) void onStart({ questId: quest.questId, expectedVersion: quest.version }) }} aria-describedby={`${detailsId}-note`}>
               {buttonLabel}
             </button>
