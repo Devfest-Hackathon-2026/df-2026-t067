@@ -47,7 +47,16 @@ export type AttemptResult = AttemptBase & (
   | { state: 'COMPLETED'; outcome: 'CORRECT' | 'ALREADY_CLEARED'; optionalDiscoveryId: string }
   | { state: 'COMPLETED'; outcome: Exclude<AttemptOutcome, 'CORRECT' | 'ALREADY_CLEARED'>; optionalDiscoveryId?: never }
 )
-export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
+export interface ConfirmedSpot {
+  name: string
+  address: string
+  position: Position
+  googlePlaceId?: string
+}
+export interface AfterClearContent {
+  access: string; hours: string; promoComment: string; explanation: string
+  spot?: ConfirmedSpot
+}
 
 export interface Discovery {
   discoveryId: string

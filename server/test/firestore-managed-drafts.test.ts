@@ -29,9 +29,11 @@ test('durable managed drafts isolate organizations and use one revision for text
   const member = (uid: string, org: string) =>
     db.collection('memberships').doc(createHash('sha256').update(JSON.stringify([uid, org])).digest('hex'))
   const batch = db.batch()
-  batch.create(db.collection('areas').doc(areaId), { label: '架空の地域' })
+  batch.create(db.collection('areas').doc(areaId), { label: '架空の地域', boundarySource: 'N03', municipalityCode: '00001', boundaryYear: 2025,
+    marker: { latitude: 0, longitude: 0 }, publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
   for (const [uid, org] of [['editor', orgId], ['colleague', orgId], ['other', 'other-org']]) {
-    batch.create(member(uid, org), { uid, orgId: org, active: true, role: 'editor', label: '架空の自治体', areaId })
+    batch.create(member(uid, org), { uid, orgId: org, active: true, role: 'editor', label: '架空の自治体', areaId,
+      municipalityCode: org === orgId ? '00001' : '00002' })
   }
   for (const [assetId, org, purpose] of [['reference', orgId, 'reference'], ['hint', orgId, 'public_hint'], ['foreign', 'other-org', 'reference'], ['foreign-hint', 'other-org', 'public_hint']]) {
     batch.create(db.collection('orgAssets').doc(assetId), { generation: '1', digest: 'a'.repeat(64),
@@ -53,6 +55,11 @@ test('durable managed drafts isolate organizations and use one revision for text
   const editor = first('editor'), colleague = second('colleague')
   assert.deepEqual((await editor.listMemberships()).items.map(({ orgId }) => orgId), [orgId])
   assert.deepEqual((await first('traveler').listMemberships()).items, [])
+  assert.deepEqual((await editor.listMemberships()).items[0]?.exploration,
+    { name: '架空の地域', source: 'N03', municipalityCode: '00001', year: 2025 })
+  assert.deepEqual((await first('other').listMemberships()).items[0]?.exploration, { source: 'unavailable' })
+  await assert.rejects(first('other').createManagedQuest('other-org', draft), { code: 'SYSTEM_ERROR' })
+  await assert.rejects(editor.createManagedQuest(orgId, { ...draft, areaId: 'foreign-area' } as ManagedQuestDraft), { code: 'INVALID_INPUT' })
   await assert.rejects(first('traveler').createManagedQuest(orgId, draft), { code: 'FORBIDDEN' })
   for (const referenceAssetId of ['hint', 'foreign', 'missing']) {
     await assert.rejects(editor.createManagedQuest(orgId, { ...draft, referenceAssetId }), { code: 'INVALID_INPUT' })
@@ -65,11 +72,12 @@ test('durable managed drafts isolate organizations and use one revision for text
   const created = await editor.createManagedQuest(orgId, { ...draft, referenceAssetId: 'reference', hintAssetId: 'hint' })
   const { questId, draftRevision } = created
   assert.equal(created.source, 'real')
+  assert.equal(created.areaId, areaId)
   assert.deepEqual((await colleague.listManagedQuests(orgId)).items, [created])
   await assert.rejects(second('other').getManagedQuest(orgId, questId), { code: 'FORBIDDEN' })
   await assert.rejects(second('other').getManagedQuest('other-org', questId), { code: 'NOT_FOUND' })
 
-  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 25 }]
+  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 1000 }]
   const results = await Promise.allSettled([
     editor.updateShootingAreas(orgId, questId, { expectedDraftRevision: draftRevision, zones }),
     colleague.updateManagedQuest(orgId, questId, { expectedDraftRevision: draftRevision, draft: created.draft }),

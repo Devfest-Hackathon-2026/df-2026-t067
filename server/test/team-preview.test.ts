@@ -50,7 +50,7 @@ test('team preview serves public catalog reads and protects membership, private 
   const quest = { ...fixture, optionalHintImage: hintImage }
   const published = { status: 'published', publishedVersion: quest.version, orgId: 'org-a', internal: '管理専用データ' }
   const rows = new Map<string, Record<string, unknown>>([
-    ['areas/' + area.areaId, { label: area.label, marker: area.marker, publicGeometryJson: JSON.stringify(area.publicGeometry) }],
+    ['areas/' + area.areaId, { label: area.label, marker: area.marker, boundarySource: 'fixture', publicGeometryJson: JSON.stringify(area.publicGeometry) }],
     ['quests/' + quest.questId, published],
     ['questPublic/' + quest.questId, { quest, hints: hints.get(quest.questId), internal: '管理専用データ' }],
     ['questVersions/' + quest.questId + ':' + quest.version, { publicHintImage: { orgId: 'org-a', assetId: 'hint', generation: '1' } }],

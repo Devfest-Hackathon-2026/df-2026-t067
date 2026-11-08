@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SetStateAction } from 'react'
+import { SpotEditor } from './SpotEditor'
+import { confirmedSpot, initialSpotInput } from './mapsSpotLink'
 import './admin.css'
 import { PhotoRightsInput } from './PhotoRightsInput'
 import { HoursInput } from './HoursInput'
@@ -60,6 +62,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
   const [hoursError, setHoursError] = useState('')
   const [promoComment, setPromoComment] = useState(initial?.afterClear.promoComment ?? '')
   const [explanation, setExplanation] = useState(initial?.afterClear.explanation ?? '')
+  const [spotInput, setSpotInput] = useState(() => initialSpotInput(initial?.afterClear.spot))
   const [price, setPrice] = useState(initial?.materials.price ?? '')
   const [photoNote, setPhotoNote] = useState(initial?.materials.photoNote ?? '')
   const [inputError, setInputError] = useState('')
@@ -89,8 +92,12 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
   const hoursErrorRef = useRef<HTMLParagraphElement>(null)
   const { record, state: saveState, save } = useLocalDraftSave(connection)
   const saving = saveState.status === 'saving'
-  const areaLabel = connection ? connection.member.label + '・' + connection.member.areaId : undefined
-  const areaStatus = connection ? (record?.shootingAreaStatus === 'configured' ? '設定済み' : '未設定') : '未設定・接続待ち'
+  const exploration = record && connection && record.areaId !== connection.member.areaId
+    ? { source: 'unavailable' as const } : connection?.member.exploration
+  const areaLabel = connection ? (exploration?.source === 'unavailable' ? '探索エリア未設定'
+    : exploration?.name ?? connection.member.label + '・' + connection.member.areaId) : undefined
+  const areaStatus = connection ? (record?.shootingAreaStatus === 'configured' ? '設定済み'
+    : record?.shootingAreaStatus === 'needs-review' ? '要確認（旧半径）' : '未設定') : '未設定・接続待ち'
 
   useEffect(() => () => {
     if (photo) URL.revokeObjectURL(photo.url)
@@ -228,6 +235,17 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
 
   function saveDraft(destination?: 'areas' | 'publication' | 1 | 2 | 3) {
     if (!validateHours()) return
+    if (!record && exploration?.source === 'unavailable') {
+      setInputError('所属自治体の探索エリアを取得できません。自治体コードと行政区域の登録を運営に確認してください。')
+      setStep('A03')
+      return
+    }
+    const spot = confirmedSpot(spotInput)
+    if (spot === 'incomplete') {
+      setInputError('対象スポットの位置・名称・住所を入力し、確認欄を選択してください。')
+      setStep('A03')
+      return
+    }
     if (focused && (hours.length > 2000 || price.length > 2000)) {
       setInputError('時間と料金はそれぞれ2000文字以内で入力してください。')
       setStep('A03'); setAfterClearOpen(true)
@@ -249,7 +267,7 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
     const hintAssetIds = record?.draft.hintAssetIds ?? (legacyHintAssetId ? [legacyHintAssetId, null, null] : undefined)
     void save({
       materials: { name, evidence, requiresBoat, requiresPaidFacility, price, photoNote, photoRights },
-      content: draft, afterClear: { access, hours, promoComment, explanation }, referenceAssetId,
+      content: draft, afterClear: { access, hours, promoComment, explanation, ...(spot ? { spot } : {}) }, referenceAssetId,
       hintAssetId: record?.draft.hintAssetIds ? legacyHintAssetId : null,
       ...(hintAssetIds ? { hintAssetIds } : {}),
     }, photo ? { file: photo.file, purpose: 'reference', photoRights } : undefined, (saved) => {
@@ -299,12 +317,23 @@ export default function QuestDraftForm({ connection, teamPreview = false }: { co
         {rightsError && !photoRights.trim() && <p id="rights-error" role="alert" className="field-error">写真の出典と利用権を入力してください。</p>}
       </section>
       <section className="form-section" aria-labelledby="area-heading"><h2 id="area-heading">公開する探索エリア</h2>
-        {areaLabel ? <p>開発用の所属と公開探索エリア：{areaLabel}</p> : <>
+        {exploration?.source === 'N03' ? <>
+          <p>所属自治体：{connection?.member.label}</p>
+          <p>探索エリア：{exploration.name}（自治体コード {exploration.municipalityCode}）</p>
+          <p>出典：国土交通省 国土数値情報「行政区域」{exploration.year}年版を加工</p>
+        </> : exploration?.source === 'unavailable' ? <>
+          <p>所属自治体：{connection?.member.label}</p>
+          <p role="alert">行政区域を確認できません。自治体コードとデータ登録を運営に確認してください。</p>
+        </> : exploration?.source === 'fixture' ? <p>探索エリア：{exploration.name}（架空の検証用エリア）</p>
+          : areaLabel ? <p>開発用の所属と公開探索エリア：{areaLabel}</p> : <>
           <p><strong>架空自治体：青葉みらい市（実在しません）</strong></p>
           <p>公開探索エリア：青葉みらい市の行政区域（架空エリア）。自治体の行政区域から自動設定する構想の表示で、実際の地図・区域データには未接続です。</p>
         </>}
-        <div className="private-setting"><strong>非公開の撮影地点・半径</strong><span>{areaStatus}</span><small>{connection ? 'この画面では設定状態を表示します。' : '安全上、値や入力欄を表示しません。'}</small></div>
+        <div className="private-setting"><strong>非公開の撮影地点・半径</strong><span>{areaStatus}</span><small>{connection ? '撮影可能範囲：中心から半径1km（固定）' : '安全上、値や入力欄を表示しません。'}</small></div>
       </section>
+      {connection && <section className="form-section" aria-label="対象スポット登録">
+        <SpotEditor input={spotInput} onChange={(input) => { setSpotInput(input); setInputError(''); markMaterialChange() }} />
+      </section>}
       <section className="form-section" aria-labelledby="conditions-heading"><h2 id="conditions-heading">挑戦前に伝える条件</h2><p className="helper">旅行者に公開。条件の選択・補足は任意ですが、安全上の制約や必要な費用がある場合は必ず記載してください。</p>
         <fieldset><legend>撮影に必要な条件</legend><div className="check-grid"><label className="check-option"><input type="checkbox" checked={requiresBoat} onChange={event => { setRequiresBoat(event.target.checked); markMaterialChange() }} />船上・海上での撮影が必要</label><label className="check-option"><input type="checkbox" checked={requiresPaidFacility} onChange={event => { setRequiresPaidFacility(event.target.checked); markMaterialChange() }} />有料施設内での撮影が必要</label></div><p className="helper">陸から撮影できる場合、船上・海上の条件は選びません。</p></fieldset>
         {focused ? <PriceInput value={price} onChange={value => { setPrice(value); markMaterialChange() }} /> : <label>料金<input value={price} onChange={event => { setPrice(event.target.value); markMaterialChange() }} placeholder="例：大人500円／無料／要確認" /></label>}

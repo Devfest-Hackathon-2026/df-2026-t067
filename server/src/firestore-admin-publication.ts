@@ -1,4 +1,5 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
+import { CAPTURE_ZONE_RADIUS_METERS } from '../../src/shared/api/admin'
 import type { AssetPurpose, ManagedQuest, PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../../src/shared/api/admin'
 import { projectManagedQuest } from './admin-publication'
 import { missingReviewFields } from './admin-review'
@@ -9,7 +10,8 @@ import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { readOrgAssetRecord } from './firestore-org-assets'
 import { requirePublisher } from './firestore-org-memberships'
 import { draftPhotoFeatures } from './photo-match'
-import { maximumCatalogEntries, readPublicArea } from './public-catalog-http'
+import { maximumCatalogEntries } from './public-catalog-http'
+import { readMunicipalArea } from './municipal-areas'
 
 export type PublicationPhotos = Pick<AnswerPhotoStorage, 'readReference' | 'readHint'>
 
@@ -29,7 +31,7 @@ export class FirestoreManagedPublication {
       if ([...hints, legacy].some((hint) => hint && reference.bytes.equals(hint.bytes))) throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
     }
     return answerTransaction(this.db, async (tx) => {
-      const { quest, ref, data, reference, hint, hintAssets, features, zones } = await prepare(tx)
+      const { quest, ref, data, member, reference, hint, hintAssets, features, zones } = await prepare(tx)
       if (!sameAsset(reference, verified.reference) || !sameAsset(hint, verified.hint) ||
         hintAssets.some((asset, index) => !sameAsset(asset, verified.hintAssets[index]))) throw draftConflict()
       const evidence = this.db.collection('adminPhotoTestEvidence')
@@ -42,19 +44,20 @@ export class FirestoreManagedPublication {
       if (quest.status === 'published') return quest
 
       const area = await tx.get(this.db.collection('areas').doc(quest.areaId))
-      if (!area.exists) throw reviewRequired()
-      readPublicArea(area, 0)
+      const exploration = readMunicipalArea({ id: area.id, data: area.data() }, member)
+      if (!exploration) throw new HttpError(409, 'REVIEW_REQUIRED', '所属自治体と下書きの探索エリアの対応を確認してください。')
       const catalog = this.db.collection('questPublic')
       if (quest.publishedVersion === null && (await tx.get(catalog.limit(maximumCatalogEntries))).size >= maximumCatalogEntries) {
         throw new HttpError(429, 'RATE_LIMITED', '開発用の公開問題の上限に達しました。')
       }
       const version = latestVersion(data.latestPublishedVersion, quest.publishedVersion) + 1
       if (!Number.isSafeInteger(version)) throw draftConflict()
-      const { latitude, longitude } = zones[0]
       const { afterClear } = quest.draft
+      const { latitude, longitude } = afterClear.spot?.position ?? zones[0]
       const snapshot = this.db.collection('questVersions').doc(questId + ':' + version)
       tx.create(snapshot, { draftRevision: quest.draftRevision, placeId: questId, areaId: quest.areaId,
-        placeName: quest.draft.materials.name.trim(), descriptionSnapshot: afterClear.explanation.trim(),
+        explorationBoundary: exploration.boundary,
+        placeName: afterClear.spot?.name ?? quest.draft.materials.name.trim(), descriptionSnapshot: afterClear.explanation.trim(),
         revealedLocation: { latitude, longitude }, afterClear,
         answerMaterial: { orgId, referenceAssetId: reference.assetId, referenceGeneration: reference.generation, features, zones },
         ...(hint ? { publicHintImage: { orgId, ...hint } } : {}),
@@ -100,7 +103,7 @@ export class FirestoreManagedPublication {
     ])
     const features = draftPhotoFeatures(content.verifiedFeatures)
     const missing = missingReviewFields(quest, { reference: reference !== null, public_hint: hint !== null })
-    if (!reference || !features || !zones.length || missing.length ||
+    if (!reference || !features || !zones.length || zones.some(({ radiusMeters }) => radiusMeters !== CAPTURE_ZONE_RADIUS_METERS) || missing.length ||
       hintAssetIds.some((assetId, index) => assetId !== null && hintAssets[index] === null)) throw reviewRequired()
     return { ...owned, reference, hint, hintAssets, features }
   }

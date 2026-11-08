@@ -3,6 +3,7 @@ import type { AfterClearContent, ShootingConditions } from './types'
 
 export type { AfterClearContent, ShootingConditions } from './types'
 export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
+export const CAPTURE_ZONE_RADIUS_METERS = 1000
 export interface ManagedShootingAreas {
   orgId: string; questId: string; draftRevision: number; zones: CaptureZone[]; source: 'real' | 'mock'
 }
@@ -13,7 +14,13 @@ export interface PhotoTestResult {
   testId: string; orgId: string; questId: string; draftRevision: number; outcome: PhotoDecision; source: 'real' | 'mock'
 }
 export type AssetPurpose = 'reference' | 'public_hint'
-export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
+export type ExplorationAreaStatus = { source: 'unavailable' } | { source: 'fixture'; name: string }
+  | { source: 'N03'; name: string; municipalityCode: string; year: number }
+export interface OrgMembership {
+  orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string
+  municipalityCode?: string
+  exploration?: ExplorationAreaStatus
+}
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
 export interface OrgAssetMetadata { purpose: AssetPurpose; photoRights: string }
 export interface UploadedOrgAsset extends ManagedAsset, OrgAssetMetadata {
@@ -31,8 +38,12 @@ export interface ManagedQuestDraft {
 }
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
-  publishedVersion: number | null; status: 'draft' | 'review_pending' | 'published' | 'paused'; shootingAreaStatus: 'unconfigured' | 'configured'
+  publishedVersion: number | null; status: 'draft' | 'review_pending' | 'published' | 'paused'; shootingAreaStatus: 'unconfigured' | 'configured' | 'needs-review'
   draft: ManagedQuestDraft; source: 'real' | 'mock'
+}
+export function shootingAreaStatus(zones: readonly CaptureZone[]): ManagedQuest['shootingAreaStatus'] {
+  if (!zones.length) return 'unconfigured'
+  return zones.every(({ radiusMeters }) => radiusMeters === CAPTURE_ZONE_RADIUS_METERS) ? 'configured' : 'needs-review'
 }
 export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
 export interface DraftSuggestion {
@@ -91,7 +102,9 @@ export function parseManagedShootingAreas(input: unknown): ManagedShootingAreas 
 }
 export function parseUpdateShootingAreas(input: unknown): UpdateShootingAreas {
   const d = fields(input, ['expectedDraftRevision', 'zones'], 'shootingAreas')
-  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: parseCaptureZones(d.zones) }
+  const zones = parseCaptureZones(d.zones)
+  if (zones.some((zone) => zone.radiusMeters !== CAPTURE_ZONE_RADIUS_METERS)) throw new ContractError('zone.radiusMeters')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones }
 }
 export function parsePhotoTestMetadata(input: unknown): PhotoTestMetadata {
   const d = fields(input, ['expectedDraftRevision', 'photoRights'], 'photoTest')
@@ -108,11 +121,28 @@ export function parsePhotoTestResult(input: unknown): PhotoTestResult {
 }
 
 export function parseOrgMembership(input: unknown): OrgMembership {
-  const d = fields(input, ['orgId', 'label', 'role', 'areaId'], 'membership')
+  const d = fields(input, ['orgId', 'label', 'role', 'areaId', 'municipalityCode', 'exploration'], 'membership')
   if (d.role !== 'editor' && d.role !== 'publisher') throw new ContractError('membership.role')
   const label = text(d.label, 'membership.label', 200)
   if (!label.trim()) throw new ContractError('membership.label')
-  return { orgId: identifier(d.orgId, 'orgId'), label, role: d.role, areaId: identifier(d.areaId, 'areaId') }
+  const municipalityCode = d.municipalityCode === undefined ? undefined : text(d.municipalityCode, 'municipalityCode', 5)
+  if (municipalityCode !== undefined && !/^\d{5}$/.test(municipalityCode)) throw new ContractError('municipalityCode')
+  return { orgId: identifier(d.orgId, 'orgId'), label, role: d.role, areaId: identifier(d.areaId, 'areaId'),
+    ...(municipalityCode ? { municipalityCode } : {}),
+    ...(d.exploration === undefined ? {} : { exploration: parseExploration(d.exploration, municipalityCode) }) }
+}
+
+function parseExploration(input: unknown, code?: string): ExplorationAreaStatus {
+  const d = fields(input, ['source', 'name', 'municipalityCode', 'year'], 'exploration')
+  if (d.source === 'unavailable' && Object.keys(d).length === 1) return { source: d.source }
+  const name = text(d.name, 'exploration.name', 200)
+  if (!name.trim()) throw new ContractError('exploration.name')
+  if (d.source === 'fixture' && code === undefined && Object.keys(d).length === 2) return { source: d.source, name }
+  if (d.source === 'N03' && code !== undefined && d.municipalityCode === code && typeof d.year === 'number' &&
+    Number.isInteger(d.year) && d.year >= 1000 && d.year <= 9999) {
+    return { source: d.source, name, municipalityCode: code, year: d.year }
+  }
+  throw new ContractError('exploration')
 }
 
 export function parseManagedAsset(input: unknown): ManagedAsset {
@@ -225,7 +255,7 @@ export function parseManagedQuest(input: unknown): ManagedQuest {
   const publishedVersion = d.publishedVersion === null ? null : revision(d.publishedVersion)
   if ((d.status !== 'draft' && d.status !== 'review_pending' && d.status !== 'published' && d.status !== 'paused') ||
     (d.status === 'published' && publishedVersion === null) || (d.status === 'paused' && publishedVersion !== null) ||
-    (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured') ||
+    (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured' && d.shootingAreaStatus !== 'needs-review') ||
     (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('ManagedQuest.state')
   return { questId: identifier(d.questId, 'questId'), orgId: identifier(d.orgId, 'orgId'), areaId: identifier(d.areaId, 'areaId'),
     draftRevision: revision(d.draftRevision), publishedVersion, status: d.status, shootingAreaStatus: d.shootingAreaStatus,

@@ -194,7 +194,7 @@ test('review submission reports missing fields and returns an edited submission 
   }
   admin.update(membership.orgId, initial.questId, { expectedDraftRevision: 1, draft: complete })
   admin.updateShootingAreas(membership.orgId, initial.questId, { expectedDraftRevision: 2,
-    zones: [{ latitude: 0, longitude: 0, radiusMeters: 20 }] })
+    zones: [{ latitude: 0, longitude: 0, radiusMeters: 1000 }] })
   const pending = { ...admin.get(membership.orgId, initial.questId), status: 'review_pending' }
   const submissions = await Promise.all([submit(3), submit(3)])
   for (const response of submissions) {

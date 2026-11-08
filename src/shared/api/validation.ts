@@ -173,14 +173,25 @@ export function parseAttemptResult(input: unknown): AttemptResult {
 }
 
 export function parseAfterClearContent(input: unknown): AfterClearContent {
-  const d = object(input, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
-  function read(key: keyof AfterClearContent, maximum: number) {
+  const d = object(input, ['access', 'hours', 'promoComment', 'explanation', 'spot'], 'afterClear')
+  function read(key: Exclude<keyof AfterClearContent, 'spot'>, maximum: number) {
     const path = 'afterClear.' + key
     const value = text(d[key], path, true)
     if (value.length > maximum) throw new ContractError(path)
     return value
   }
-  return { access: read('access', 2000), hours: read('hours', 2000), promoComment: read('promoComment', 2000), explanation: read('explanation', 4000) }
+  return { access: read('access', 2000), hours: read('hours', 2000), promoComment: read('promoComment', 2000), explanation: read('explanation', 4000),
+    ...(d.spot === undefined ? {} : { spot: parseConfirmedSpot(d.spot) }) }
+}
+
+function parseConfirmedSpot(input: unknown): NonNullable<AfterClearContent['spot']> {
+  const d = object(input, ['name', 'address', 'position', 'googlePlaceId'], 'afterClear.spot')
+  const name = text(d.name, 'spot.name').trim()
+  const address = text(d.address, 'spot.address').trim()
+  if (name.length > 200 || address.length > 1000) throw new ContractError('afterClear.spot')
+  const googlePlaceId = d.googlePlaceId === undefined ? undefined : text(d.googlePlaceId, 'spot.googlePlaceId')
+  if (googlePlaceId !== undefined && !/^[A-Za-z0-9_-]{1,512}$/.test(googlePlaceId)) throw new ContractError('spot.googlePlaceId')
+  return { name, address, position: position(d.position, 'spot.position'), ...(googlePlaceId ? { googlePlaceId } : {}) }
 }
 
 export function parseDiscovery(input: unknown): Discovery {

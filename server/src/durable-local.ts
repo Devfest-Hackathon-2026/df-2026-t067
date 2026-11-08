@@ -72,7 +72,11 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
         if (savedMaterial === undefined) tx.update(published, { answerMaterial })
       }
       if (!areaDoc.exists) tx.create(area, { label: publicArea.label, marker: publicArea.marker,
-        publicGeometryJson: JSON.stringify(publicArea.publicGeometry) })
+        publicGeometryJson: JSON.stringify(publicArea.publicGeometry), boundarySource: 'fixture' })
+      else if (areaDoc.get('boundarySource') === undefined && areaDoc.get('municipalityCode') === undefined &&
+        areaDoc.get('label') === publicArea.label && areaDoc.get('publicGeometryJson') === JSON.stringify(publicArea.publicGeometry)) {
+        tx.update(area, { boundarySource: 'fixture' })
+      }
       if (!publicDoc.exists) tx.create(projection, { quest: publicQuest, hints: catalog.hints.get(questId) ?? [] })
     })
     const material = createPublishedAnswerMaterialLoader(db, photos, locationLimits)

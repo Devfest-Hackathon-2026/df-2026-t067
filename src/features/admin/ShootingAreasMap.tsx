@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CaptureZone } from '../../shared/api'
+import type { Position } from '../../shared/api/types'
 import type { GoogleMapsApi, MapInstance } from '../explore/googleMapsLoader'
 import { loadGoogleMaps, subscribeMapsAuthFailure } from '../explore/googleMapsLoader'
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''
 
 /** Only mounted by the authorized private shooting-area editor; never part of public map data. */
-export function ShootingAreasMap({ zones, selectedIndex, disabled, onSelect }: {
+export function ShootingAreasMap({ zones, selectedIndex, disabled, onSelect, spot }: {
   zones: Array<CaptureZone | null>; selectedIndex: number | null; disabled: boolean
   onSelect: (latitude: number, longitude: number) => void
+  spot?: Position | null
 }) {
+  const spotMode = spot !== undefined
   const target = useRef<HTMLDivElement>(null)
-  const latest = useRef({ disabled, onSelect, zones, selectedIndex })
-  useEffect(() => { latest.current = { disabled, onSelect, zones, selectedIndex } }, [disabled, onSelect, zones, selectedIndex])
+  const latest = useRef({ disabled, onSelect, zones, selectedIndex, spot })
+  useEffect(() => { latest.current = { disabled, onSelect, zones, selectedIndex, spot } }, [disabled, onSelect, zones, selectedIndex, spot])
   const [loaded, setLoaded] = useState<{ google: GoogleMapsApi; map: MapInstance } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>(API_KEY ? 'loading' : 'missing')
@@ -26,12 +29,12 @@ export function ShootingAreasMap({ zones, selectedIndex, disabled, onSelect }: {
     setStatus('loading')
     void loadGoogleMaps(API_KEY).then((google) => {
       if (!active || authFailed || !target.current) return
-      if (!google.Circle) throw new Error('unavailable')
+      if (spotMode ? !google.Marker : !google.Circle) throw new Error('unavailable')
       const current = latest.current
-      const first = (current.selectedIndex === null ? null : current.zones[current.selectedIndex]) ?? current.zones.find((zone) => zone !== null)
+      const first = current.spot ?? (current.selectedIndex === null ? null : current.zones[current.selectedIndex]) ?? current.zones.find((zone) => zone !== null)
       const map = new google.Map(target.current, {
         center: first ? { lat: first.latitude, lng: first.longitude } : { lat: 36, lng: 138 },
-        zoom: first ? 17 : 5, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false,
+        zoom: first ? (spotMode ? 17 : 14) : 5, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false,
       })
       const listener = google.event.addListener(map, 'click', (event) => {
         if (latest.current.disabled || !event?.latLng) return
@@ -44,7 +47,16 @@ export function ShootingAreasMap({ zones, selectedIndex, disabled, onSelect }: {
       setStatus('ready')
     }).catch(() => { if (active) setStatus('error') })
     return () => { active = false; unsubscribe(); dispose() }
-  }, [attempt])
+  }, [attempt, spotMode])
+  const spotLatitude = spot?.latitude, spotLongitude = spot?.longitude
+  useEffect(() => {
+    if (!loaded?.google.Marker || spotLatitude === undefined || spotLongitude === undefined) return
+    const position = { lat: spotLatitude, lng: spotLongitude }
+    const marker = new loaded.google.Marker({ map: loaded.map, position, title: '対象スポット' }) as { setMap(map: null): void }
+    loaded.map.setCenter(position)
+    loaded.map.setZoom(17)
+    return () => marker.setMap(null)
+  }, [loaded, spotLatitude, spotLongitude])
   useEffect(() => {
     if (!loaded?.google.Circle) return
     const Circle = loaded.google.Circle
@@ -55,8 +67,8 @@ export function ShootingAreasMap({ zones, selectedIndex, disabled, onSelect }: {
     })] : [])
     return () => { circles.forEach((circle) => circle.setMap(null)) }
   }, [loaded, zones, selectedIndex])
-  return <div className="capture-map" aria-label="非公開の撮影範囲の地図">
-    {API_KEY && <div ref={target} className="google-map-canvas" aria-label="撮影の立ち位置を選ぶGoogleマップ" />}
+  return <div className="capture-map" aria-label={spotMode ? '対象スポットの確認地図' : '非公開の撮影範囲の地図'}>
+    {API_KEY && <div ref={target} className="google-map-canvas" aria-label={spotMode ? '対象スポットを選ぶGoogleマップ' : '撮影の立ち位置を選ぶGoogleマップ'} />}
     {status === 'missing' && <p>地図の設定がないため、下の数値入力で設定できます。</p>}
     {status === 'loading' && <p role="status">地図を読み込んでいます…</p>}
     {status === 'error' && <div role="alert"><p>地図を読み込めませんでした。入力は保持されています。数値入力で設定できます。</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>地図を再試行</button></div>}

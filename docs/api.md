@@ -179,6 +179,8 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 永続APIでは初回クリア時に、挑戦した公開版の `afterClear` を本人記録へ保存する。`GET /me/discoveries/:id` は本人だけにこの案内を返す。以前の記録では、同じ問題と版の保存済みデータから補う。案内のない記録は既存の `descriptionSnapshot` で表示できる。[Cの詳細画面との接続](owner-discoveries.md#クリア後の案内)
 
+永続側の管理下書きと本人詳細は、任意の `afterClear.spot` に確認済みの `name`、`address`、`position`、任意の `googlePlaceId` を保持する。スポットを登録した版の `revealedLocation` は対象位置を使い、判定用の撮影中心は従来どおり非公開。所属から選んだ行政区域と出典・年度、1,000m固定の範囲更新は[位置登録の契約](admin-municipal-locations.md)を参照する。
+
 ## 14. 回答処理の内部接続
 
 [answer-processing.md](answer-processing.md)に、既存受付→GPS→写真照合→開発用本人記録のサーバー内部接続を記録する。所有者/challenge/digestと受信日時を結び、同じ回答の処理を共有し、AI呼出し直前・保存直前に認証と公開状態/版を再確認する。記録成功は内部のSAVED_IN_MEMORY/ALREADY_SAVED_IN_MEMORYで、公開AttemptResultへ変換しない。HTTPルート・client・環境変数は追加せず、現在のPOST/GET結果とmock正解拒否を維持する。実VertexのHTTP起動・永続保存・CORRECTは後続。

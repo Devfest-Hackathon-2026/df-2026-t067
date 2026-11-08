@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
-import { parseCaptureZones, parseManagedQuest } from '../../src/shared/api/admin'
+import { parseCaptureZones, parseManagedQuest, parseUpdateShootingAreas, shootingAreaStatus } from '../../src/shared/api/admin'
 import type { AssetPurpose, ManagedQuestDraft, ManagedShootingAreas, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
 import { missingReviewFields } from './admin-review'
 import { HttpError, invalidInput } from './errors'
 import { answerTransaction, notFound, processingError } from './firestore-answer-data'
 import { readOrgAssetRecord } from './firestore-org-assets'
 import { listOrgMemberships, requireOrgMember } from './firestore-org-memberships'
+import { readMunicipalArea } from './municipal-areas'
 
 const maxOrgDrafts = 100
 const maxDrafts = 1000
@@ -55,10 +56,12 @@ export class FirestoreManagedDraftStore {
     return answerTransaction(this.db, async (tx) => {
       const member = await requireOrgMember(this.db, tx, uid, orgId)
       const area = await tx.get(this.db.collection('areas').doc(member.areaId))
-      if (!area.exists) throw new HttpError(503, 'SYSTEM_ERROR', '自治体の公開エリア設定を利用できません。')
+      const exploration = readMunicipalArea({ id: area.id, data: area.data() }, member)
+      if (!exploration) throw new HttpError(503, 'SYSTEM_ERROR', '所属自治体の行政区域を確認できません。')
       await this.checkAssets(tx, orgId, draft)
       await this.reserveCapacity(tx, orgId)
-      const data = { orgId, areaId: member.areaId, draftRevision: 1, publishedVersion: null, status: 'draft', draft, zones: [], managed: true }
+      const data = { orgId, areaId: exploration.area.areaId, explorationBoundary: exploration.boundary,
+        draftRevision: 1, publishedVersion: null, status: 'draft', draft, zones: [], managed: true }
       tx.create(ref, data)
       return managedQuest(ref.id, data, 'unconfigured')
     })
@@ -76,11 +79,12 @@ export class FirestoreManagedDraftStore {
   }
 
   updateShootingAreas(uid: string, orgId: string, questId: string, input: UpdateShootingAreas) {
+    const parsed = parseUpdateShootingAreas(input)
     return answerTransaction(this.db, async (tx): Promise<ManagedShootingAreas> => {
       const { ref, quest } = await this.readOwned(tx, uid, orgId, questId)
-      const draftRevision = nextRevision(quest.draftRevision, input.expectedDraftRevision)
-      tx.update(ref, { draftRevision, status: 'draft', zones: input.zones })
-      return { orgId, questId, draftRevision, zones: input.zones, source: 'real' }
+      const draftRevision = nextRevision(quest.draftRevision, parsed.expectedDraftRevision)
+      tx.update(ref, { draftRevision, status: 'draft', zones: parsed.zones })
+      return { orgId, questId, draftRevision, zones: parsed.zones, source: 'real' }
     })
   }
 
@@ -140,11 +144,11 @@ function readDraft(snapshot: DocumentSnapshot, orgId: string) {
   const data = snapshot.data()
   if (!data || data.orgId !== orgId || data.managed !== true) throw notFound()
   const zones = parseCaptureZones(data.zones)
-  const quest = managedQuest(snapshot.id, data, zones.length ? 'configured' : 'unconfigured')
+  const quest = managedQuest(snapshot.id, data, shootingAreaStatus(zones))
   return { ref: snapshot.ref, quest, zones, data }
 }
 
-function managedQuest(questId: string, data: Record<string, unknown>, shootingAreaStatus: 'configured' | 'unconfigured') {
+function managedQuest(questId: string, data: Record<string, unknown>, shootingAreaStatus: 'configured' | 'unconfigured' | 'needs-review') {
   const { orgId, areaId, draftRevision, publishedVersion, status, draft } = data
   return parseManagedQuest({ questId, orgId, areaId, draftRevision, publishedVersion, status, draft, shootingAreaStatus, source: 'real' })
 }

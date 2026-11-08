@@ -51,7 +51,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   const id = created.questId
   assert.equal(admin.getPublishedAnswerMaterial(id, 1), undefined)
   await editor.updateShootingAreas(org, id, { expectedDraftRevision: 1,
-    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 80 }] })
+    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 1000 }] })
   const endpoint = '/api/v1/orgs/' + org + '/quests/' + id
   const send = (suffix: string, uid: string, body: unknown, path = endpoint) => fetch(base + path + suffix, {
     method: 'POST', headers: { Authorization: 'Bearer ' + uid, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -76,7 +76,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
     photo: image(syntheticPng), idempotencyKey: 'duplicate-hint' })
   const unsafe = await editor.createManagedQuest(org, { ...draft, hintAssetId: duplicateHint.assetId })
   await editor.updateShootingAreas(org, unsafe.questId, { expectedDraftRevision: 1,
-    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 80 }] })
+    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 1000 }] })
   assert.equal((await editor.submitManagedQuestReview(org, unsafe.questId, 2)).quest.status, 'review_pending')
   await expectError(await send('/publish', 'publisher', body, endpoint.replace(id, unsafe.questId)), 409, 'REVIEW_REQUIRED')
   assert.equal((await editor.submitManagedQuestReview(org, id, 2)).quest.status, 'review_pending')
@@ -88,7 +88,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.equal((await (await send('/publish', 'publisher', body)).json() as { publishedVersion: number }).publishedVersion, 1)
   const firstMaterial = {
     orgId: org, referenceAssetId: reference.assetId, features: ['非公開の確認済み特徴'],
-    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 80 }],
+    zones: [{ latitude: 0.1221, longitude: 0.2332, radiusMeters: 1000 }],
   }
   const readMaterial = admin.getPublishedAnswerMaterial(id, 1)
   assert.deepEqual(readMaterial, firstMaterial)
@@ -121,7 +121,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.equal(edited.publishedVersion, 1)
   assert.equal((await traveler.getQuest(id)).title, draft.content.title)
   assert.deepEqual((await traveler.getQuest(id)).shootingConditions, visible.shootingConditions)
-  await editor.updateShootingAreas(org, id, { expectedDraftRevision: 3, zones: [{ latitude: 1, longitude: 1, radiusMeters: 80 }] })
+  await editor.updateShootingAreas(org, id, { expectedDraftRevision: 3, zones: [{ latitude: 1, longitude: 1, radiusMeters: 1000 }] })
   assert.deepEqual(admin.getPublishedAnswerMaterial(id, 1), firstMaterial)
   assert.equal((await editor.submitManagedQuestReview(org, id, 4)).quest.status, 'review_pending')
   await expectError(await send('/publish', 'publisher', { ...body, expectedDraftRevision: 4 }), 409, 'PHOTO_TEST_REQUIRED')
@@ -163,7 +163,7 @@ test('only a publisher can publish tested versions and pause the public snapshot
   assert.equal(admin.getPublishedAnswerMaterial(id, 1), undefined)
   assert.deepEqual(admin.getPublishedAnswerMaterial(id, 2), {
     orgId: org, referenceAssetId: replacement.assetId, features: ['別の非公開特徴', '二つ目の特徴'],
-    zones: [{ latitude: 1, longitude: 1, radiusMeters: 80 }],
+    zones: [{ latitude: 1, longitude: 1, radiusMeters: 1000 }],
   })
   assert.deepEqual((await traveler.getQuest(id)).shootingConditions, { requiresBoat: false, requiresPaidFacility: true })
   await expectError(await fetch(base + visible.hintImages[1]), 409, 'QUEST_CHANGED')

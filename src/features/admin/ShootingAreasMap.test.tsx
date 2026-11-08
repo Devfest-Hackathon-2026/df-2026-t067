@@ -15,13 +15,29 @@ it('selects a shooting position on click, draws private radius and removes liste
   expect(Circle.mock.calls[0][0]).toMatchObject({ center: { lat: 35, lng: 135 }, radius: 80 })
   act(() => click({ latLng: { lat: () => 36, lng: () => 136 } }))
   expect(onSelect).toHaveBeenCalledWith(36, 136)
-  view.rerender(<ShootingAreasMap zones={[{ latitude: 36, longitude: 136, radiusMeters: 100 }]} selectedIndex={0} disabled={true} onSelect={onSelect} />)
-  await waitFor(() => expect(Circle.mock.calls.at(-1)?.[0]).toMatchObject({ radius: 100 }))
+  view.rerender(<ShootingAreasMap zones={[{ latitude: 36, longitude: 136, radiusMeters: 1000 }]} selectedIndex={0} disabled={true} onSelect={onSelect} />)
+  await waitFor(() => expect(Circle.mock.calls.at(-1)?.[0]).toMatchObject({ radius: 1000 }))
   expect(Map).toHaveBeenCalledTimes(1)
   act(() => click({ latLng: { lat: () => 37, lng: () => 137 } }))
   expect(onSelect).toHaveBeenCalledTimes(1)
   view.unmount()
   expect(remove).toHaveBeenCalled()
+  expect(setMap).toHaveBeenCalledWith(null)
+})
+
+it('shows a spot marker independently of any private GPS circle', async () => {
+  const setMap = vi.fn(), setCenter = vi.fn(), setZoom = vi.fn()
+  const Marker = vi.fn(function (_options: Record<string, unknown>) { return { setMap } })
+  const Circle = vi.fn()
+  loader.loadGoogleMaps.mockResolvedValue({ Map: function () { return { setCenter, setZoom } }, Marker, Circle,
+    event: { addListener: () => ({ remove() {} }) } })
+  const { ShootingAreasMap } = await import('./ShootingAreasMap')
+  const view = render(<ShootingAreasMap zones={[]} selectedIndex={null} disabled={false} onSelect={vi.fn()}
+    spot={{ latitude: 1.25, longitude: 2.6 }} />)
+  await waitFor(() => expect(Marker).toHaveBeenCalled())
+  expect(Marker.mock.calls[0][0]).toMatchObject({ position: { lat: 1.25, lng: 2.6 } })
+  expect(Circle).not.toHaveBeenCalled()
+  view.unmount()
   expect(setMap).toHaveBeenCalledWith(null)
 })
 it('does not request Maps without configuration', async () => {

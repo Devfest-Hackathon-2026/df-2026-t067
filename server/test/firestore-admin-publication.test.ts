@@ -45,7 +45,7 @@ test('durable publishing freezes the tested version and pausing stops all public
   const orgId = 'publish-org', areaId = 'publish-area'
   const batch = db.batch()
   batch.create(db.collection('areas').doc(areaId), { label: '架空の公開地域', marker: { latitude: 0, longitude: 0 },
-    publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
+    boundarySource: 'fixture', publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
   for (const [uid, org, role] of [['editor', orgId, 'editor'], ['publisher', orgId, 'publisher'], ['other', 'other-org', 'publisher']]) {
     const id = createHash('sha256').update(JSON.stringify([uid, org])).digest('hex')
     batch.create(db.collection('memberships').doc(id), { uid, orgId: org, role, active: true, label: '架空の自治体', areaId })
@@ -102,7 +102,8 @@ test('durable publishing freezes the tested version and pausing stops all public
   const draft: ManagedQuestDraft = {
     materials: { name: '非公開の対象名', evidence: '架空の根拠', requiresBoat: true, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成画像' },
     content: { title: '公開する問題', question: '問題文', hints: ['一つ目', '二つ目', '三つ目'], verifiedFeatures: durableFixtureFeatures[0], draftingNotes: '' },
-    afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説' },
+    afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説',
+      spot: { name: '架空の施設', address: '架空の所在地', position: { latitude: 0.37, longitude: 0.53 }, googlePlaceId: 'TEST_place' } },
     referenceAssetId: reference.assetId, hintAssetId: null, hintAssetIds: hints.map((asset) => asset.assetId),
   }
   const foreignHint = await second.api('other').uploadOrgAsset('other-org', { purpose: 'public_hint',
@@ -121,7 +122,7 @@ test('durable publishing freezes the tested version and pausing stops all public
     }
   }
   const { questId } = await editor.createManagedQuest(orgId, draft)
-  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 25 }]
+  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 1000 }]
   const { draftRevision } = await editor.updateShootingAreas(orgId, questId, { expectedDraftRevision: 1, zones })
   const compare = (photo: Blob, idempotencyKey: string, revision: number) => editor.testManagedQuest(orgId, questId, {
     photo, idempotencyKey, expectedDraftRevision: revision, photoRights: '合成画像',
@@ -143,6 +144,15 @@ test('durable publishing freezes the tested version and pausing stops all public
   await assert.rejects(publisher.publishManagedQuest(orgId, unsafe.questId, input), { code: 'REVIEW_REQUIRED' })
   await editor.submitManagedQuestReview(orgId, questId, draftRevision)
   await assert.rejects(publisher.publishManagedQuest(orgId, questId, { ...input, mismatchTestId: reused.testId }), { code: 'PHOTO_TEST_REQUIRED' })
+  await db.collection('quests').doc(questId).update({ zones: [{ ...zones[0], radiusMeters: 80 }] })
+  assert.equal((await editor.getManagedQuest(orgId, questId)).shootingAreaStatus, 'needs-review')
+  await assert.rejects(publisher.publishManagedQuest(orgId, questId, input), { code: 'REVIEW_REQUIRED' })
+  const legacyReview = await editor.submitManagedQuestReview(orgId, questId, draftRevision)
+  assert(legacyReview.missing.includes('shootingAreas'))
+  assert.equal(legacyReview.quest.status, 'draft')
+  await db.collection('quests').doc(questId).update({ zones })
+  assert.equal((await editor.getManagedQuest(orgId, questId)).shootingAreaStatus, 'configured')
+  assert.equal((await editor.submitManagedQuestReview(orgId, questId, draftRevision)).quest.status, 'review_pending')
   revokeDuringHintRead = true
   await assert.rejects(publisher.publishManagedQuest(orgId, questId, input), { code: 'FORBIDDEN' })
   revokeDuringHintRead = false
@@ -180,6 +190,9 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.deepEqual((await publicList.json()).items, [visible])
   const v1 = db.collection('questVersions').doc(questId + ':1')
   assert.deepEqual((await v1.get()).get('answerMaterial.zones'), zones)
+  assert.deepEqual((await v1.get()).get('afterClear.spot'), draft.afterClear.spot)
+  assert.deepEqual((await v1.get()).get('revealedLocation'), draft.afterClear.spot?.position)
+  assert.doesNotMatch(JSON.stringify(visible), /架空の所在地|TEST_place|0\.37|0\.53/)
   assert.equal((await v1.get()).get('descriptionSnapshot'), draft.afterClear.explanation)
 
   const started = await traveler.createChallenge({ questId, expectedVersion: 1 })
