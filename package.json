@@ -15,12 +15,14 @@
     "lint": "oxlint --deny-warnings",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && node scripts/prerender.mjs",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
     "firebase": "13.2.0",
+    "motion": "14.10.1",
+    "qrcode": "1.5.4",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
@@ -29,6 +31,7 @@
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.8",
     "@types/node": "26.0.0",
+    "@types/qrcode": "1.5.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",

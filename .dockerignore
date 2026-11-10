@@ -5,6 +5,10 @@
 !package-lock.json
 !vite.config.ts
 !tsconfig*.json
+!scripts
+!scripts/prerender.mjs
+!public
+!public/**
 !src
 !src/**
 !server

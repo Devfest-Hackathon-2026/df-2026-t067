@@ -55,7 +55,7 @@ const status = await api.getDeletion(receipt.deletionId)
 
 ### 一覧・詳細・写真
 
-一覧は初回日時の新しい順、同日時はID順。`areaId/cursor/limit`に対応し、limitは既定20・上限100。cursorは本人と地域の組み合わせに限定し、削除等で参照先がなくなった場合は一覧を取得し直す。0件・読込中・通信失敗・保存先未接続を区別する。
+一覧は `areaId/cursor/limit/sort` に対応し、limitは既定20・上限100。`sort` は `cleared-desc`（既定：初回クリア日時降順・ID降順）、`cleared-asc`（日時昇順・ID昇順）、`prefecture-asc`（都道府県コード01→47）、`prefecture-desc`（47→01）。県順の同値は日時降順・ID降順で、不明県は両方向とも末尾。県は記録時点の `areaId` から解決し、一覧・詳細の `prefectureCode` は既知の場合だけ返す。cursorは本人・地域・sortの組み合わせに限定し、削除等で参照先がなくなった場合は一覧を取得し直す。0件・読込中・通信失敗・保存先未接続を区別する。
 
 他人の記録/写真は存在しないIDと同じ404。自治体の編集/公開役でも取得できない。過去記録の取得は現在の公開問題に依存せず、問題の休止や改版で本人のsnapshotを消さない。
 
@@ -70,6 +70,8 @@ T08は同じ `getDiscovery(id)` で任意の `afterClear` を受け取る。型�
 初回クリア時に対象の公開版から4項目を保存する。以前の記録で4項目を保存していない場合は、記録にある `questId` と `questVersion` で公開時のデータを参照する。現在公開中の版に切り替わることはない。元の版にも案内がなければ `afterClear` は省略される。
 
 詳細画面では入力済みの項目をテキストで表示する。`afterClear.explanation` を取得できない場合や空欄の場合は、既存の `descriptionSnapshot` を使う。空の時間欄は未入力として扱う。一覧、匿名の問題詳細とヒントにはこの案内を含めない。[Issue #89](https://github.com/Devfest-Hackathon-2026/df-2026-t067/issues/89)
+
+任意の `afterClear.spot` がある記録では、詳細画面にスポット名と住所も表示し、Googleマップへのリンクを付ける。リンクは固定の Maps 検索URL（`https://www.google.com/maps/search/?api=1&query=<緯度>,<経度>`、Place ID がある場合は `query_place_id` を追加）から組み立て、入力された URL を保存・再表示しない。`spot` がない旧記録ではリンクを付けず、従来の表示のまま使う。
 
 ### 削除の扱い
 

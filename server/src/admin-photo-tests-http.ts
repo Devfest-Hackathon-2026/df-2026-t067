@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parsePhotoTestMetadata } from '../../src/shared/api/admin'
 import type { ManagedQuest, PhotoTestResult } from '../../src/shared/api/admin'
+import { photoApprovalDigest } from './admin-photo-approvals'
 import { ContractError } from '../../src/shared/api/validation'
 import type { AssetHttpStore } from './admin-assets-http'
 import type { DemoPhotoTestStore } from './admin-photo-tests'
@@ -14,6 +15,7 @@ import { readPhotoForm } from './photo-form'
 export interface AdminPhotoTestOptions { matcher: PhotoMatcher; timeoutMs?: number; capacity?: number; source?: PhotoTestResult['source'] }
 
 export async function handlePhotoTest(request: IncomingMessage, response: ServerResponse, input: {
+  approvedAssets?: boolean
   uid: string; orgId: string; questId: string; store?: Pick<DemoPhotoTestStore, 'execute'>
   assets?: Pick<AssetHttpStore, 'getOwned' | 'getPhotoOwned'>; options?: AdminPhotoTestOptions
   acquire?: (uid: string) => () => void
@@ -34,7 +36,7 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
   try {
     const form = await readPhotoForm(request)
     let metadata
-    try { metadata = parsePhotoTestMetadata(JSON.parse(form.metadata)) }
+    try { metadata = parsePhotoTestMetadata(JSON.parse(form.metadata), input.approvedAssets) }
     catch (error) { if (error instanceof ContractError || error instanceof SyntaxError) invalidInput(); throw error }
     const quest = await input.recheck(metadata.expectedDraftRevision)
     controller.signal.throwIfAborted()
@@ -45,7 +47,7 @@ export async function handlePhotoTest(request: IncomingMessage, response: Server
     const digest = createHash('sha256').update(JSON.stringify([input.orgId, input.questId, metadata, assetId, features, form.mimeType]))
       .update('\0').update(form.image).digest('hex')
     const result = await store.execute({ uid: input.uid, orgId: input.orgId, questId: input.questId, key,
-      draftRevision: metadata.expectedDraftRevision }, digest, async (track) => {
+      draftRevision: metadata.expectedDraftRevision, ...(input.approvedAssets ? { approvalDigest: photoApprovalDigest(form.image) } : {}) }, digest, async (track) => {
       const bytes = await assets.getPhotoOwned(input.orgId, assetId)
       if (!bytes) invalidInput()
       let gateFailure: unknown

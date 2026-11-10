@@ -18,12 +18,12 @@
 | DTO | 必須項目 |
 |---|---|
 | PublicArea | areaId, label, publicGeometry, marker, publishedCount |
-| PublicQuest | questId, version, title, clue, areaId, visitConditions, hintCount。任意のhintImages、optionalHintImage、shootingConditions |
+| PublicQuest | questId, version, title, clue, areaId, visitConditions, hintCount。任意のhintImages、optionalHintImage、shootingConditions、questNumber（問題番号。都道府県コード＋連番、D-31） |
 | Challenge | challengeId, questId, version, createdAt |
 | CaptureMetadata | capturedAt, position: { latitude, longitude, accuracyMeters, measuredAt } |
 | AttemptResult | attemptId, state, outcome, nextAction, source, optionalDiscoveryId |
 | Discovery | discoveryId, placeId, questId, questVersion, firstClearedAt, placeName, descriptionSnapshot, ownerPhoto, revealedLocation。本人詳細に任意の `afterClear` |
-| ManagedQuest | questId, orgId, draftRevision, publishedVersion, status, draft内容、確認状態 |
+| ManagedQuest | questId, orgId, draftRevision, publishedVersion, status, draft内容、確認状態。公開時に確定した任意のquestNumber（問題番号、D-31） |
 
 `outcome`は完了前null。`source`はreal / mock（mockは独立した検証環境のみ）。写真URLは認可付き取得先または短命URL。PublicQuestにはplaceIdに紐付く内部情報、参考全景、撮影中心・半径、正解名を含めない。
 
@@ -39,7 +39,7 @@
 | POST /challenges | 必要 | questId, expectedVersion → 初回201 Challenge。同じ利用者・問題・版の再要求は200で再利用。開発用の実装範囲は[挑戦開始API](challenge-start.md)を参照。実データでは未公開・版違い・既存発見を確認する |
 | POST /challenges/:challengeId/answers | 必要 | multipartでphotoとCaptureMetadata。Idempotency-Key必須 → AttemptResult |
 | GET /attempts/:attemptId | 必要 | 本人の結果・処理状態。未判定の休止・版違いは409 |
-| GET /me/discoveries | 必要 | 地域・ページ指定 → 本人の発見一覧 |
+| GET /me/discoveries | 必要 | 地域・ページ・sort指定 → 本人の発見一覧 |
 | GET /me/discoveries/:discoveryId | 必要 | 本人のDiscovery。公開中でなくても過去記録は基本保持 |
 | GET /me/discoveries/:discoveryId/photo | 必要 | 本人のJPEG。共通clientはBearer付きで取得してBlobを返す |
 | DELETE /me/discoveries/:discoveryId | 必要 | 202でdeletionIdを返す。画像を含む削除を追跡 |
@@ -92,7 +92,7 @@
 | POST /orgs/:orgId/quests/:questId/generate | 編集・公開 | 保存済みの版に対する下書き候補。ローカルの設定と素材条件は19節 |
 | POST /orgs/:orgId/quests/:questId/test | 編集・公開 | 特定draftRevisionと試験写真で照合。発見記録は作らない |
 | POST /orgs/:orgId/quests/:questId/submit-review | 編集・公開 | `expectedDraftRevision`を指定し、確認待ちの下書きまたは不足項目を返す。詳細は17節 |
-| POST /orgs/:orgId/quests/:questId/publish | 公開 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
+| POST /orgs/:orgId/quests/:questId/publish | 自組織の有効な所属 | expectedDraftRevision、確認項目、該当版の試験記録で公開。開発用実装は18節 |
 | POST /orgs/:orgId/quests/:questId/pause | 公開・運営 | 理由を記録し、新規挑戦と進行中の確定を禁止。開発用実装は18節 |
 | GET /orgs/:orgId/reports | 公開 | 自組織の報告一覧。開発用実装は20節 |
 
@@ -167,17 +167,32 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 既定は保存先未接続の503。`QUEST_DISCOVERIES_MODE=memory`を明示したときだけ開発用ストアを起動し、記録応答に`X-Quest-Records-Mode: memory`を付ける。共通clientは明示demo接続の場合だけmemoryを受け付ける。設定で本人1人に合成記録を用意できる。回答からの記録作成、実DB/Storage、CORRECTは未接続。[合成記録の設定](owner-discoveries.md#合成記録で一覧写真削除を試す)
 
+本人記録一覧 `GET /api/v1/me/discoveries` の `sort`（D-83）：
+
+| 値 | 全順序 |
+|---|---|
+| `cleared-desc`（未指定時の既定） | firstClearedAt降順、discoveryId降順 |
+| `cleared-asc` | firstClearedAt昇順、discoveryId昇順 |
+| `prefecture-asc` | 都道府県コード昇順（01→47）、firstClearedAt降順、discoveryId降順 |
+| `prefecture-desc` | 都道府県コード降順（47→01）、firstClearedAt降順、discoveryId降順 |
+
+不明県はどちらの県順でも最後に置き、記録を除外しない。不正なsortは400 `INVALID_INPUT`。cursorはuid・areaId・正規化したsortに束縛され、異なる条件では400 `INVALID_INPUT`。未指定と `cleared-desc` は同じスコープ。旧形式のcursorは無効となるため、一覧の先頭から再取得する。
+
+一覧・詳細の `Discovery.prefectureCode?: string` は記録に保存されたareaIdの `areas/{areaId}.prefectureCode` が有効（"01"〜"47"）な場合だけ返す。地域の欠落・不正値・未分類ではフィールドを省略する。県の解決は問題の現在の公開状態や版に依存しない。Firestoreは等価条件で本人記録を取得し、地域を重複なくgetAllで一括取得してメモリ上で並べる（D-57）。
+
 ## 12. Dへの用途別写真素材API
 
 [admin-assets.md](admin-assets.md)に設定・入力・再送・下書きへの接続を記録する。`OrgAssetMetadata`と`UploadedOrgAsset`を追加し、`uploadOrgAsset / getOrgAsset / getOrgAssetPhoto`を共通clientから利用できる。serverは所属を確認して既存の画像検証で正規化し、用途・組織付きIDを発行する。`QUEST_ADMIN_ASSETS_MODE=memory`の明示設定だけが開発用写真を一時保存し、既定は503。素材API自体に実Storage/AI/公開は含まない。PR #30の新しい下書き項目は次節の共有契約を参照する。
 
 ## 13. PR #30に対応する管理下書き契約
 
-`ManagedQuestDraft.materials`はname/evidence・requiresBoat/requiresPaidFacility・price/photoNote/photoRights。旧6交通手段と旧materialsのaccess/hoursは廃止して拒否する。クリア後用のaccess/hours/promoComment/explanationは必須の`afterClear`へ分離し、管理APIで作成/更新/取得する。空文字は未完成下書きとして保存でき、条件の真偽値を文字列から補正しない。
+`ManagedQuestDraft.materials`はname/evidence・requiresBoat/requiresPaidFacility・price/photoNote/photoRights。`photoNote` は既存データ互換のため受理・保存するが、編集欄・旅行者向け公開投影には使用しない。旧6交通手段と旧materialsのaccess/hoursは廃止して拒否する。クリア後用のaccess/hours/promoComment/explanationは必須の`afterClear`へ分離し、管理APIで作成/更新/取得する。空文字は未完成下書きとして保存でき、条件の真偽値を文字列から補正しない。
 
 共有型はShootingConditions/AfterClearContent。管理プレビューの型もこれを参照する。PublicQuest/通常ヒント/未クリア用データへafterClearを追加せず、登録・本人記録・公開のAPIを混同しない。詳しいpayloadと旧clientからの注意は[接続手順](team-api-handoffs.md)を参照。
 
 永続APIでは初回クリア時に、挑戦した公開版の `afterClear` を本人記録へ保存する。`GET /me/discoveries/:id` は本人だけにこの案内を返す。以前の記録では、同じ問題と版の保存済みデータから補う。案内のない記録は既存の `descriptionSnapshot` で表示できる。[Cの詳細画面との接続](owner-discoveries.md#クリア後の案内)
+
+永続側の管理下書きと本人詳細は、任意の `afterClear.spot` に確認済みの `name`、`address`、`position`、任意の `googlePlaceId` を保持する。スポットを登録した版の `revealedLocation` は対象位置を使い、判定用の撮影中心は従来どおり非公開。所属から選んだ行政区域と出典・年度、1,000m固定の範囲更新は[位置登録の契約](admin-municipal-locations.md)を参照する。
 
 ## 14. 回答処理の内部接続
 
@@ -187,7 +202,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 ## 15. Dの非公開撮影範囲
 
-[admin-shooting-areas.md](admin-shooting-areas.md)が入力・認可・競合・接続の正本。GET/PUT `/orgs/:orgId/quests/:questId/shooting-areas`を追加し、getShootingAreas/updateShootingAreasで利用する。共有CaptureZoneは既存GPSと共用し、座標・半径は専用の管理応答だけに含める。本文と同じdraftRevisionで全置換/解除し、通常の管理応答はshootingAreaStatusのみ。18節の開発用公開版に範囲を固定する。実地点の閾値はO-03で扱う。
+[admin-shooting-areas.md](admin-shooting-areas.md)が入力・認可・競合・接続の正本。GET/PUT `/orgs/:orgId/quests/:questId/shooting-areas`を追加し、getShootingAreas/updateShootingAreasで利用する。共有CaptureZoneは既存GPSと共用し、座標・半径は専用の管理応答だけに含める。本文と同じdraftRevisionで全置換/解除し、通常の管理応答はshootingAreaStatusのみ。永続管理画面は下書きのPOST/PATCHで `deriveShootingArea: true` を指定し、スポットと同じ保存処理で1,000mの範囲を設定する。自動設定済みの下書きでは個別PUTによる上書きを拒否する。18節の開発用公開版に範囲を固定する。実地点の閾値はO-03で扱う。
 
 ## 16. Dの写真判定試験
 
@@ -203,7 +218,9 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 
 開発サーバーの架空データ専用。`demo` と `durable-local` で使える。自組織の`publisher`のみ実行でき、本文の受信後にも所属と役割を確認する。両操作は200で`ManagedQuest`を返す。
 
-- `publishManagedQuest(orgId, questId, input)` は`expectedDraftRevision`、`matchTestId`、`mismatchTestId`と`confirmations`を送る。確認項目は`fictionalData`、`visitConditions`、`photoRights`、`shootingArea`、`testCases`の全てが`true`。公開担当者が架空データ・訪問条件・画像の権利と公開範囲・撮影範囲・試験ケースを確認する。
+- `GET /orgs/:orgId/quests/:questId/readiness` は、同じ組織の有効な所属に下書きと現在の不足項目を返す。撮影範囲が対象位置と一致するかも確認する。確認待ちへの変更・保存は行わない。
+- 永続側と共有検証では、素材アップロードと写真試験の `photoRights` を省略できる。写真試験と公開に素材の事前承認登録は不要。素材の用途・所属と写真試験の結果はサーバーで照合する。[写真利用と公開手順](admin-photo-approvals.md)を参照。
+- `publishManagedQuest(orgId, questId, input)` は `expectedDraftRevision`、`matchTestId`、`mismatchTestId` を送る。永続側の `confirmations` は省略でき、旧クライアントが送る場合も受け付ける。旧デモでは `fictionalData`、`visitConditions`、`shootingArea`、`testCases`、`photoRights` がすべて `true` の `confirmations` が必須。公開処理は所属と下書き版を再確認する。
 - 現在の確認待ち下書きと、同じ組織・問題・下書き版でサーバーが記録した`MATCH`と`WRONG_TARGET`が必要。正規化後に同じ画像の試験は使えない。版違いは409 `DRAFT_CONFLICT`、確認不足は409 `REVIEW_REQUIRED`、試験不足は409 `PHOTO_TEST_REQUIRED`。任意の公開ヒント画像は同組織の`public_hint`素材で、参考写真と同じ正規化画像は拒否する。
 - 公開時に問題文、訪問条件、段階ヒント、任意のヒント画像を版へ固定する。撮影範囲、参考素材ID、確認済み特徴も同じ版へ固定し、公開中の版を指定したサーバー内の照合条件取得に限って参照できる。旅行者の一覧・詳細に返す`shootingConditions`は`requiresBoat`と`requiresPaidFacility`のbooleanだけを持つ。料金と撮影注意は`visitConditions`で読める。ヒント画像は公開中の版を指定した`GET /quests/:questId/hint-image?expectedVersion=...`でJPEGを取得する。下書き編集後も旅行者は旧公開版を使い、再公開時に新しい版へ切り替わる。
 - `pauseManagedQuest(orgId, questId, {expectedPublishedVersion, reason})` は空白を除いた1〜1000文字の理由を記録する。休止中は公開GETから外し、新規挑戦・回答受付は409 `QUEST_UNAVAILABLE`。同じ版・理由の再送は重ねて休止しない。初回の休止でdraftRevisionを進めるため、再公開には新しい版の確認依頼と写真試験が必要。再公開後、旧版の挑戦での回答は409 `QUEST_CHANGED`。
@@ -247,3 +264,7 @@ Firestore / Storage、写真判定・本人記録・自治体API・クラウド�
 materials.evidenceはキーと文字列型を維持し、空文字を確認依頼・公開前検証でも許容する。ReviewFieldの旧値は応答互換のため維持する。対象名・権利・特徴・範囲・試験の必須条件は変えない。生成HTTP入口ではevidenceの非空を要求しないが、Vertex合成試験では指定evidenceとの完全一致が引き続き必要。任意の実写真に対する生成機能ではない。回答APIのschemaは変更せず、COMPLETEDかつCORRECT/ALREADY_CLEAREDのoptionalDiscoveryIdを既存本人詳細への遷移に使う。
 
 永続側A03〜A06の地図・時間・料金・写真権利の入力支援は[管理入力支援](admin-input-ux.md)を参照。保存API/strict schema/公開DTOの変更はなく、既存文字列と非公開範囲専用APIを使用する。
+
+住所候補は管理者専用の `POST /api/v1/orgs/:orgId/spot-address` で照会する。入力は `position: {latitude, longitude}` または `googlePlaceId` の少なくとも一方。成功応答は `{orgId, status: 'candidate', source: 'place' | 'nearby', address}`、候補が使えない場合は `{orgId, status: 'no-result' | 'unavailable' | 'conflict'}`（`unavailable` は取得失敗とキー未設定・無効の両方を含み、区別しない。D-68）。組織所属を照会前と返却前に確認し、候補を保存しない。[設定と制限](google-maps.md#管理画面の住所候補)
+
+2026-11-10: PublicQuest.visitConditions は条件がない場合に空文字を返す。画面は空の条件カードを表示しない。安全上の条件・料金・撮影注意は引き続き返す。

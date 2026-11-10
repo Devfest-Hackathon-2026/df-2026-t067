@@ -14,21 +14,23 @@ test('new D draft fields round-trip privately through create/update without ente
     afterClear: { access: 'private-access', hours: 'private-hours', promoComment: 'private-promo', explanation: 'private-explanation' },
     referenceAssetId: null, hintAssetId: null,
   }
+  // 撮影の注意（photoNote）は廃止済み。送っても空で保存される。
+  const stored = (value: typeof draft) => ({ ...value, materials: { ...value.materials, photoNote: '' } })
   const headers = { Authorization: 'Bearer token', 'Content-Type': 'application/json' }
   const path = '/api/v1/orgs/demo-org/quests'
   const response = await fetch(base + path, { method: 'POST', headers, body: JSON.stringify({ draft }) })
   assert.equal(response.status, 201)
   const created = await response.json() as { questId: string; draftRevision: number; draft: unknown }
-  assert.deepEqual(created.draft, draft)
+  assert.deepEqual(created.draft, stored(draft))
   const changed = { ...draft, materials: { ...draft.materials, requiresBoat: false }, afterClear: { ...draft.afterClear, explanation: 'private-new-explanation' } }
   const updated = await fetch(base + path + '/' + created.questId, {
     method: 'PATCH', headers, body: JSON.stringify({ expectedDraftRevision: created.draftRevision, draft: changed }),
   })
   assert.equal(updated.status, 200)
-  assert.deepEqual((await updated.json() as { draft: unknown }).draft, changed)
+  assert.deepEqual((await updated.json() as { draft: unknown }).draft, stored(changed))
   const restored = await fetch(base + path + '/' + created.questId, { headers })
   assert.equal(restored.status, 200)
-  assert.deepEqual((await restored.json() as { draft: unknown }).draft, changed)
+  assert.deepEqual((await restored.json() as { draft: unknown }).draft, stored(changed))
   for (const endpoint of ['/api/v1/quests', '/api/v1/quests/demo-quest', '/api/v1/quests/demo-quest/hints/1?expectedVersion=1']) {
     const publicResponse = await fetch(base + endpoint)
     assert.equal(publicResponse.status, 200, endpoint)

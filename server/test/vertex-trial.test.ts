@@ -55,20 +55,20 @@ test('a private ledger inherits the already used call, persists and refuses rein
   assert.equal(await used(file), 1)
   assert.equal((await stat(file)).mode & 0o777, 0o600)
   await assert.rejects(initializeTrialLedger(file, 1))
-  for (const count of [0, 21, NaN]) await assert.rejects(initializeTrialLedger(file + '.invalid', count))
+  for (const count of [0, 51, NaN]) await assert.rejects(initializeTrialLedger(file + '.invalid', count))
   assert.equal(await withTrialSlot(file, signal(), async (count) => count), 2)
   assert.equal(await used(file), 2)
   assert.equal(await withTrialSlot(file, signal(), async (count) => count), 3)
 })
 
-test('the twentieth call is allowed; failed calls count and the twenty-first never runs', async (t) => {
+test('the fiftieth call is allowed; failed calls count and the fifty-first never runs', async (t) => {
   const file = await fixture(t)
-  for (let n = 2; n <= 20; n++) {
+  for (let n = 2; n <= 50; n++) {
     await assert.rejects(withTrialSlot(file, signal(), async () => { throw new Error('simulated failure') }))
     assert.equal(await used(file), n)
   }
   await assert.rejects(withTrialSlot(file, signal(), async () => assert.fail('quota exceeded')), { code: 'SYSTEM_ERROR', retryable: false })
-  assert.equal(await used(file), 20)
+  assert.equal(await used(file), 50)
 })
 
 test('independent callers share a single in-flight slot and release it after failure', async (t) => {
@@ -177,7 +177,7 @@ test('another process resumes the same allowance; unsafe file permissions and le
 
 test('quota exhaustion stays non-retryable through the transport and sends nothing', async (t) => {
   const file = await fixture(t)
-  for (let n = 2; n <= 20; n++) await withTrialSlot(file, signal(), async () => undefined)
+  for (let n = 2; n <= 50; n++) await withTrialSlot(file, signal(), async () => undefined)
   const matcher = createVertexPhotoMatcher(createVertexTrialTransport(file, { getAccessToken: async () => 'test-token', http: async () => assert.fail('quota exhausted') }))
   await assert.rejects(matcher(await comparison(), { signal: signal() }), { code: 'SYSTEM_ERROR', retryable: false })
 })
@@ -203,7 +203,7 @@ test('credential waiting obeys the deadline and cancellation does not free a sti
 test('the local CLI initializes without credentials and rejects production, paths and extra arguments', async (t) => {
   const file = await fixture(t)
   const env = { NODE_ENV: 'development', QUEST_VERTEX_TRIAL_LEDGER: file + '.cli' }
-  assert.deepEqual(await runVertexTrial(['init'], env), { source: 'vertex-trial', status: 'initialized', used: 5, limit: 20 })
+  assert.deepEqual(await runVertexTrial(['init'], env), { source: 'vertex-trial', status: 'initialized', used: 5, limit: 50 })
   for (const [args, configuration] of [
     [['match'], { ...env, NODE_ENV: 'production' }],
     [['match'], { ...env, QUEST_VERTEX_TRIAL_LEDGER: 'relative.json' }],

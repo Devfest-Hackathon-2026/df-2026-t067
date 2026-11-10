@@ -1,15 +1,23 @@
+import { NORMALIZED_PHOTO_MAX_BYTES } from '../mediaLimits'
 export type LngLat = [longitude: number, latitude: number]
 export type PublicGeometry =
   | { type: 'Polygon'; coordinates: LngLat[][] }
   | { type: 'MultiPolygon'; coordinates: LngLat[][][] }
 export interface Position { latitude: number; longitude: number }
 export interface SessionIdentity { uid: string }
+/** 公開区域の境界の出典。N03 の場合は登録年度も併せて公開し、出典表示に使う（D-71）。 */
+export type PublicAreaBoundary =
+  | { source: 'N03'; year: number }
+  | { source: 'fixture' }
 export interface PublicArea {
   areaId: string
   label: string
   publicGeometry: PublicGeometry
   marker: Position
   publishedCount: number
+  prefectureCode?: string
+  municipalityCode?: string
+  boundary?: PublicAreaBoundary
 }
 export interface ShootingConditions { requiresBoat: boolean; requiresPaidFacility: boolean }
 export interface PublicQuest {
@@ -18,6 +26,7 @@ export interface PublicQuest {
   title: string
   clue: string
   areaId: string
+  questNumber?: string
   optionalHintImage?: string
   hintImages?: (string | null)[]
   shootingConditions?: ShootingConditions
@@ -47,9 +56,19 @@ export type AttemptResult = AttemptBase & (
   | { state: 'COMPLETED'; outcome: 'CORRECT' | 'ALREADY_CLEARED'; optionalDiscoveryId: string }
   | { state: 'COMPLETED'; outcome: Exclude<AttemptOutcome, 'CORRECT' | 'ALREADY_CLEARED'>; optionalDiscoveryId?: never }
 )
-export interface AfterClearContent { access: string; hours: string; promoComment: string; explanation: string }
+export interface ConfirmedSpot {
+  name: string
+  address: string
+  position: Position
+  googlePlaceId?: string
+}
+export interface AfterClearContent {
+  access: string; hours: string; promoComment: string; explanation: string
+  spot?: ConfirmedSpot
+}
 
 export interface Discovery {
+  prefectureCode?: string
   discoveryId: string
   placeId: string
   questId: string
@@ -70,7 +89,7 @@ export type Decoder<T> = (input: unknown) => T
 
 export interface QuestHint { questId: string; version: number; index: number; text: string }
 
-export const DISCOVERY_PHOTO_MAX_BYTES = 2 * 1024 * 1024
+export const DISCOVERY_PHOTO_MAX_BYTES = NORMALIZED_PHOTO_MAX_BYTES
 export interface DeletionReceipt { deletionId: string }
 export interface DeletionStatus extends DeletionReceipt {
   state: 'pending' | 'completed' | 'failed'

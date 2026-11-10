@@ -4,7 +4,7 @@
       "uid": "REPLACE_WITH_YOUR_FIREBASE_UID",
       "active": true,
       "orgId": "demo-org",
-      "label": "架空の管理デモ自治体（実在しません）",
+      "label": "青葉みらい市",
       "role": "editor",
       "areaId": "demo-area"
     }

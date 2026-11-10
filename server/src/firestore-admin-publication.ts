@@ -1,15 +1,19 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
+import { CAPTURE_ZONE_RADIUS_METERS } from '../../src/shared/api/admin'
 import type { AssetPurpose, ManagedQuest, PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../../src/shared/api/admin'
 import { projectManagedQuest } from './admin-publication'
 import { missingReviewFields } from './admin-review'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { HttpError } from './errors'
 import { answerTransaction, processingError, questChanged, validDigest } from './firestore-answer-data'
+import { hasSpotShootingArea } from './firestore-managed-drafts'
 import type { FirestoreManagedDraftStore } from './firestore-managed-drafts'
 import { readOrgAssetRecord } from './firestore-org-assets'
 import { requirePublisher } from './firestore-org-memberships'
 import { draftPhotoFeatures } from './photo-match'
-import { maximumCatalogEntries, readPublicArea } from './public-catalog-http'
+import { maximumCatalogEntries } from './public-catalog-http'
+import { assertSpotInMunicipalArea, areaPrefectureCode, readMunicipalArea } from './municipal-areas'
+import { formatQuestNumber, isPrefectureCode } from '../../src/shared/api/validation'
 
 export type PublicationPhotos = Pick<AnswerPhotoStorage, 'readReference' | 'readHint'>
 
@@ -29,7 +33,7 @@ export class FirestoreManagedPublication {
       if ([...hints, legacy].some((hint) => hint && reference.bytes.equals(hint.bytes))) throw new HttpError(409, 'REVIEW_REQUIRED', '参考写真と異なる公開ヒント画像を確認してください。')
     }
     return answerTransaction(this.db, async (tx) => {
-      const { quest, ref, data, reference, hint, hintAssets, features, zones } = await prepare(tx)
+      const { quest, ref, data, member, reference, hint, hintAssets, features, zones } = await prepare(tx)
       if (!sameAsset(reference, verified.reference) || !sameAsset(hint, verified.hint) ||
         hintAssets.some((asset, index) => !sameAsset(asset, verified.hintAssets[index]))) throw draftConflict()
       const evidence = this.db.collection('adminPhotoTestEvidence')
@@ -42,26 +46,37 @@ export class FirestoreManagedPublication {
       if (quest.status === 'published') return quest
 
       const area = await tx.get(this.db.collection('areas').doc(quest.areaId))
-      if (!area.exists) throw reviewRequired()
-      readPublicArea(area, 0)
+      const exploration = readMunicipalArea({ id: area.id, data: area.data() }, member)
+      if (!exploration) throw new HttpError(409, 'REVIEW_REQUIRED', '所属自治体と下書きの探索エリアの対応を確認してください。')
+      assertSpotInMunicipalArea(exploration, quest.draft.afterClear.spot?.position)
+      // 場所（都道府県コードで分類された地域）は必須（D-33）。未分類の地域に紐づく下書きは公開できない。
+      // 既に公開済みの問題の表示・判定には影響しない（公開済みの版はそのまま残る）。
+      if (!areaPrefectureCode(area.data())) throw new HttpError(409, 'AREA_UNCLASSIFIED', 'この地域は都道府県コードが未設定のため、公開できません。')
       const catalog = this.db.collection('questPublic')
       if (quest.publishedVersion === null && (await tx.get(catalog.limit(maximumCatalogEntries))).size >= maximumCatalogEntries) {
         throw new HttpError(429, 'RATE_LIMITED', '開発用の公開問題の上限に達しました。')
       }
+      // 問題番号（D-31）: 初回公開時に、その都道府県コードを持つ地域の問題としての連番を
+      // カウンタドキュメントで採番し、問題ドキュメントへ保存する。以後の版更新・休止・再公開では
+      // 保存値をそのまま使うため、番号は動かない。都道府県コードの無い地域の問題には付けない。
+      // 採番はカウンターを書き込むため、公開上限を含む他の読み取りを先に完了する。
+      const questNumber = await ensureQuestNumber(tx, this.db, quest, area.get('prefectureCode'))
       const version = latestVersion(data.latestPublishedVersion, quest.publishedVersion) + 1
       if (!Number.isSafeInteger(version)) throw draftConflict()
-      const { latitude, longitude } = zones[0]
       const { afterClear } = quest.draft
+      const { latitude, longitude } = afterClear.spot?.position ?? zones[0]
       const snapshot = this.db.collection('questVersions').doc(questId + ':' + version)
       tx.create(snapshot, { draftRevision: quest.draftRevision, placeId: questId, areaId: quest.areaId,
-        placeName: quest.draft.materials.name.trim(), descriptionSnapshot: afterClear.explanation.trim(),
+        explorationBoundary: exploration.boundary,
+        placeName: afterClear.spot?.name ?? quest.draft.materials.name.trim(), descriptionSnapshot: afterClear.explanation.trim(),
         revealedLocation: { latitude, longitude }, afterClear,
         answerMaterial: { orgId, referenceAssetId: reference.assetId, referenceGeneration: reference.generation, features, zones },
         ...(hint ? { publicHintImage: { orgId, ...hint } } : {}),
         ...(hintAssets.some(Boolean) ? { publicHintImages: hintAssets.map((asset) => asset ? { orgId, ...asset } : null) } : {}) })
-      tx.set(catalog.doc(questId), projectManagedQuest(quest, version))
-      tx.update(ref, { publishedVersion: version, latestPublishedVersion: version, status: 'published', pauseReason: null })
-      return { ...quest, publishedVersion: version, status: 'published' }
+      tx.set(catalog.doc(questId), projectManagedQuest(quest, version, questNumber))
+      tx.update(ref, { publishedVersion: version, latestPublishedVersion: version, status: 'published', pauseReason: null,
+        ...(questNumber ? { questNumber } : {}) })
+      return { ...quest, publishedVersion: version, status: 'published', ...(questNumber ? { questNumber } : {}) }
     })
   }
 
@@ -86,10 +101,10 @@ export class FirestoreManagedPublication {
 
   private async readPublishable(tx: Transaction, uid: string, orgId: string, questId: string, revision: number) {
     const owned = await this.drafts.readOwned(tx, uid, orgId, questId)
-    const { quest, member, zones } = owned
-    requirePublisher(member)
+    const { quest, zones, data } = owned
     if (quest.draftRevision !== revision) throw draftConflict()
     if (quest.status !== 'review_pending' && quest.status !== 'published') throw reviewRequired()
+    if (data.shootingAreaSource === 'spot' && !hasSpotShootingArea(quest.draft, zones)) throw reviewRequired()
     const { referenceAssetId, hintAssetId, content } = quest.draft
     const hintAssetIds = (quest.draft.hintAssetIds ?? [null, null, null]).map((assetId, index) =>
       assetId ?? (index === 0 ? hintAssetId : null))
@@ -99,8 +114,8 @@ export class FirestoreManagedPublication {
       ...hintAssetIds.map((assetId) => this.readAsset(tx, orgId, assetId, 'public_hint')),
     ])
     const features = draftPhotoFeatures(content.verifiedFeatures)
-    const missing = missingReviewFields(quest, { reference: reference !== null, public_hint: hint !== null })
-    if (!reference || !features || !zones.length || missing.length ||
+    const missing = missingReviewFields(quest, { reference: reference !== null, public_hint: hint !== null }, { requirePhotoRights: false, hintsAvailable: true })
+    if (!reference || !features || !zones.length || zones.some(({ radiusMeters }) => radiusMeters !== CAPTURE_ZONE_RADIUS_METERS) || missing.length ||
       hintAssetIds.some((assetId, index) => assetId !== null && hintAssets[index] === null)) throw reviewRequired()
     return { ...owned, reference, hint, hintAssets, features }
   }
@@ -108,8 +123,22 @@ export class FirestoreManagedPublication {
   private async readAsset(tx: Transaction, orgId: string, assetId: string | null, purpose: AssetPurpose): Promise<AssetVersion | null> {
     if (!assetId) return null
     const asset = readOrgAssetRecord(await tx.get(this.db.collection('orgAssets').doc(assetId)), orgId)
-    return asset?.generation && asset.asset.purpose === purpose ? { assetId, generation: asset.generation } : null
+    if (!asset?.generation || asset.asset.purpose !== purpose) return null
+    return { assetId, generation: asset.generation }
   }
+}
+
+export async function ensureQuestNumber(tx: Transaction, db: Firestore, quest: ManagedQuest, prefectureCode: unknown): Promise<string | undefined> {
+  if (quest.questNumber) return quest.questNumber
+  if (!isPrefectureCode(prefectureCode)) return undefined
+  const counterRef = db.collection('questNumberCounters').doc(prefectureCode)
+  const counter = await tx.get(counterRef)
+  const lastSerial = counter.get('lastSerial')
+  const serial = (typeof lastSerial === 'number' && Number.isSafeInteger(lastSerial) && lastSerial >= 0 ? lastSerial : 0) + 1
+  if (!Number.isSafeInteger(serial)) throw draftConflict()
+  const questNumber = formatQuestNumber(prefectureCode, serial)
+  tx.set(counterRef, { lastSerial: serial })
+  return questNumber
 }
 
 function evidenceDigest(snapshot: DocumentSnapshot, quest: ManagedQuest, reference: AssetVersion, decision: PhotoDecision): string | undefined {

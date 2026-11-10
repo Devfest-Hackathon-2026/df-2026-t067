@@ -1,5 +1,7 @@
-import { parseDraftRevisionRequest, parseDraftSuggestion, parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
+import { PHOTO_UPLOAD_MAX_BYTES, PHOTO_UPLOAD_MIME_TYPES, PHOTO_METADATA_MAX_BYTES } from '../mediaLimits'
+import { parseDraftRevisionRequest, parseDraftSuggestion, parseManagedQuest, parseManagedQuestDraft, parseManagedShootingAreas, parseOrgAssetMetadata, parseOrgMembership, parsePauseManagedQuest, parsePhotoTestMetadata, parsePhotoTestResult, parsePublishManagedQuest, parsePublicationReadiness, parseReviewSubmission, parseSubmitReview, parseUpdateManagedQuest, parseUpdateShootingAreas, parseUploadedOrgAsset } from './admin'
 import type { AssetPurpose, ManagedQuestDraft, PauseManagedQuest, PhotoTestMetadata, PublishManagedQuest, UpdateManagedQuest, UpdateShootingAreas } from './admin'
+import { parseSpotAddressInput, parseSpotAddressLookup, type SpotAddressInput } from './admin-spot-address'
 import { DISCOVERY_PHOTO_MAX_BYTES } from './types'
 import type { AttemptResult, CaptureMetadata, Decoder, ReportInput } from './types'
 import {
@@ -11,7 +13,7 @@ import {
 const ERROR_CODES = [
   'INVALID_INPUT', 'MEDIA_TOO_LARGE', 'UNAUTHENTICATED', 'FORBIDDEN', 'RATE_LIMITED',
   'DRAFT_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUEST_UNAVAILABLE', 'QUEST_CHANGED', 'SYSTEM_ERROR',
-  'REVIEW_REQUIRED', 'PHOTO_TEST_REQUIRED',
+  'REVIEW_REQUIRED', 'PHOTO_APPROVAL_REQUIRED', 'PHOTO_TEST_REQUIRED', 'AREA_UNCLASSIFIED', 'SPOT_OUTSIDE_AREA',
   'NOT_FOUND', 'HTTP_ERROR', 'NETWORK_ERROR', 'INVALID_RESPONSE', 'AUTH_UNAVAILABLE',
 ] as const
 export type ApiErrorCode = typeof ERROR_CODES[number]
@@ -31,8 +33,11 @@ export class ApiError extends Error {
       INVALID_INPUT: '送信内容を確認してください。',
       INVALID_RESPONSE: 'データを読み取れませんでした。',
       NETWORK_ERROR: '通信状況を確認してください。',
+      PHOTO_APPROVAL_REQUIRED: 'この写真は指定用途で事前承認されていません。',
       REVIEW_REQUIRED: '入力項目を確認し、最新版の確認を依頼してください。',
       PHOTO_TEST_REQUIRED: '最新版の一致と別対象の写真試験を確認してください。',
+      SPOT_OUTSIDE_AREA: 'エリアの外です',
+      AREA_UNCLASSIFIED: 'この地域は都道府県コードが未設定のため、この操作はできません。',
     }
     super(messages[code] ?? '処理を完了できませんでした。')
     this.name = 'ApiError'
@@ -149,6 +154,7 @@ function liveAttempt(input: unknown, allowDemo = false): AttemptResult {
 }
 
 export function createApiClient(options: ApiClientOptions = {}) {
+  const canLookupSpotAddress = options.expectedDataMode === 'durable-local' || options.expectedDataMode === 'team-preview'
   const decodeAttempt = (input: unknown) => liveAttempt(input, options.expectedDataMode === 'demo')
   const base = (options.basePath ?? '/api/v1').replace(/\/+$/, '')
   if (!/^\/[A-Za-z0-9/_-]+$/.test(base) || base.includes('//')) throw new ApiError('INVALID_INPUT')
@@ -260,15 +266,15 @@ export function createApiClient(options: ApiClientOptions = {}) {
   }
 
   return {
-    async uploadOrgAsset(orgId: string, input: { photo: Blob; purpose: AssetPurpose; photoRights: string; idempotencyKey: string }, call: CallOptions = {}) {
+    async uploadOrgAsset(orgId: string, input: { photo: Blob; purpose: AssetPurpose; photoRights?: string; idempotencyKey: string }, call: CallOptions = {}) {
       const org = id(orgId)
-      const metadata = adminInput(parseOrgAssetMetadata, { purpose: input.purpose, photoRights: input.photoRights })
+      const metadata = adminInput((value) => parseOrgAssetMetadata(value, input.photoRights === undefined), { purpose: input.purpose, photoRights: input.photoRights })
       if (!(input.photo instanceof Blob) || input.photo.size === 0 ||
-        !['image/jpeg', 'image/png', 'image/webp'].includes(input.photo.type) ||
+        !PHOTO_UPLOAD_MIME_TYPES.includes(input.photo.type) ||
         typeof input.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(input.idempotencyKey)) throw new ApiError('INVALID_INPUT')
-      if (input.photo.size > 4 * 1024 * 1024) throw new ApiError('MEDIA_TOO_LARGE')
-      const encoded = JSON.stringify(metadata)
-      if (new TextEncoder().encode(encoded).byteLength > 4096) throw new ApiError('MEDIA_TOO_LARGE')
+      if (input.photo.size > PHOTO_UPLOAD_MAX_BYTES) throw new ApiError('MEDIA_TOO_LARGE')
+      const encoded = JSON.stringify(input.photoRights === undefined ? { purpose: metadata.purpose } : metadata)
+      if (new TextEncoder().encode(encoded).byteLength > PHOTO_METADATA_MAX_BYTES) throw new ApiError('MEDIA_TOO_LARGE')
       const body = new FormData()
       body.append('photo', input.photo, 'asset')
       body.append('metadata', encoded)
@@ -281,6 +287,16 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     async getOrgAssetPhoto(orgId: string, assetId: string, call: CallOptions = {}) {
       return requestPhoto('/orgs/' + id(orgId) + '/assets/' + id(assetId) + '/photo', { ...call, authenticated: true, assets: true })
+    },
+    canLookupSpotAddress,
+    async lookupSpotAddress(orgId: string, input: SpotAddressInput, call: CallOptions = {}) {
+      if (!canLookupSpotAddress) throw new ApiError('INVALID_INPUT')
+      const body = adminInput(parseSpotAddressInput, input)
+      return request('/orgs/' + id(orgId) + '/spot-address', (data) => {
+        const result = parseSpotAddressLookup(data)
+        if (result.orgId !== orgId) throw new ContractError('spotAddressResult.orgId')
+        return result
+      }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },
     async listMemberships(query: Pick<ListQuery, 'cursor' | 'limit'> = {}, call: CallOptions = {}) {
       return request('/me/memberships' + queryString(query), (data) => parsePage(data, parseOrgMembership), { ...call, authenticated: true })
@@ -301,13 +317,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
     async getShootingAreas(orgId: string, questId: string, call: CallOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/shooting-areas', shootingAreas(orgId, questId), { ...call, authenticated: true })
     },
-    async testManagedQuest(orgId: string, questId: string, input: PhotoTestMetadata & { photo: Blob; idempotencyKey: string }, call: CallOptions = {}) {
+    async testManagedQuest(orgId: string, questId: string, input: Omit<PhotoTestMetadata, 'photoRights'> & { photoRights?: string; photo: Blob; idempotencyKey: string }, call: CallOptions = {}) {
       const path = '/orgs/' + id(orgId) + '/quests/' + id(questId) + '/test'
-      const metadata = adminInput(parsePhotoTestMetadata, { expectedDraftRevision: input.expectedDraftRevision, photoRights: input.photoRights })
-      if (!(input.photo instanceof Blob) || !input.photo.size || !['image/jpeg', 'image/png', 'image/webp'].includes(input.photo.type) ||
+      const metadata = adminInput((value) => parsePhotoTestMetadata(value, input.photoRights === undefined), { expectedDraftRevision: input.expectedDraftRevision, photoRights: input.photoRights })
+      if (!(input.photo instanceof Blob) || !input.photo.size || !PHOTO_UPLOAD_MIME_TYPES.includes(input.photo.type) ||
         typeof input.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(input.idempotencyKey)) throw new ApiError('INVALID_INPUT')
-      const encoded = JSON.stringify(metadata)
-      if (input.photo.size > 4 * 1024 * 1024 || new TextEncoder().encode(encoded).byteLength > 4096) throw new ApiError('MEDIA_TOO_LARGE')
+      const encoded = JSON.stringify(input.photoRights === undefined ? { expectedDraftRevision: metadata.expectedDraftRevision } : metadata)
+      if (input.photo.size > PHOTO_UPLOAD_MAX_BYTES || new TextEncoder().encode(encoded).byteLength > PHOTO_METADATA_MAX_BYTES) throw new ApiError('MEDIA_TOO_LARGE')
       const body = new FormData()
       body.append('photo', input.photo, 'test-photo')
       body.append('metadata', encoded)
@@ -326,10 +342,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
         ...call, authenticated: true, method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
     },
-    async createManagedQuest(orgId: string, input: ManagedQuestDraft, call: CallOptions = {}) {
+    async createManagedQuest(orgId: string, input: ManagedQuestDraft, call: CallOptions & { deriveShootingArea?: true } = {}) {
       const draft = adminInput(parseManagedQuestDraft, input)
       return request('/orgs/' + id(orgId) + '/quests', managed(orgId), {
-        ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft }),
+        ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft, deriveShootingArea: call.deriveShootingArea }),
       })
     },
     async updateManagedQuest(orgId: string, questId: string, input: UpdateManagedQuest, call: CallOptions = {}) {
@@ -337,6 +353,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId), managed(orgId, questId), {
         ...call, authenticated: true, method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
+    },
+    async getManagedQuestReadiness(orgId: string, questId: string, call: CallOptions = {}) {
+      return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/readiness', (data) => {
+        const result = parsePublicationReadiness(data)
+        managed(orgId, questId)(result.quest)
+        return result
+      }, { ...call, authenticated: true })
     },
     async submitManagedQuestReview(orgId: string, questId: string, expectedDraftRevision: number, call: CallOptions = {}) {
       const body = adminInput(parseSubmitReview, { expectedDraftRevision })
@@ -358,7 +381,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }, { ...call, authenticated: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     },
     async publishManagedQuest(orgId: string, questId: string, input: PublishManagedQuest, call: CallOptions = {}) {
-      const body = adminInput(parsePublishManagedQuest, input)
+      const body = adminInput((value) => parsePublishManagedQuest(value, options.expectedDataMode === 'durable-local' || options.expectedDataMode === 'team-preview' ||
+        (input.confirmations !== undefined && input.confirmations.photoRights === undefined)), input)
       return request('/orgs/' + id(orgId) + '/quests/' + id(questId) + '/publish', (data) => {
         const quest = managed(orgId, questId)(data)
         if (quest.status !== 'published' || quest.draftRevision !== body.expectedDraftRevision) throw new ContractError('publication.identity')

@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { DISCOVERY_PHOTO_MAX_BYTES } from '../../src/shared/api/types'
 import type { DeletionReceipt, DeletionStatus, Discovery, Page, Position } from '../../src/shared/api/types'
-import { parseDiscovery } from '../../src/shared/api/validation'
+import { isPrefectureCode, parseDiscovery } from '../../src/shared/api/validation'
+import { compareDiscoveryPosition, parseDiscoverySort } from './discovery-sort'
+import type { DiscoverySort } from './discovery-sort'
 import { HttpError, invalidInput } from './errors'
 import type { LocationDecision } from './location'
 import { paginate, parseId } from './query'
 import { syntheticPng } from './demo-photo-test'
 import { preparePhoto } from './photo-input'
 
-export interface DiscoveryQuery { areaId?: string; cursor?: string; limit?: number }
+export interface DiscoveryQuery { sort?: DiscoverySort; areaId?: string; cursor?: string; limit?: number }
 export interface DiscoveryPhoto { bytes: Uint8Array; contentType: 'image/jpeg' }
 export interface DiscoveryReadRepository {
   readonly storageMode: 'memory' | 'firestore'
@@ -40,9 +42,11 @@ export class DemoDiscoveryStore implements DiscoveryRepository {
   private usedBytes = 0
   private readonly capacity: number
   private readonly maximumBytes: number
+  private readonly prefectureCodeOf: (areaId: string) => string | undefined
   private readonly now: () => number
 
-  constructor(options: { capacity?: number; maximumBytes?: number; now?: () => number } = {}) {
+  constructor(options: { capacity?: number; maximumBytes?: number; now?: () => number; prefectureCodeOf?: (areaId: string) => string | undefined } = {}) {
+    this.prefectureCodeOf = options.prefectureCodeOf ?? (() => undefined)
     this.capacity = options.capacity ?? 256
     this.maximumBytes = options.maximumBytes ?? 32 * 1024 * 1024
     this.now = options.now ?? Date.now
@@ -57,8 +61,8 @@ export class DemoDiscoveryStore implements DiscoveryRepository {
     const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
     store.insertFirst(uid, {
       placeId: 'demo-fixture-place', questId: 'demo-quest', questVersion: 1, areaId: 'demo-area',
-      placeName: '架空のデモ記録',
-      descriptionSnapshot: '起動時に用意した合成記録です。写真・位置・日時は実際の訪問を表しません。',
+      placeName: '広場の時計',
+      descriptionSnapshot: '',
       revealedLocation: { latitude: 0, longitude: 0 }, photo: photo.bytes,
     })
     return store
@@ -97,17 +101,30 @@ export class DemoDiscoveryStore implements DiscoveryRepository {
   }
 
   async listOwned(uid: string, query: DiscoveryQuery): Promise<Page<Discovery>> {
+    const sort = parseDiscoverySort(query.sort)
     const params = new URLSearchParams()
     if (query.cursor !== undefined) params.set('cursor', query.cursor)
     if (query.limit !== undefined) params.set('limit', String(query.limit))
     const items = [...this.records.values()].filter((record) => record.uid === uid && (!query.areaId || record.areaId === query.areaId))
-      .map((record) => record.discovery).sort((a, b) => b.firstClearedAt.localeCompare(a.firstClearedAt) || a.discoveryId.localeCompare(b.discoveryId))
-    return structuredClone(paginate(items, params, JSON.stringify(['discoveries', uid, query.areaId ?? null]), (item) => item.discoveryId))
+      .map((record) => this.resolved(record)).sort((a, b) => {
+        const key = (d: Discovery) => {
+          const milliseconds = Date.parse(d.firstClearedAt)
+          const seconds = Math.floor(milliseconds / 1000)
+          return { seconds, nanoseconds: (milliseconds - seconds * 1000) * 1e6, id: d.discoveryId, prefectureCode: d.prefectureCode }
+        }
+        return compareDiscoveryPosition(sort, key(a), key(b))
+      })
+    return structuredClone(paginate(items, params, JSON.stringify(['discoveries', uid, query.areaId ?? null, sort]), (item) => item.discoveryId))
+  }
+
+  private resolved(record: StoredDiscovery): Discovery {
+    const code = this.prefectureCodeOf(record.areaId)
+    return { ...structuredClone(record.discovery), ...(isPrefectureCode(code) ? { prefectureCode: code } : {}) }
   }
 
   async getOwned(uid: string, discoveryId: string): Promise<Discovery | null> {
     const record = this.records.get(discoveryId)
-    return record?.uid === uid ? structuredClone(record.discovery) : null
+    return record?.uid === uid ? this.resolved(record) : null
   }
 
   // Internal first-clear lookup. Never expose another owner's place index or

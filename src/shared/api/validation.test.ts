@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { area, capture, challenge, correct, discovery, processing, quest } from './testFixtures'
 import {
-  ContractError, parseAttemptResult, parseCaptureMetadata, parseChallenge,
+  ContractError, formatQuestNumber, parseAttemptResult, parseCaptureMetadata, parseChallenge,
   parseDiscovery, parsePage, parsePublicArea, parsePublicQuest,
 } from './validation'
 
@@ -35,6 +35,40 @@ describe('public data boundary', () => {
     expect(() => parsePublicArea({ ...area, publicGeometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1]]] } })).toThrow(ContractError)
     expect(() => parsePublicArea({ ...area, marker: { latitude: 91, longitude: 0 } })).toThrow(ContractError)
     expect(() => parsePublicArea({ ...area, publishedCount: -1 })).toThrow(ContractError)
+  })
+  it('keeps a valid prefecture code and rejects invalid ones', () => {
+    expect(parsePublicArea({ ...area, prefectureCode: '13' })).toEqual({ ...area, prefectureCode: '13' })
+    expect(parsePublicArea(area)).not.toHaveProperty('prefectureCode')
+    for (const prefectureCode of ['1', '00', '48', 'ab', 13, null]) {
+      expect(() => parsePublicArea({ ...area, prefectureCode })).toThrow(ContractError)
+    }
+  })
+  it('keeps a valid boundary attribution and rejects invalid ones', () => {
+    expect(parsePublicArea({ ...area, boundary: { source: 'N03', year: 2025 } })).toEqual({ ...area, boundary: { source: 'N03', year: 2025 } })
+    expect(parsePublicArea({ ...area, boundary: { source: 'fixture' } })).toEqual({ ...area, boundary: { source: 'fixture' } })
+    expect(parsePublicArea(area)).not.toHaveProperty('boundary')
+    for (const boundary of [
+      { source: 'N03' }, { source: 'N03', year: '2025' }, { source: 'N03', year: 999 }, { source: 'N03', year: 10_000 },
+      { source: 'N03', year: 2025.5 }, { source: 'fixture', year: 2025 }, { source: 'other', year: 2025 }, { year: 2025 }, null, 'N03',
+    ]) {
+      expect(() => parsePublicArea({ ...area, boundary })).toThrow(ContractError)
+    }
+  })
+  it('keeps a valid quest number and rejects invalid ones', () => {
+    expect(parsePublicQuest({ ...quest, questNumber: '40-01' })).toEqual({ ...quest, questNumber: '40-01' })
+    expect(parsePublicQuest(quest)).not.toHaveProperty('questNumber')
+    for (const questNumber of ['40-1', '4-01', '4001', '40-00', '99-01', 4001, null]) {
+      expect(() => parsePublicQuest({ ...quest, questNumber })).toThrow(ContractError)
+    }
+    expect(formatQuestNumber('07', 3)).toBe('07-03')
+    expect(formatQuestNumber('40', 12)).toBe('40-12')
+  })
+  it('keeps a valid municipality code and rejects invalid ones', () => {
+    expect(parsePublicArea({ ...area, municipalityCode: '07203' })).toEqual({ ...area, municipalityCode: '07203' })
+    expect(parsePublicArea(area)).not.toHaveProperty('municipalityCode')
+    for (const municipalityCode of ['7203', '072030', 'abcde', 7203, null]) {
+      expect(() => parsePublicArea({ ...area, municipalityCode })).toThrow(ContractError)
+    }
   })
   it('validates list items and cursors, including an empty final page', () => {
     expect(parsePage({ items: [], nextCursor: null }, parsePublicQuest)).toEqual({ items: [], nextCursor: null })
@@ -74,6 +108,11 @@ describe('capture and result contracts', () => {
   })
   it('accepts private discoveries and rejects unsafe image locations', () => {
     expect(parseDiscovery(discovery)).toEqual(discovery)
+    expect(parseDiscovery({ ...discovery, prefectureCode: '01' }).prefectureCode).toBe('01')
+    expect(parseDiscovery(discovery)).not.toHaveProperty('prefectureCode')
+    for (const prefectureCode of ['1', '00', '48', 13, null]) {
+      expect(() => parseDiscovery({ ...discovery, prefectureCode })).toThrow(ContractError)
+    }
     for (const ownerPhoto of ['javascript:alert(1)', '//elsewhere.example/photo', 'http://elsewhere.example/photo']) {
       expect(() => parseDiscovery({ ...discovery, ownerPhoto })).toThrow(ContractError)
     }

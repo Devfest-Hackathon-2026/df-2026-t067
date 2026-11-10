@@ -16,6 +16,9 @@ describe('Google Maps loader', () => {
     const scripts = document.querySelectorAll<HTMLScriptElement>('script[data-quest-google-maps]')
     expect(scripts).toHaveLength(1)
     expect(scripts[0].src).toContain('key=test-key')
+    // 日本国内専用（D-27）：閲覧者のブラウザ設定に関わらず、地図ラベルを日本語・日本仕様に固定する。
+    expect(new URL(scripts[0].src).searchParams.get('language')).toBe('ja')
+    expect(new URL(scripts[0].src).searchParams.get('region')).toBe('JP')
     const api = { Map: class {}, event: { addListener: () => ({ remove() {} }) } } as unknown as GoogleMapsApi
     window.google = { maps: api }
     const callback = new URL(scripts[0].src).searchParams.get('callback')!

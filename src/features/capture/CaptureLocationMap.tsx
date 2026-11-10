@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadGoogleMaps, subscribeMapsAuthFailure } from '../explore/googleMapsLoader'
+import { MAP_STYLES } from '../explore/mapStyles'
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''
 
@@ -23,6 +24,7 @@ export function CaptureLocationMap({ latitude, longitude }: { latitude: number; 
       const map = new google.Map(target.current, {
         center, zoom: 17, disableDefaultUI: false, mapTypeControl: false,
         streetViewControl: false, fullscreenControl: false, clickableIcons: false,
+        styles: MAP_STYLES,
       })
       if (authFailed) return
       if (!google.Marker) throw new Error('unavailable')
@@ -38,10 +40,10 @@ export function CaptureLocationMap({ latitude, longitude }: { latitude: number; 
     <div className="capture-map" aria-label="撮影地の地図">
       {API_KEY && <div ref={target} className="google-map-canvas" aria-label="撮影地のGoogleマップ" />}
       {status !== 'ready' && <div className="map-state" role={status === 'error' || status === 'auth-error' ? 'alert' : 'status'}>
-        {status === 'missing' ? <><strong>Google Mapsの設定が必要です</strong><span>撮影を終えてから設定を確認してください。地図を閉じれば写真確認と回答を続けられます。</span><span>写真と撮影地はこの画面に保持されています。</span></> :
-          status === 'loading' ? <span>地図を読み込んでいます…</span> :
-            <><strong>地図を読み込めませんでした</strong><span>写真と撮影地はこの画面に保持されています。</span>{status === 'auth-error'
-              ? <span>撮影を終えてからGoogle Mapsの設定を確認してください。地図を閉じれば写真確認と回答を続けられます。</span>
+        {status === 'missing' ? <><strong>地図未設定</strong><span>地図設定を確認</span></> :
+          status === 'loading' ? <span>地図読込中</span> :
+            <><strong>地図読込失敗</strong>{status === 'auth-error'
+              ? <span>地図設定を確認</span>
               : <button type="button" onClick={() => setAttempt((value) => value + 1)}>地図を再試行</button>}</>}
       </div>}
     </div>

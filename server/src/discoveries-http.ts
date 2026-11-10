@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { DISCOVERY_PHOTO_MAX_BYTES } from '../../src/shared/api/types'
 import { parseDeletionReceipt, parseDeletionStatus, parseDiscovery, parsePage } from '../../src/shared/api/validation'
 import type { DiscoveryReadRepository, DiscoveryRepository } from './discoveries'
+import { parseDiscoverySort } from './discovery-sort'
 import { HttpError } from './errors'
 import { parseId, parseLimit, validateQuery } from './query'
 
@@ -26,9 +27,9 @@ export function createDiscoveryHandler(options: {
     if (repository.storageMode === 'memory') response.setHeader('X-Quest-Records-Mode', 'memory')
     try {
       if (isList) {
-        validateQuery(params, ['areaId', 'cursor', 'limit'])
+        validateQuery(params, ['areaId', 'cursor', 'limit', 'sort'])
         const rawArea = params.get('areaId')
-        const query = { areaId: rawArea === null ? undefined : parseId(rawArea),
+        const query = { sort: parseDiscoverySort(params.get('sort') ?? undefined), areaId: rawArea === null ? undefined : parseId(rawArea),
           cursor: params.get('cursor') ?? undefined, limit: parseLimit(params) }
         options.send(response, 200, parsePage(await repository.listOwned(uid, query), parseDiscovery))
       } else {

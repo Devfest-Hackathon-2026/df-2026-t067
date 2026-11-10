@@ -1,4 +1,4 @@
-export interface AuthUser { uid: string; displayName: string | null }
+export interface AuthUser { uid: string; displayName: string | null; photoURL?: string | null }
 export type AuthSnapshot =
   | { status: 'unconfigured' | 'checking' | 'signed-out'; user: null }
   | { status: 'unavailable'; user: null; message: string }

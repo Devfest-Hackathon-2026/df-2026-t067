@@ -6,6 +6,8 @@ A05から使うPOST `/api/v1/orgs/:orgId/quests/:questId/test`と、共通client
 
 ## 合成素材を生成する
 
+管理画面の「写真試験」欄からも、同じバイト列の `match.png` / `other-target.png` をその場でダウンロードできる（画面内ダウンロードが画面操作での確認の正。クライアント側の定数はサーバー定義と同一であることをテストで固定している）。APIから試す場合は次を実行する。
+
 APIの起動でサーバーをビルドした後、別ターミナルでリポジトリのルートから実行する。永続モードとメモリーデモで同じ合成PNGを使う。
 
 ```sh
@@ -40,6 +42,10 @@ NODE
 
 結果を確定するときに所属、下書きの版番号、参考素材の世代を確認する。Firestoreには判定結果、正規化した試験写真のハッシュ、下書きの版と参考素材の世代を保存する。試験写真の本体と権利説明は試験中だけ扱う。公開担当者は同じ版の試験IDを使って架空の問題をローカルで公開できる。[公開と休止の入力](api.md#18-開発用の公開と休止)
 
+## 共有検証で回答試験を有効にした場合の写真試験
+
+共有検証（team-preview）で回答試験（D-15）を有効化した配置では、管理画面の写真試験も回答と同じVertex照合器を使う（D-18）。参考写真・試験写真とも実写真を使え、結果は `source:real` で記録され、公開に必要な一致・別対象の証跡も実写真で残せる。送信は回答と共用のFirestoreカウンタ（`vertexTrialCounters/vertex-photo-2026-11-05`、上限50回）で数え、失敗した送信も消費する。カウンタ未投入・上限到達では送信せず503で失敗する。回答試験が無効な配置では従来どおり合成フィクスチャ照合で、送信回数は消費しない。画面の案内は配置に応じて出し分けられ、実Vertexの配置ではフィクスチャのダウンロード案内は出ない。
+
 ## Dの呼び出し
 
 既存の[所属・下書き](team-api-handoffs.md)と[用途別素材](admin-assets.md)のclientを使う。まずreference用途のassetIdと確認済み特徴を下書きへ保存し、返されたrevisionを指定する。
@@ -61,7 +67,7 @@ draft.content.verifiedFeaturesは、改行ごとにtrimした非空行を1〜20�
 
 ## 結果の扱い
 
-成功応答は200のPhotoTestResult：`{testId, orgId, questId, draftRevision, outcome, source:'mock'}`。共通型は将来のrealと区別できるが、現在のサーバーは開発用mockだけ。
+成功応答は200のPhotoTestResult：`{testId, orgId, questId, draftRevision, outcome, source}`。sourceは照合の実態を示し、合成照合では`'mock'`、実Vertex照合では`'real'`。
 
 | outcome | 意味 |
 |---|---|

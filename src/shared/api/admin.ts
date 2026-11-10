@@ -1,8 +1,10 @@
-import { ContractError, parseAfterClearContent, parseShootingConditions } from './validation'
+import { NORMALIZED_PHOTO_MAX_BYTES, NORMALIZED_PHOTO_MAX_EDGE_PX } from '../mediaLimits'
+import { ContractError, isPrefectureCode, isQuestNumber, parseAfterClearContent, parseShootingConditions } from './validation'
 import type { AfterClearContent, ShootingConditions } from './types'
 
 export type { AfterClearContent, ShootingConditions } from './types'
 export interface CaptureZone { latitude: number; longitude: number; radiusMeters: number }
+export const CAPTURE_ZONE_RADIUS_METERS = 1000
 export interface ManagedShootingAreas {
   orgId: string; questId: string; draftRevision: number; zones: CaptureZone[]; source: 'real' | 'mock'
 }
@@ -13,7 +15,16 @@ export interface PhotoTestResult {
   testId: string; orgId: string; questId: string; draftRevision: number; outcome: PhotoDecision; source: 'real' | 'mock'
 }
 export type AssetPurpose = 'reference' | 'public_hint'
-export interface OrgMembership { orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string }
+export type ExplorationAreaStatus = { source: 'unavailable' } | { source: 'fixture'; name: string }
+  | { source: 'N03'; name: string; municipalityCode: string; year: number }
+export interface OrgMembership {
+  orgId: string; label: string; role: 'editor' | 'publisher'; areaId: string
+  municipalityCode?: string
+  // 所属地域の都道府県コード（D-22）。サーバーが地域データから解決して返す。
+  // 無い所属は「未分類」であり、実データ側では問題を作成・公開できない（D-33）。
+  prefectureCode?: string
+  exploration?: ExplorationAreaStatus
+}
 export interface ManagedAsset { assetId: string; orgId: string; purpose: AssetPurpose }
 export interface OrgAssetMetadata { purpose: AssetPurpose; photoRights: string }
 export interface UploadedOrgAsset extends ManagedAsset, OrgAssetMetadata {
@@ -31,16 +42,21 @@ export interface ManagedQuestDraft {
 }
 export interface ManagedQuest {
   questId: string; orgId: string; areaId: string; draftRevision: number
-  publishedVersion: number | null; status: 'draft' | 'review_pending' | 'published' | 'paused'; shootingAreaStatus: 'unconfigured' | 'configured'
+  publishedVersion: number | null; status: 'draft' | 'review_pending' | 'published' | 'paused'; shootingAreaStatus: 'unconfigured' | 'configured' | 'needs-review'
   draft: ManagedQuestDraft; source: 'real' | 'mock'
+  questNumber?: string
 }
-export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft }
+export function shootingAreaStatus(zones: readonly CaptureZone[]): ManagedQuest['shootingAreaStatus'] {
+  if (!zones.length) return 'unconfigured'
+  return zones.every(({ radiusMeters }) => radiusMeters === CAPTURE_ZONE_RADIUS_METERS) ? 'configured' : 'needs-review'
+}
+export interface UpdateManagedQuest { expectedDraftRevision: number; draft: ManagedQuestDraft; deriveShootingArea?: true }
 export interface DraftSuggestion {
   orgId: string; questId: string; draftRevision: number; content: ManagedQuestDraft['content']; source: 'mock' | 'real'
 }
 export const REVIEW_FIELDS = [
   'materials.name', 'materials.evidence', 'materials.photoRights', 'referenceAssetId', 'hintAssetId',
-  'shootingAreas', 'content.title', 'content.question', 'content.hints', 'content.verifiedFeatures',
+  'referenceApproval', 'hintApproval', 'targetSpot', 'shootingAreas', 'content.title', 'content.question', 'content.hints', 'content.verifiedFeatures',
 ] as const
 export type ReviewField = typeof REVIEW_FIELDS[number]
 export interface ReviewSubmission { quest: ManagedQuest; missing: ReviewField[] }
@@ -49,7 +65,7 @@ export interface PublishManagedQuest {
   expectedDraftRevision: number
   matchTestId: string
   mismatchTestId: string
-  confirmations: Record<typeof PUBLISH_CONFIRMATIONS[number], true>
+  confirmations?: Record<Exclude<typeof PUBLISH_CONFIRMATIONS[number], 'photoRights'>, true> & { photoRights?: true }
 }
 export interface PauseManagedQuest { expectedPublishedVersion: number; reason: string }
 
@@ -91,12 +107,14 @@ export function parseManagedShootingAreas(input: unknown): ManagedShootingAreas 
 }
 export function parseUpdateShootingAreas(input: unknown): UpdateShootingAreas {
   const d = fields(input, ['expectedDraftRevision', 'zones'], 'shootingAreas')
-  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones: parseCaptureZones(d.zones) }
+  const zones = parseCaptureZones(d.zones)
+  if (zones.some((zone) => zone.radiusMeters !== CAPTURE_ZONE_RADIUS_METERS)) throw new ContractError('zone.radiusMeters')
+  return { expectedDraftRevision: revision(d.expectedDraftRevision), zones }
 }
-export function parsePhotoTestMetadata(input: unknown): PhotoTestMetadata {
+export function parsePhotoTestMetadata(input: unknown, approvedAssets = false): PhotoTestMetadata {
   const d = fields(input, ['expectedDraftRevision', 'photoRights'], 'photoTest')
-  const photoRights = text(d.photoRights, 'photoRights', 2000)
-  if (!photoRights.trim()) throw new ContractError('photoRights')
+  const photoRights = approvedAssets && d.photoRights === undefined ? '' : text(d.photoRights, 'photoRights', 2000)
+  if (!approvedAssets && !photoRights.trim()) throw new ContractError('photoRights')
   return { expectedDraftRevision: revision(d.expectedDraftRevision), photoRights }
 }
 export function parsePhotoTestResult(input: unknown): PhotoTestResult {
@@ -108,11 +126,30 @@ export function parsePhotoTestResult(input: unknown): PhotoTestResult {
 }
 
 export function parseOrgMembership(input: unknown): OrgMembership {
-  const d = fields(input, ['orgId', 'label', 'role', 'areaId'], 'membership')
+  const d = fields(input, ['orgId', 'label', 'role', 'areaId', 'municipalityCode', 'prefectureCode', 'exploration'], 'membership')
   if (d.role !== 'editor' && d.role !== 'publisher') throw new ContractError('membership.role')
   const label = text(d.label, 'membership.label', 200)
   if (!label.trim()) throw new ContractError('membership.label')
-  return { orgId: identifier(d.orgId, 'orgId'), label, role: d.role, areaId: identifier(d.areaId, 'areaId') }
+  const municipalityCode = d.municipalityCode === undefined ? undefined : text(d.municipalityCode, 'municipalityCode', 5)
+  if (municipalityCode !== undefined && !/^\d{5}$/.test(municipalityCode)) throw new ContractError('municipalityCode')
+  if (d.prefectureCode !== undefined && !isPrefectureCode(d.prefectureCode)) throw new ContractError('membership.prefectureCode')
+  return { orgId: identifier(d.orgId, 'orgId'), label, role: d.role, areaId: identifier(d.areaId, 'areaId'),
+    ...(municipalityCode ? { municipalityCode } : {}),
+    ...(d.prefectureCode ? { prefectureCode: d.prefectureCode } : {}),
+    ...(d.exploration === undefined ? {} : { exploration: parseExploration(d.exploration, municipalityCode) }) }
+}
+
+function parseExploration(input: unknown, code?: string): ExplorationAreaStatus {
+  const d = fields(input, ['source', 'name', 'municipalityCode', 'year'], 'exploration')
+  if (d.source === 'unavailable' && Object.keys(d).length === 1) return { source: d.source }
+  const name = text(d.name, 'exploration.name', 200)
+  if (!name.trim()) throw new ContractError('exploration.name')
+  if (d.source === 'fixture' && code === undefined && Object.keys(d).length === 2) return { source: d.source, name }
+  if (d.source === 'N03' && code !== undefined && d.municipalityCode === code && typeof d.year === 'number' &&
+    Number.isInteger(d.year) && d.year >= 1000 && d.year <= 9999) {
+    return { source: d.source, name, municipalityCode: code, year: d.year }
+  }
+  throw new ContractError('exploration')
 }
 
 export function parseManagedAsset(input: unknown): ManagedAsset {
@@ -121,20 +158,20 @@ export function parseManagedAsset(input: unknown): ManagedAsset {
   return { assetId: identifier(d.assetId, 'assetId'), orgId: identifier(d.orgId, 'orgId'), purpose: d.purpose }
 }
 
-export function parseOrgAssetMetadata(input: unknown): OrgAssetMetadata {
+export function parseOrgAssetMetadata(input: unknown, approvedAssets = false): OrgAssetMetadata {
   const d = fields(input, ['purpose', 'photoRights'], 'assetMetadata')
   if (d.purpose !== 'reference' && d.purpose !== 'public_hint') throw new ContractError('asset.purpose')
-  const photoRights = text(d.photoRights, 'photoRights', 2000)
-  if (!photoRights.trim()) throw new ContractError('photoRights')
+  const photoRights = approvedAssets && d.photoRights === undefined ? '' : text(d.photoRights, 'photoRights', 2000)
+  if (!approvedAssets && !photoRights.trim()) throw new ContractError('photoRights')
   return { purpose: d.purpose, photoRights }
 }
 
 export function parseUploadedOrgAsset(input: unknown): UploadedOrgAsset {
   const d = fields(input, ['assetId', 'orgId', 'purpose', 'photoRights', 'contentType', 'width', 'height', 'byteLength', 'source'], 'UploadedOrgAsset')
   const asset = parseManagedAsset({ assetId: d.assetId, orgId: d.orgId, purpose: d.purpose })
-  const metadata = parseOrgAssetMetadata({ purpose: d.purpose, photoRights: d.photoRights })
+  const metadata = parseOrgAssetMetadata({ purpose: d.purpose, photoRights: d.photoRights }, d.source === 'real')
   const width = revision(d.width), height = revision(d.height), byteLength = revision(d.byteLength)
-  if (width > 1600 || height > 1600 || byteLength > 2 * 1024 * 1024 || d.contentType !== 'image/jpeg' ||
+  if (width > NORMALIZED_PHOTO_MAX_EDGE_PX || height > NORMALIZED_PHOTO_MAX_EDGE_PX || byteLength > NORMALIZED_PHOTO_MAX_BYTES || d.contentType !== 'image/jpeg' ||
     (d.source !== 'real' && d.source !== 'mock')) throw new ContractError('UploadedOrgAsset.media')
   return { ...asset, ...metadata, contentType: 'image/jpeg', width, height, byteLength, source: d.source }
 }
@@ -158,13 +195,35 @@ export function parseDraftSuggestion(input: unknown): DraftSuggestion {
     draftRevision: revision(d.draftRevision), content, source: d.source }
 }
 
+/** Free prices never retain a legacy amount or paid details. */
+export function normalizePrice(value: string): string {
+  const trimmed = value.trim()
+  return /^無料(?:：|$)/.test(trimmed) ? '無料' : value
+}
+
+function validatePrice(value: string): string {
+  const trimmed = value.trim()
+  if (/^有料：(?:一律|大人|子供) /.test(trimmed) || trimmed === '有料：') {
+    const parts = trimmed.slice(3).split('・')
+    const targets = new Set<string>()
+    for (const part of parts) {
+      const match = /^(一律|大人|子供) (\d+)円$/.exec(part)
+      if (!match || !Number.isSafeInteger(Number(match[2])) || targets.has(match[1])) throw new ContractError('price')
+      targets.add(match[1])
+    }
+    if (targets.has('一律') && targets.size > 1) throw new ContractError('price')
+  }
+  return normalizePrice(value)
+}
+
 export function parseManagedQuestDraft(input: unknown): ManagedQuestDraft {
   const d = fields(input, ['materials', 'content', 'afterClear', 'referenceAssetId', 'hintAssetId', 'hintAssetIds'], 'draft')
   const m = fields(d.materials, ['name', 'evidence', 'requiresBoat', 'requiresPaidFacility', 'price', 'photoNote', 'photoRights'], 'materials')
   return {
     materials: { name: text(m.name, 'name', 200), evidence: text(m.evidence, 'evidence'),
-      ...parseShootingConditions({ requiresBoat: m.requiresBoat, requiresPaidFacility: m.requiresPaidFacility }), price: text(m.price, 'price', 2000),
-      photoNote: text(m.photoNote, 'photoNote', 2000), photoRights: text(m.photoRights, 'photoRights', 2000) },
+      ...parseShootingConditions({ requiresBoat: m.requiresBoat, requiresPaidFacility: m.requiresPaidFacility }), price: validatePrice(text(m.price, 'price', 2000)),
+      // 廃止済み。旧データ・省略を受理し、保存・応答には値を引き継がない。
+      photoNote: '', photoRights: text(m.photoRights, 'photoRights', 2000) },
     content: draftContent(d.content),
     afterClear: parseAfterClearContent(d.afterClear),
     referenceAssetId: d.referenceAssetId === null ? null : identifier(d.referenceAssetId, 'referenceAssetId'),
@@ -178,13 +237,15 @@ function parseHintAssetIds(input: unknown): (string | null)[] {
   return input.map((value, index) => value === null ? null : identifier(value, 'hintAssetIds.' + index))
 }
 
-export function parseCreateManagedQuest(input: unknown): { draft: ManagedQuestDraft } {
-  const d = fields(input, ['draft'], 'createManagedQuest')
-  return { draft: parseManagedQuestDraft(d.draft) }
+export function parseCreateManagedQuest(input: unknown): { draft: ManagedQuestDraft; deriveShootingArea?: true } {
+  const d = fields(input, ['draft', 'deriveShootingArea'], 'createManagedQuest')
+  if (d.deriveShootingArea !== undefined && d.deriveShootingArea !== true) throw new ContractError('deriveShootingArea')
+  return { draft: parseManagedQuestDraft(d.draft), ...(d.deriveShootingArea ? { deriveShootingArea: true } : {}) }
 }
 export function parseUpdateManagedQuest(input: unknown): UpdateManagedQuest {
-  const d = fields(input, ['expectedDraftRevision', 'draft'], 'updateManagedQuest')
-  return { expectedDraftRevision: revision(d.expectedDraftRevision), draft: parseManagedQuestDraft(d.draft) }
+  const d = fields(input, ['expectedDraftRevision', 'draft', 'deriveShootingArea'], 'updateManagedQuest')
+  const { expectedDraftRevision, ...body } = d
+  return { expectedDraftRevision: revision(expectedDraftRevision), ...parseCreateManagedQuest(body) }
 }
 export function parseDraftRevisionRequest(input: unknown): { expectedDraftRevision: number } {
   const d = fields(input, ['expectedDraftRevision'], 'draftRevisionRequest')
@@ -192,6 +253,12 @@ export function parseDraftRevisionRequest(input: unknown): { expectedDraftRevisi
 }
 export const parseSubmitReview = parseDraftRevisionRequest
 export function parseReviewSubmission(input: unknown): ReviewSubmission {
+  const result = parsePublicationReadiness(input)
+  if (result.quest.status !== (result.missing.length ? 'draft' : 'review_pending')) throw new ContractError('reviewSubmission.status')
+  return result
+}
+
+export function parsePublicationReadiness(input: unknown): ReviewSubmission {
   const d = fields(input, ['quest', 'missing'], 'reviewSubmission')
   const quest = parseManagedQuest(d.quest)
   if (!Array.isArray(d.missing) || d.missing.length > REVIEW_FIELDS.length) throw new ContractError('reviewSubmission.missing')
@@ -199,20 +266,22 @@ export function parseReviewSubmission(input: unknown): ReviewSubmission {
     if (!REVIEW_FIELDS.includes(value as ReviewField)) throw new ContractError('reviewSubmission.missing')
     return value as ReviewField
   })
-  if (new Set(missing).size !== missing.length || quest.status !== (missing.length === 0 ? 'review_pending' : 'draft')) {
+  if (new Set(missing).size !== missing.length) {
     throw new ContractError('reviewSubmission.status')
   }
   return { quest, missing }
 }
-export function parsePublishManagedQuest(input: unknown): PublishManagedQuest {
+export function parsePublishManagedQuest(input: unknown, durable = false): PublishManagedQuest {
   const d = fields(input, ['expectedDraftRevision', 'matchTestId', 'mismatchTestId', 'confirmations'], 'publish')
-  const confirmations = fields(d.confirmations, PUBLISH_CONFIRMATIONS, 'publish.confirmations')
-  if (PUBLISH_CONFIRMATIONS.some((key) => confirmations[key] !== true)) throw new ContractError('publish.confirmations')
+  const confirmations = durable && d.confirmations === undefined ? undefined
+    : fields(d.confirmations, PUBLISH_CONFIRMATIONS, 'publish.confirmations')
+  if (confirmations && PUBLISH_CONFIRMATIONS.some((key) => confirmations[key] !== true &&
+    !(durable && key === 'photoRights' && confirmations[key] === undefined))) throw new ContractError('publish.confirmations')
   const matchTestId = identifier(d.matchTestId, 'matchTestId')
   const mismatchTestId = identifier(d.mismatchTestId, 'mismatchTestId')
   if (matchTestId === mismatchTestId) throw new ContractError('publish.testIds')
   return { expectedDraftRevision: revision(d.expectedDraftRevision), matchTestId, mismatchTestId,
-    confirmations: { ...confirmations } as PublishManagedQuest['confirmations'] }
+    ...(confirmations ? { confirmations: { ...confirmations } as NonNullable<PublishManagedQuest['confirmations']> } : {}) }
 }
 export function parsePauseManagedQuest(input: unknown): PauseManagedQuest {
   const d = fields(input, ['expectedPublishedVersion', 'reason'], 'pause')
@@ -221,13 +290,15 @@ export function parsePauseManagedQuest(input: unknown): PauseManagedQuest {
   return { expectedPublishedVersion: revision(d.expectedPublishedVersion), reason }
 }
 export function parseManagedQuest(input: unknown): ManagedQuest {
-  const d = fields(input, ['questId', 'orgId', 'areaId', 'draftRevision', 'publishedVersion', 'status', 'shootingAreaStatus', 'draft', 'source'], 'ManagedQuest')
+  const d = fields(input, ['questId', 'orgId', 'areaId', 'draftRevision', 'publishedVersion', 'status', 'shootingAreaStatus', 'draft', 'source', 'questNumber'], 'ManagedQuest')
   const publishedVersion = d.publishedVersion === null ? null : revision(d.publishedVersion)
   if ((d.status !== 'draft' && d.status !== 'review_pending' && d.status !== 'published' && d.status !== 'paused') ||
     (d.status === 'published' && publishedVersion === null) || (d.status === 'paused' && publishedVersion !== null) ||
-    (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured') ||
+    (d.shootingAreaStatus !== 'unconfigured' && d.shootingAreaStatus !== 'configured' && d.shootingAreaStatus !== 'needs-review') ||
     (d.source !== 'mock' && d.source !== 'real')) throw new ContractError('ManagedQuest.state')
+  if (d.questNumber !== undefined && !isQuestNumber(d.questNumber)) throw new ContractError('ManagedQuest.questNumber')
   return { questId: identifier(d.questId, 'questId'), orgId: identifier(d.orgId, 'orgId'), areaId: identifier(d.areaId, 'areaId'),
     draftRevision: revision(d.draftRevision), publishedVersion, status: d.status, shootingAreaStatus: d.shootingAreaStatus,
-    draft: parseManagedQuestDraft(d.draft), source: d.source }
+    draft: parseManagedQuestDraft(d.draft), source: d.source,
+    ...(d.questNumber !== undefined ? { questNumber: d.questNumber } : {}) }
 }

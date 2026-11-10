@@ -13,7 +13,7 @@ const draft = {
 
 it('preserves both shooting conditions and a separate copy of all four after-clear fields', () => {
   const result = parseManagedQuestDraft(draft)
-  expect(result).toEqual(draft)
+  expect(result).toEqual({ ...draft, materials: { ...draft.materials, photoNote: '' } })
   result.materials.requiresBoat = false
   result.afterClear.explanation = 'changed'
   expect(draft.materials.requiresBoat).toBe(true)
@@ -34,4 +34,11 @@ it('never accepts the after-clear object or its private text as additional publi
   for (const patch of [{ afterClear: draft.afterClear }, { access: draft.afterClear.access }, { promoComment: draft.afterClear.promoComment }]) {
     expect(() => parsePublicQuest({ ...quest, ...patch })).toThrow(ContractError)
   }
+})
+
+it('accepts omitted photo notes and normalizes legacy notes to empty', () => {
+  const materials: Record<string, unknown> = { ...draft.materials }
+  delete materials.photoNote
+  expect(parseManagedQuestDraft({ ...draft, materials }).materials.photoNote).toBe('')
+  expect(parseManagedQuestDraft(draft).materials.photoNote).toBe('')
 })

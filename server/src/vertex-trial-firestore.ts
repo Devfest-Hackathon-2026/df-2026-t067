@@ -4,13 +4,13 @@ import { createVertexTransport, type TransportOptions, type VertexTransport } fr
 
 // Firestore-backed counterpart of the local trial ledger
 // (vertex-trial-ledger.ts). The D-13 trial identity and limit are identical:
-// the same 20-send allowance is shared between the local CLI runs and this
+// the same 50-send allowance is shared between the local CLI runs and this
 // cloud runtime, so the counter document must be seeded once by an operator
 // with the sends already used before the cloud trial is enabled. Seeding and
 // reservation both fail closed: a missing or unexpected document never lets
 // a send through, and a send that fails after reservation still consumes its
 // slot, exactly like the file ledger.
-const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 20 }
+const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 50 }
 const counterPath = { collection: 'vertexTrialCounters', document: identity.trial }
 
 function assertUsedCount(value: unknown): asserts value is number {

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { Firestore } from 'firebase-admin/firestore'
 import { seedVertexTrialCounter, withFirestoreTrialSlot } from '../src/vertex-trial-firestore'
 
-const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 20 }
+const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 50 }
 
 function fakeDb(initial?: Record<string, unknown>) {
   let stored = initial
@@ -35,7 +35,7 @@ test('seeding records the inherited usage once and never overwrites it', async (
   await assert.rejects(() => seedVertexTrialCounter(db, 7))
   assert.deepEqual(read(), { ...identity, used: 7 })
   await assert.rejects(() => seedVertexTrialCounter(db, 0))
-  await assert.rejects(() => seedVertexTrialCounter(db, 21))
+  await assert.rejects(() => seedVertexTrialCounter(db, 51))
 })
 
 test('a slot reservation increments before the work runs and reports the new count', async () => {
@@ -49,9 +49,9 @@ test('a slot reservation increments before the work runs and reports the new cou
 
 test('the shared allowance fails closed at the limit, when unseeded and when tampered', async () => {
   const work = async () => 'sent'
-  const atLimit = fakeDb({ ...identity, used: 20 })
+  const atLimit = fakeDb({ ...identity, used: 50 })
   await assert.rejects(() => withFirestoreTrialSlot(atLimit.db, signal(), work))
-  assert.equal(atLimit.read()?.used, 20)
+  assert.equal(atLimit.read()?.used, 50)
   const missing = fakeDb()
   await assert.rejects(() => withFirestoreTrialSlot(missing.db, signal(), work))
   const tampered = fakeDb({ ...identity, used: 3, model: 'another-model' })
@@ -62,8 +62,8 @@ test('the shared allowance fails closed at the limit, when unseeded and when tam
 })
 
 test('a failed send still consumes its reserved slot, like the file ledger', async () => {
-  const { db, read } = fakeDb({ ...identity, used: 19 })
+  const { db, read } = fakeDb({ ...identity, used: 49 })
   await assert.rejects(() => withFirestoreTrialSlot(db, signal(), async () => { throw new Error('network down') }))
-  assert.equal(read()?.used, 20)
+  assert.equal(read()?.used, 50)
   await assert.rejects(() => withFirestoreTrialSlot(db, signal(), async () => 'sent'))
 })

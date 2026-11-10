@@ -10,13 +10,13 @@ type Submission = { status: 'idle' | 'sending' | 'received' } | { status: 'error
 function reportError(cause: unknown): string {
   if (cause instanceof ApiError) {
     switch (cause.code) {
-      case 'SYSTEM_ERROR': return '開発用の報告受付を利用できません。'
-      case 'NOT_FOUND': return 'この問題への報告を受け付けていません。'
-      case 'RATE_LIMITED': return '開発用の報告上限に達しました。'
-      case 'UNAUTHENTICATED': return 'ログインを確認できませんでした。'
+      case 'SYSTEM_ERROR': return '報告受付停止'
+      case 'NOT_FOUND': return '報告受付終了'
+      case 'RATE_LIMITED': return '報告上限'
+      case 'UNAUTHENTICATED': return 'ログイン確認失敗'
     }
   }
-  return '報告の受付を確認できませんでした。通信状況を確認して再試行してください。'
+  return '報告受付未確認'
 }
 
 function ReportForm({ api, questId, dataMode }: { api: ApiClient; questId: string; dataMode: LocalApiDataMode }) {
@@ -34,7 +34,7 @@ function ReportForm({ api, questId, dataMode }: { api: ApiClient; questId: strin
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!text.trim() || state.status === 'received') return
-    const operation = begin(() => setState({ status: 'error', message: '受付の確認に時間がかかっています。同じ内容で再試行できます。' }))
+    const operation = begin(() => setState({ status: 'error', message: '報告確認の時間切れ' }))
     if (!operation) return
     setState({ status: 'sending' })
     try {
@@ -47,17 +47,16 @@ function ReportForm({ api, questId, dataMode }: { api: ApiClient; questId: strin
     } finally { operation.finish() }
   }
 
-  if (state.status === 'received') return <p role="status">開発用の報告を受け付けました。</p>
+  if (state.status === 'received') return <p role="status">報告済み</p>
   return <form className="quest-report-form" onSubmit={submit}>
-    <p>架空の報告内容でお試しください。写真や個人情報は送らないでください。</p>
     <label>分類<select value={category} disabled={state.status === 'sending'} onChange={(event) => {
       setCategory(event.target.value as ReportInput['category']); edited()
     }}>{REPORT_CATEGORIES.map((value) => <option key={value} value={value}>{reportCategoryLabels[value]}</option>)}</select></label>
-    <label>報告内容<textarea required maxLength={1000} rows={3} value={text} disabled={state.status === 'sending'}
+    <label>報告内容<textarea placeholder="写真・個人情報は含めない" required maxLength={1000} rows={3} value={text} disabled={state.status === 'sending'}
       onChange={(event) => { setText(event.target.value); edited() }} /></label>
     {state.status === 'error' && <p role="alert">{state.message}</p>}
     <button type="submit" className="secondary-button" disabled={state.status === 'sending' || !text.trim()}>
-      {state.status === 'sending' ? '受付を確認しています…' : dataMode === 'durable-local' ? '報告を送信' : 'デモ報告を送信'}
+      {state.status === 'sending' ? '送信中' : dataMode === 'durable-local' ? '送信する' : '送信する'}
     </button>
   </form>
 }
@@ -66,12 +65,12 @@ export function QuestReport({ api, questId, dataMode, ownerUid, canSignIn, signI
   api: ApiClient; questId: string; dataMode: LocalApiDataMode; ownerUid: string | null; canSignIn: boolean; signInPending: boolean; onSignIn: () => void
 }) {
   const [open, setOpen] = useState(false)
-  return <section aria-label="開発用の問題報告">
+  return <section aria-label="問題報告">
     <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((previous) => !previous)}>
-      {open ? '報告を閉じる' : '問題を報告'}
+      問題を報告
     </button>
     {open && (ownerUid !== null ? <ReportForm key={ownerUid} api={api} questId={questId} dataMode={dataMode} />
-      : canSignIn ? <button type="button" className="secondary-button" disabled={signInPending} onClick={onSignIn}>Googleログインして報告する</button>
-        : <p role="status">ログイン確認後に報告できます。</p>)}
+      : canSignIn ? <button type="button" className="secondary-button" disabled={signInPending} onClick={onSignIn}>ログインする</button>
+        : <p role="status">ログイン未確認</p>)}
   </section>
 }

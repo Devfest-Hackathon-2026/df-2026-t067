@@ -1,5 +1,20 @@
 /* neobrutalism: UI presentation only; no application state or API changes. */
 :root {
+  /* Shared type and spacing steps (UI policy §5). */
+  --fs-12: 12px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-28: 28px;
+  --sp-4: 4px;
+  --sp-8: 8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-48: 48px;
+  --sp-64: 64px;
   --ui-bg: #faf8f1;
   --ui-surface: #ffffff;
   --ui-ink: #1d1d1b;
@@ -7,6 +22,13 @@
   --ui-control-line: #1d1d1b;
   --ui-line: #1d1d1b;
   --ui-accent: #ffe66b;
+  --role-primary: var(--ui-accent);
+  --role-done: #c7ed93;
+  --role-selected: #c5e8f5;
+  --role-selected-soft: #edf8fc;
+  --role-error-bg: #f7b6b3;
+  --role-off: #e9e8e2;
+  --role-hover: #f4f4f1;
   --ui-accent-ink: #1d1d1b;
   --ui-accent-hover: #ffde3d;
   --ui-tint: #c7ed93;
@@ -17,7 +39,18 @@
   --ui-disabled-line: #8b8b82;
   --ui-focus: #244ed8;
   --ui-error: #a12626;
-  --ui-radius: 6px;
+  /* Corner scale (D-35): surfaces pick from these three steps; --ui-radius
+     stays as the alias of the middle step so existing rules round together. */
+  --radius-s: 10px;
+  --radius-m: 16px;
+  --radius-l: 24px;
+  --ui-radius: var(--radius-m);
+  /* Motion tokens (D-42): strong custom curves — the built-in easings are too
+     weak. Entering/exiting = --ease-out, on-screen movement = --ease-in-out,
+     sheets and drawers = the iOS-like --ease-drawer. UI motion stays ≤300ms. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ui-border-width: 2px;
   --ui-shadow: 6px 6px 0 #1d1d1b;
   --ui-control-shadow: 3px 3px 0 #1d1d1b;
@@ -38,42 +71,53 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; background: var(--ui-blue, #c5e8f5); }
+html:has(body.explore-fullbleed) { background: var(--ui-blue, #c5e8f5); }
 button, input, textarea, select { font: inherit; }
+input, textarea, select { font-size: var(--fs-16); }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 :focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 5px; }
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none; }
 input, textarea, select { accent-color: var(--ui-ink); }
 input::placeholder, textarea::placeholder { color: var(--ui-muted); opacity: 1; }
-:where(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle) {
+/* 中身の操作要素にオフセットシャドウは付けない（D-66）。影は地図上に浮く
+   要素（チップ・メニュー等）の区別だけに残し、ボタン類は枠線だけで示す。 */
+:where(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle) {
   border: var(--ui-border-width) solid var(--ui-line);
   border-radius: var(--ui-radius);
-  box-shadow: var(--ui-control-shadow);
+  box-shadow: none;
   min-height: 44px;
   background: var(--ui-surface);
   color: var(--ui-ink);
   font-weight: var(--ui-weight-control);
   transition: transform 100ms ease-out, box-shadow 100ms ease-out, background-color 140ms ease-out;
 }
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):disabled {
+:is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle):disabled {
   background: var(--ui-disabled);
   color: var(--ui-muted);
   border-color: var(--ui-disabled-line);
   box-shadow: none;
   opacity: 1;
 }
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:active {
+:is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle):enabled:active {
   transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale));
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:hover { transform: translate(var(--ui-hover-shift), var(--ui-hover-shift)); box-shadow: var(--ui-hover-shadow); }
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):enabled:active { transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale)); box-shadow: none; }
+  :is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle):enabled:hover { transform: translate(var(--ui-hover-shift), var(--ui-hover-shift)); box-shadow: none; }
+  :is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle):enabled:active { transform: translate(var(--ui-press), var(--ui-press)) scale(var(--ui-press-scale)); box-shadow: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle):is(:hover, :active) { transform: none !important; transition: none !important; }
+  :is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle):is(:hover, :active) { transform: none !important; transition: none !important; }
   .map-canvas { transition: none !important; }
 }
 
-:is(.primary-button, .quest-toggle, .retry-button, .logout-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .optional-hint-toggle) { border-color: var(--ui-control-line); }
+:is(.primary-button, .danger-button, .quest-toggle, .retry-button, .account-icon-button, .secondary-button, .api-load-state > button, .admin-demo button, .hint-item > button, .hint-open, .hint-step, .optional-hint-toggle) { border-color: var(--ui-control-line); }
+
+/* Destructive actions (pause / delete): error red instead of the accent, so they never read as a normal submit. */
+.danger-button, .admin-demo .danger-button { background: var(--ui-error); color: var(--ui-surface); }
+@media (hover: hover) and (pointer: fine) {
+  .danger-button:enabled:hover, .admin-demo .danger-button:enabled:hover { background: #8c1f1f; }
+}

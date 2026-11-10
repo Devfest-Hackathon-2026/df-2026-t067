@@ -9,9 +9,9 @@ it('allows connected writing without reason or name and omits routine memo compo
   render(<QuestDraftForm connection={{ taskFocused: true, api: createApiClient(), initial: null,
     member: { orgId: 'org', areaId: 'area', label: '合成自治体', role: 'editor' }, onBack: vi.fn() }} />)
   fireEvent.click(screen.getByRole('button', { name: '下書き・編集へ' }))
-  expect(screen.getByLabelText('問題タイトル')).toBeVisible()
+  expect(screen.getByLabelText('タイトル')).toBeVisible()
   expect(screen.queryByLabelText('下書きの根拠・人のメモ')).not.toBeInTheDocument()
-  expect(screen.getByLabelText('確認済み特徴')).toBeVisible()
+  expect(screen.getByLabelText('特徴')).toBeVisible()
 })
 
 it('keeps legacy evidence and memo while saving before a hint shortcut, and never navigates on failure', async () => {
@@ -27,7 +27,7 @@ it('keeps legacy evidence and memo while saving before a hint shortcut, and neve
   render(<QuestDraftForm connection={{ taskFocused: true, api: { ...createApiClient(), updateManagedQuest }, initial,
     member: { orgId: 'org', areaId: 'area', label: '合成自治体', role: 'editor' }, onBack: vi.fn(), onContinue }} />)
   fireEvent.click(screen.getByRole('button', { name: '保存してヒント 2の画像へ' }))
-  await screen.findByText('下書きを保存しました。')
+  await screen.findByText('保存済み')
   expect(updateManagedQuest.mock.calls[0][2]).toEqual({ expectedDraftRevision: 7, draft: initial.draft })
   expect(onContinue).toHaveBeenCalledExactlyOnceWith({ ...initial, draftRevision: 8 }, 2)
   updateManagedQuest.mockRejectedValue(new Error('synthetic offline'))
@@ -50,16 +50,16 @@ it('returns from range editing to fresh content in the same task without listing
   render(<QuestTaskWorkspace api={{ ...createApiClient(), createManagedQuest, getShootingAreas, updateShootingAreas, getManagedQuest, updateManagedQuest }} initial={null}
     member={{ orgId: 'org', areaId: 'area', label: '合成自治体', role: 'editor' }} onBack={onBack} />)
   fireEvent.click(screen.getByRole('button', { name: '下書き・編集へ' }))
-  fireEvent.change(screen.getByLabelText('問題タイトル'), { target: { value: '保持する題' } })
+  fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '保持する題' } })
   fireEvent.click(screen.getByRole('button', { name: '保存して撮影範囲へ' }))
   fireEvent.click(await screen.findByRole('button', { name: '撮影範囲を保存' }))
-  await screen.findByText('非公開の撮影範囲を保存しました。')
-  fireEvent.click(screen.getByRole('button', { name: '本文編集へ戻る' }))
-  await screen.findByText('下書き版 2')
+  await screen.findByText('保存済み')
+  fireEvent.click(screen.getByRole('button', { name: '本文へ' }))
+  await screen.findByRole('button', { name: '下書き・編集へ' })
   fireEvent.click(screen.getByRole('button', { name: '下書き・編集へ' }))
-  expect(screen.getByLabelText('問題タイトル')).toHaveValue('保持する題')
+  expect(screen.getByLabelText('タイトル')).toHaveValue('保持する題')
   fireEvent.click(screen.getByRole('button', { name: '下書きを保存' }))
-  await screen.findByText('下書きを保存しました。')
+  await screen.findByText('保存済み')
   expect(updateManagedQuest.mock.calls[0][2]).toMatchObject({ expectedDraftRevision: 2 })
   expect(onBack).not.toHaveBeenCalled()
 })
