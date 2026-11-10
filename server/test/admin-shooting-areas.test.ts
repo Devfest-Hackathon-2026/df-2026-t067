@@ -11,7 +11,7 @@ const draft: ManagedQuestDraft = {
   content: { title: '', question: '', hints: ['', '', ''], verifiedFeatures: '', draftingNotes: '' },
   afterClear: { access: '', hours: '', promoComment: '', explanation: '' }, referenceAssetId: null, hintAssetId: null,
 }
-const zone = { latitude: 0.125, longitude: 0.25, radiusMeters: 25 }
+const zone = { latitude: 0.125, longitude: 0.25, radiusMeters: 1000 }
 const headers = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }
 function seed() {
   const admin = new DemoAdminStore()
@@ -83,7 +83,7 @@ test('zone writes reject client authority, invalid transport and oversized bodie
   const s = seed()
   const { base } = await startServer(t, s)
   for (const patch of [{ orgId: 'other' }, { status: 'published' }, { expectedDraftRevision: 0 },
-    { zones: [{ ...zone, radiusMeters: 0 }] }, { zones: [{ ...zone, latitude: 91 }] },
+    { zones: [{ ...zone, radiusMeters: 0 }] }, { zones: [{ ...zone, radiusMeters: 999 }] }, { zones: [{ ...zone, latitude: 91 }] },
     { zones: [{ ...zone, isCorrect: true }] }, { zones: Array.from({ length: 11 }, () => zone) }]) {
     await expectError(await fetch(base + s.path, { method: 'PUT', headers,
       body: JSON.stringify({ expectedDraftRevision: 1, zones: [zone], ...patch }) }), 400, 'INVALID_INPUT')

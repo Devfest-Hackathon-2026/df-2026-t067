@@ -3,7 +3,7 @@ import { open, mkdir, rmdir } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { photoSystemError } from './photo-match'
 
-const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 20 }
+const identity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 50 }
 
 function assertFile(file: string) {
   if (!isAbsolute(file) || file.length > 4000 || Array.from(file).some((char) => char.charCodeAt(0) < 32)) throw photoSystemError(false)
@@ -11,7 +11,7 @@ function assertFile(file: string) {
 
 export async function initializeTrialLedger(file: string, alreadyUsed: number): Promise<void> {
   assertFile(file)
-  if (!Number.isSafeInteger(alreadyUsed) || alreadyUsed < 1 || alreadyUsed > 20) throw photoSystemError(false)
+  if (!Number.isSafeInteger(alreadyUsed) || alreadyUsed < 1 || alreadyUsed > 50) throw photoSystemError(false)
   // Explicit init only; wx never overwrites an existing allowance.
   try {
     const handle = await open(file, 'wx', 0o600)
@@ -38,7 +38,7 @@ export async function withTrialSlot<T>(file: string, signal: AbortSignal, work: 
         const data = JSON.parse(await handle.readFile('utf8')) as Record<string, unknown>
         if (!data || Object.keys(data).sort().join(',') !== [...Object.keys(identity), 'used'].sort().join(',') ||
           Object.entries(identity).some(([key, value]) => data[key] !== value) ||
-          !Number.isSafeInteger(data.used) || (data.used as number) < 1 || (data.used as number) >= 20) throw photoSystemError(false)
+          !Number.isSafeInteger(data.used) || (data.used as number) < 1 || (data.used as number) >= 50) throw photoSystemError(false)
         signal.throwIfAborted()
         count = (data.used as number) + 1
         const bytes = Buffer.from(JSON.stringify({ ...identity, used: count }))

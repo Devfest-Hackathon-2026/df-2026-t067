@@ -14,6 +14,15 @@ test('missing/real/unknown data modes never fall back to demo', () => {
   }
 })
 
+test('a missing or malformed optional Geocoding key disables only address lookup', () => {
+  const env = { QUEST_DATA_MODE: 'durable-local', NODE_ENV: 'development', FIREBASE_PROJECT_ID: 'demo-auth-project',
+    FIRESTORE_EMULATOR_HOST: '127.0.0.1:8688', QUEST_DURABLE_STORAGE_ENDPOINT: 'http://127.0.0.1:9688' }
+  const baseline = readConfig(env)
+  assert.deepEqual(readConfig({ ...env, QUEST_GOOGLE_GEOCODING_API_KEY: 'malformed key' }), baseline)
+  const key = 'synthetic_geocoding_key'
+  assert.deepEqual(readConfig({ ...env, QUEST_GOOGLE_GEOCODING_API_KEY: key }), { ...baseline, spotGeocodingApiKey: key })
+})
+
 test('durable-local requires both loopback emulators and an explicit signed Auth project', () => {
   const env = { QUEST_DATA_MODE: 'durable-local', NODE_ENV: 'development', FIREBASE_PROJECT_ID: 'demo-auth-project',
     FIRESTORE_EMULATOR_HOST: '127.0.0.1:8688', QUEST_DURABLE_STORAGE_ENDPOINT: 'http://127.0.0.1:9688' }

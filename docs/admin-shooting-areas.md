@@ -1,8 +1,8 @@
 # D向け：非公開撮影範囲の保存・取得
 
-A03で撮影地点と半径を設定するための開発用API。Dの画面では共通のCaptureZoneとclientを使い、座標型、fetch、版番号を独自に定義しない。操作にはGoogleログインに加え、既存の[所属と管理下書き](team-api-handoffs.md)の設定が必要。
+A03で撮影範囲の中心を設定するAPI。Dの画面では共通の`CaptureZone`とclientを使う。操作にはGoogleログインと既存の[所属と管理下書き](team-api-handoffs.md)の設定が必要。
 
-この変更でDの既存操作デモは自動接続しない。保存先は開発用メモリーで、再起動すると下書きと範囲が消える。実地点の正解座標を公開リポジトリ・ログ・通常の旅行者APIへ置かない。検証に使った値は架空の地点だけ。
+永続モードではFirestoreに保存する。検証用モックではメモリーに保持し、再起動すると消える。実地点の正解座標を公開リポジトリ・ログ・通常の旅行者APIへ置かない。
 
 ## 呼び出しと返却
 
@@ -11,11 +11,11 @@ A03で撮影地点と半径を設定するための開発用API。Dの画面で�
 | getShootingAreas(orgId, questId, call?) | GET `/api/v1/orgs/:orgId/quests/:questId/shooting-areas` | ManagedShootingAreas |
 | updateShootingAreas(orgId, questId, input, call?) | PUT 同上 | 全範囲を置換し、更新後のManagedShootingAreasを返す |
 
-`ManagedShootingAreas`は`{orgId, questId, draftRevision, zones, source:'mock'}`。共通型は将来のrealを区別するが、現在のサーバー実装はmockだけ。共通clientはexpectedDataMode:'demo'を明示した接続でのみmockを受け付け、orgId/questIdとPUT後のrevisionを検査する。Bearer tokenは毎回最新を取得し、キャッシュ・リダイレクトを拒否する。
+`ManagedShootingAreas`は`{orgId, questId, draftRevision, zones, source}`。`source`は永続モードでは`real`、検証用モックでは`mock`。共通clientは`expectedDataMode: 'demo'`を明示した接続でのみ`mock`を受け付け、`orgId`・`questId`とPUT後のrevisionを検査する。Bearer tokenは毎回最新を取得し、キャッシュ・リダイレクトを拒否する。
 
-`CaptureZone`は`{latitude, longitude, radiusMeters}`。既存のサーバーGPS処理も同じ型を参照する。latitudeは有限数値±90、longitudeは±180、radiusMetersは有限の正数。文字列から数値へ補正しない。0〜10地点までで、空配列は設定解除。本文上限4 KiB。余分なrole/orgId/status/isCorrect等を入力へ混ぜると400で拒否する。
+`CaptureZone`は`{latitude, longitude, radiusMeters}`。既存のサーバーGPS処理も同じ型を参照する。latitudeは有限数値±90、longitudeは±180。新しいPUTの`radiusMeters`は全地点で数値の`1000`のみ。文字列や他の半径は400で拒否する。0〜10地点までで、空配列は設定解除。本文上限4 KiB。余分なrole/orgId/status/isCorrect等も400で拒否する。
 
-開発用APIは入力の形式だけを検査する。実際に使う半径、精度、時刻の本番条件O-03、公開地域内での配置、現地の安全性と撮影可能性は別に確認する。configuredが示すのは、形式を満たした範囲が登録されたことだけ。試験と公開可否の確認は別に行う。
+精度・時刻と写真照合の既存の正解条件は維持する。`configured`は1,000mの範囲が保存された状態で、現地の安全性や撮影可能性は人が別途確認する。
 
 ## Dの保存手順
 
@@ -35,7 +35,7 @@ const saved = await api.updateShootingAreas(orgId, questId, {
 
 PUTは全範囲の置換で、同じ空配列の保存でもrevisionが進む。通信断・取消はサーバーの変更を巻き戻さない。自動PUT再試行で解決せず、GETで保存済みの値とrevisionを確認する。
 
-通常の管理一覧/詳細には、範囲値の代わりにshootingAreaStatus:'unconfigured' | 'configured'を返す。未設定/空配列ではunconfigured。座標・半径は専用GET/PUTの応答だけに含め、公開プレビュー・通常ヒントへ渡さない。
+通常の管理一覧/詳細には、範囲値の代わりに`shootingAreaStatus`を返す。未設定は`unconfigured`、保存済みの旧半径を含む下書きは`needs-review`。GETで旧値を保持し、担当者が明示的に確認して1,000mで保存するまで新規公開を止める。公開済みの古い版の範囲はその版のまま判定に用いる。座標・半径は専用GET/PUTの応答だけに含める。[対象スポットとの区別](admin-municipal-locations.md)
 
 ## 認可と判定への境界
 

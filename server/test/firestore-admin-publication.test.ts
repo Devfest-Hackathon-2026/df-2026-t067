@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { Storage } from '@google-cloud/storage'
 import { deleteApp, initializeApp } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
+import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import test from 'node:test'
 import sharp from 'sharp'
 import type { ManagedQuestDraft } from '../../src/shared/api/admin'
@@ -21,7 +21,7 @@ import { listenServer } from './helpers'
 const firestore = process.env.QUEST_FIRESTORE_TEST_HOST
 const storage = process.env.QUEST_STORAGE_TEST_HOST
 const image = (bytes: Uint8Array) => new Blob([Uint8Array.from(bytes)], { type: 'image/png' })
-const confirmations = { fictionalData: true, visitConditions: true, photoRights: true, shootingArea: true, testCases: true } as const
+const confirmations = { fictionalData: true, visitConditions: true, shootingArea: true, testCases: true } as const
 
 test('durable publishing freezes the tested version and pausing stops all public access', {
   skip: !firestore || !storage, timeout: 20_000,
@@ -44,8 +44,8 @@ test('durable publishing freezes the tested version and pausing stops all public
   const photos = new AnswerPhotoStorage(new Storage({ projectId, apiEndpoint: 'http://' + storage }).bucket(bucketName))
   const orgId = 'publish-org', areaId = 'publish-area'
   const batch = db.batch()
-  batch.create(db.collection('areas').doc(areaId), { label: '架空の公開地域', marker: { latitude: 0, longitude: 0 },
-    publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
+  batch.create(db.collection('areas').doc(areaId), { label: '架空の公開地域', marker: { latitude: 0, longitude: 0 }, prefectureCode: '13',
+    boundarySource: 'fixture', publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
   for (const [uid, org, role] of [['editor', orgId, 'editor'], ['publisher', orgId, 'publisher'], ['other', 'other-org', 'publisher']]) {
     const id = createHash('sha256').update(JSON.stringify([uid, org])).digest('hex')
     batch.create(db.collection('memberships').doc(id), { uid, orgId: org, role, active: true, label: '架空の自治体', areaId })
@@ -64,7 +64,7 @@ test('durable publishing freezes the tested version and pausing stops all public
       const action = afterHintRead
       afterHintRead = undefined
       await action?.()
-      if (revokeDuringHintRead) await publisherMembership.update({ role: 'editor' })
+      if (revokeDuringHintRead) await publisherMembership.update({ active: false })
       return picture
     },
   }
@@ -88,7 +88,7 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.deepEqual((await anonymousList.json()).items, [])
   await assert.rejects(team.api('outsider').listManagedQuests(orgId), { code: 'FORBIDDEN' })
   await assert.rejects(teamTraveler.listManagedQuests(orgId), { code: 'FORBIDDEN' })
-  const reference = await editor.uploadOrgAsset(orgId, { purpose: 'reference', photoRights: '合成画像', photo: image(syntheticPng), idempotencyKey: 'reference' })
+  const reference = await editor.uploadOrgAsset(orgId, { purpose: 'reference', photo: image(syntheticPng), idempotencyKey: 'reference' })
   const hint = await editor.uploadOrgAsset(orgId, { purpose: 'public_hint', photoRights: '合成画像', photo: image(otherSyntheticPng), idempotencyKey: 'hint' })
   const hints = [hint]
   for (const [index, background] of ['#123456', '#abcdef'].entries()) {
@@ -102,7 +102,8 @@ test('durable publishing freezes the tested version and pausing stops all public
   const draft: ManagedQuestDraft = {
     materials: { name: '非公開の対象名', evidence: '架空の根拠', requiresBoat: true, requiresPaidFacility: false, price: '', photoNote: '', photoRights: '合成画像' },
     content: { title: '公開する問題', question: '問題文', hints: ['一つ目', '二つ目', '三つ目'], verifiedFeatures: durableFixtureFeatures[0], draftingNotes: '' },
-    afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説' },
+    afterClear: { access: 'クリア後のアクセス', hours: '', promoComment: '', explanation: 'クリア後の解説',
+      spot: { name: '架空の施設', address: '架空の所在地', position: { latitude: 0.37, longitude: 0.53 }, googlePlaceId: 'TEST_place' } },
     referenceAssetId: reference.assetId, hintAssetId: null, hintAssetIds: hints.map((asset) => asset.assetId),
   }
   const foreignHint = await second.api('other').uploadOrgAsset('other-org', { purpose: 'public_hint',
@@ -121,18 +122,19 @@ test('durable publishing freezes the tested version and pausing stops all public
     }
   }
   const { questId } = await editor.createManagedQuest(orgId, draft)
-  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 25 }]
+  const zones = [{ latitude: 0.125, longitude: 0.25, radiusMeters: 1000 }]
   const { draftRevision } = await editor.updateShootingAreas(orgId, questId, { expectedDraftRevision: 1, zones })
   const compare = (photo: Blob, idempotencyKey: string, revision: number) => editor.testManagedQuest(orgId, questId, {
-    photo, idempotencyKey, expectedDraftRevision: revision, photoRights: '合成画像',
+    photo, idempotencyKey, expectedDraftRevision: revision,
   })
   const match = await compare(image(syntheticPng), 'match', draftRevision)
   duplicate = true
   const reused = await compare(image(syntheticPng), 'duplicate', draftRevision)
   duplicate = false
   const mismatch = await compare(image(otherSyntheticPng), 'mismatch', draftRevision)
-  const input = { expectedDraftRevision: draftRevision, matchTestId: match.testId, mismatchTestId: mismatch.testId, confirmations }
-  await assert.rejects(editor.publishManagedQuest(orgId, questId, input), { code: 'FORBIDDEN' })
+  const input = { expectedDraftRevision: draftRevision, matchTestId: match.testId, mismatchTestId: mismatch.testId }
+  await assert.rejects(editor.publishManagedQuest(orgId, questId, input), { code: 'REVIEW_REQUIRED' })
+  await assert.rejects(second.api('other').publishManagedQuest(orgId, questId, input), { code: 'FORBIDDEN' })
   await assert.rejects(second.api('other').publishManagedQuest('other-org', questId, input), { code: 'NOT_FOUND' })
   await assert.rejects(publisher.publishManagedQuest(orgId, questId, input), { code: 'REVIEW_REQUIRED' })
   const unsafeHint = await editor.uploadOrgAsset(orgId, { purpose: 'public_hint', photoRights: '合成画像',
@@ -143,15 +145,26 @@ test('durable publishing freezes the tested version and pausing stops all public
   await assert.rejects(publisher.publishManagedQuest(orgId, unsafe.questId, input), { code: 'REVIEW_REQUIRED' })
   await editor.submitManagedQuestReview(orgId, questId, draftRevision)
   await assert.rejects(publisher.publishManagedQuest(orgId, questId, { ...input, mismatchTestId: reused.testId }), { code: 'PHOTO_TEST_REQUIRED' })
+  await db.collection('quests').doc(questId).update({ zones: [{ ...zones[0], radiusMeters: 80 }] })
+  assert.equal((await editor.getManagedQuest(orgId, questId)).shootingAreaStatus, 'needs-review')
+  await assert.rejects(publisher.publishManagedQuest(orgId, questId, input), { code: 'REVIEW_REQUIRED' })
+  const legacyReview = await editor.submitManagedQuestReview(orgId, questId, draftRevision)
+  assert(legacyReview.missing.includes('shootingAreas'))
+  assert.equal(legacyReview.quest.status, 'draft')
+  await db.collection('quests').doc(questId).update({ zones })
+  assert.equal((await editor.getManagedQuest(orgId, questId)).shootingAreaStatus, 'configured')
+  assert.equal((await editor.submitManagedQuestReview(orgId, questId, draftRevision)).quest.status, 'review_pending')
   revokeDuringHintRead = true
   await assert.rejects(publisher.publishManagedQuest(orgId, questId, input), { code: 'FORBIDDEN' })
   revokeDuringHintRead = false
-  await publisherMembership.update({ role: 'publisher' })
+  await publisherMembership.update({ active: true })
   await assert.rejects(traveler.getQuest(questId), { code: 'NOT_FOUND' })
   await assert.rejects(teamTraveler.getQuest(questId), { code: 'NOT_FOUND' })
-  const published = await publisher.publishManagedQuest(orgId, questId, input)
+  const published = await editor.publishManagedQuest(orgId, questId, input)
   assert.equal(published.publishedVersion, 1)
+  assert.equal(published.questNumber, '13-01')
   assert.deepEqual(await second.api('publisher').publishManagedQuest(orgId, questId, input), published)
+  assert.equal((await db.collection('questNumberCounters').doc('13').get()).get('lastSerial'), 1)
   const visible = await traveler.getQuest(questId)
   assert.deepEqual(await teamTraveler.getQuest(questId), visible)
   assert.equal(visible.title, draft.content.title)
@@ -180,6 +193,9 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.deepEqual((await publicList.json()).items, [visible])
   const v1 = db.collection('questVersions').doc(questId + ':1')
   assert.deepEqual((await v1.get()).get('answerMaterial.zones'), zones)
+  assert.deepEqual((await v1.get()).get('afterClear.spot'), draft.afterClear.spot)
+  assert.deepEqual((await v1.get()).get('revealedLocation'), draft.afterClear.spot?.position)
+  assert.doesNotMatch(JSON.stringify(visible), /架空の所在地|TEST_place|0\.37|0\.53/)
   assert.equal((await v1.get()).get('descriptionSnapshot'), draft.afterClear.explanation)
 
   const started = await traveler.createChallenge({ questId, expectedVersion: 1 })
@@ -254,4 +270,18 @@ test('durable publishing freezes the tested version and pausing stops all public
   assert.equal(await cleanupFinishedAnswerPhotos(db, photos, receipt.attemptId), true)
   await assert.rejects(photos.readIncoming(receipt.attemptId, digest, incoming), { code: 'SYSTEM_ERROR' })
   await assert.rejects(photos.readRecord(staged), { code: 'SYSTEM_ERROR' })
+
+  // D-33: 地域が都道府県コードを失う（未分類になる）と、既存の下書きも公開できない。
+  // 公開済みの版の表示・判定には影響しない。コードを戻せば再び公開できる。
+  const legacy = await editor.getManagedQuest(orgId, questId)
+  const revised = await editor.updateManagedQuest(orgId, questId, { expectedDraftRevision: legacy.draftRevision, draft: legacy.draft })
+  assert.equal((await editor.submitManagedQuestReview(orgId, questId, revised.draftRevision)).quest.status, 'review_pending')
+  const legacyMatch = await compare(image(syntheticPng), 'match-unclassified', revised.draftRevision)
+  const legacyMismatch = await compare(image(otherSyntheticPng), 'mismatch-unclassified', revised.draftRevision)
+  const legacyInput = { expectedDraftRevision: revised.draftRevision,
+    matchTestId: legacyMatch.testId, mismatchTestId: legacyMismatch.testId, confirmations }
+  await db.collection('areas').doc(areaId).update({ prefectureCode: FieldValue.delete() })
+  await assert.rejects(publisher.publishManagedQuest(orgId, questId, legacyInput), { code: 'AREA_UNCLASSIFIED' })
+  await db.collection('areas').doc(areaId).update({ prefectureCode: '13' })
+  assert.equal((await publisher.publishManagedQuest(orgId, questId, legacyInput)).publishedVersion, 3)
 })

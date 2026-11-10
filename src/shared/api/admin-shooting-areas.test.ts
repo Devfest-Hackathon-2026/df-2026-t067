@@ -5,17 +5,19 @@ import { parsePublicQuest } from './validation'
 import { createApiClient } from './client'
 import { quest } from './testFixtures'
 
-const zone = { latitude: 0.125, longitude: 0.25, radiusMeters: 25 }
+const zone = { latitude: 0.125, longitude: 0.25, radiusMeters: 1000 }
 const areas = { orgId: 'demo-org', questId: 'draft-a', draftRevision: 2, zones: [zone], source: 'mock' }
 
 it('preserves detached private zones and accepts empty zones as an explicit removal', () => {
   const saved = parseManagedShootingAreas(areas)
   expect(saved).toEqual(areas)
   saved.zones[0].radiusMeters = 40
-  expect(zone.radiusMeters).toBe(25)
+  expect(zone.radiusMeters).toBe(1000)
   expect(parseUpdateShootingAreas({ expectedDraftRevision: 2, zones: [] })).toEqual({ expectedDraftRevision: 2, zones: [] })
   expect(parseUpdateShootingAreas({ expectedDraftRevision: 2,
-    zones: Array.from({ length: 10 }, () => ({ latitude: -90, longitude: 180, radiusMeters: 1 })) }).zones.length).toBe(10)
+    zones: Array.from({ length: 10 }, () => ({ latitude: -90, longitude: 180, radiusMeters: 1000 })) }).zones.length).toBe(10)
+  expect(parseManagedShootingAreas({ ...areas, zones: [{ ...zone, radiusMeters: 80 }] }).zones[0].radiusMeters).toBe(80)
+  expect(() => parseUpdateShootingAreas({ expectedDraftRevision: 2, zones: [{ ...zone, radiusMeters: 80 }] })).toThrow(ContractError)
 })
 
 it('rejects malformed coordinates, radii, excessive zones and authority claims', () => {

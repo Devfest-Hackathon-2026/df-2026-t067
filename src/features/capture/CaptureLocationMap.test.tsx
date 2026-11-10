@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MAP_STYLES } from '../explore/mapStyles'
 
 const maps = vi.hoisted(() => ({
   loadGoogleMaps: vi.fn(),
@@ -37,9 +38,10 @@ describe('capture location map', () => {
     await waitFor(() => expect(Marker).toHaveBeenCalledOnce())
     const [, options] = Map.mock.calls[0]
     expect(options).toMatchObject({ center: { lat: 35.6812, lng: 139.7671 }, zoom: 17 })
+    expect(options).toMatchObject({ styles: MAP_STYLES })
     expect(Marker).toHaveBeenCalledWith({ map: expect.objectContaining(mapInstance), position: { lat: 35.6812, lng: 139.7671 }, title: '撮影地' })
     expect(await screen.findByLabelText('撮影地の地図')).toBeInTheDocument()
-    expect(screen.queryByText('地図を読み込んでいます…')).not.toBeInTheDocument()
+    expect(screen.queryByText('地図読込中')).not.toBeInTheDocument()
   })
 
   it('explains missing key configuration without requesting the Maps SDK', async () => {
@@ -47,8 +49,8 @@ describe('capture location map', () => {
     const Component = await loadComponent()
     render(<Component latitude={35} longitude={135} />)
 
-    expect(await screen.findByText('Google Mapsの設定が必要です')).toBeVisible()
-    expect(screen.getByText(/撮影を終えてから設定を確認してください/)).toBeVisible()
+    expect(await screen.findByText('地図未設定')).toBeVisible()
+    expect(screen.getByText(/地図設定を確認/)).toBeVisible()
     expect(maps.loadGoogleMaps).not.toHaveBeenCalled()
   })
 
@@ -64,10 +66,10 @@ describe('capture location map', () => {
 
     reportAuthFailure()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('撮影を終えてからGoogle Mapsの設定を確認してください')
-    expect(screen.getByRole('alert')).toHaveTextContent('地図を閉じれば写真確認と回答を続けられます')
-    expect(screen.getByRole('alert')).toHaveTextContent('写真と撮影地はこの画面に保持されています')
-    expect(screen.queryByRole('button', { name: 'ページを再読み込み' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('地図設定を確認')
+    expect(screen.getByRole('alert')).toHaveTextContent('地図設定を確認')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('写真と撮影地はこの画面に保持されています')
+    expect(screen.queryByRole('button', { name: '再読込' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '地図を再試行' })).not.toBeInTheDocument()
   })
 
@@ -77,7 +79,7 @@ describe('capture location map', () => {
     const Component = await loadComponent()
     render(<Component latitude={35} longitude={135} />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('地図を読み込めませんでした')
+    expect(await screen.findByRole('alert')).toHaveTextContent('地図読込失敗')
     screen.getByRole('button', { name: '地図を再試行' }).click()
     await waitFor(() => expect(Map).toHaveBeenCalledOnce())
     expect(maps.loadGoogleMaps).toHaveBeenCalledTimes(2)

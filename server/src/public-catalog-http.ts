@@ -1,6 +1,6 @@
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
+import { isMunicipalityCode, isPrefectureCode, parsePublicArea, parsePublicQuest, parseQuestHint } from '../../src/shared/api/validation'
 import { publicHintImagePath, publicHintImagesPath } from './admin-publication'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
 import { HttpError } from './errors'
@@ -40,8 +40,27 @@ async function listPublished(db: Firestore, tx: Transaction) {
 }
 
 export function readPublicArea(row: DocumentSnapshot, publishedCount: number) {
+  // Only a stored value that is a valid prefecture code reaches the public
+  // catalog; a missing or invalid value leaves the area unclassified.
+  const prefectureCode = row.get('prefectureCode')
+  // Same rule for the standard municipality code (D-30): areas that span
+  // several municipalities (e.g. Tokyo's special wards) stay unset.
+  const municipalityCode = row.get('municipalityCode')
+  // The boundary attribution follows the same fail-closed rule (D-71): only a
+  // stored N03 source with a valid registered year reaches the public
+  // catalog, because the traveler-facing credit is the only consumer. Fixture
+  // tags and missing or invalid values leave the source unstated instead of
+  // inventing an attribution or leaking internal labels.
+  const boundarySource = row.get('boundarySource')
+  const boundaryYear = row.get('boundaryYear')
+  const boundary = boundarySource === 'N03' && Number.isInteger(boundaryYear) && boundaryYear >= 1000 && boundaryYear <= 9999
+    ? { source: 'N03' as const, year: boundaryYear as number }
+    : undefined
   return parsePublicArea({ areaId: storedId(row.id), label: row.get('label'), marker: row.get('marker'),
-    publicGeometry: JSON.parse(row.get('publicGeometryJson')), publishedCount })
+    publicGeometry: JSON.parse(row.get('publicGeometryJson')), publishedCount,
+    ...(isPrefectureCode(prefectureCode) ? { prefectureCode } : {}),
+    ...(isMunicipalityCode(municipalityCode) ? { municipalityCode } : {}),
+    ...(boundary ? { boundary } : {}) })
 }
 
 export async function handlePublicCatalog(db: Firestore, request: IncomingMessage, response: ServerResponse,

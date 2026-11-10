@@ -21,12 +21,12 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
   photoTest?: PhotoTestDependencies, publication?: FirestoreManagedPublication, suggestion?: DraftSuggestionDependencies) {
   return async (request: IncomingMessage, response: ServerResponse, path: string, params: URLSearchParams): Promise<boolean> => {
     const memberships = path === '/api/v1/me/memberships'
-    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|submit-review|test|publish|pause|generate))?)?$/.exec(path)
+    const quest = /^\/api\/v1\/orgs\/([^/]+)\/quests(?:\/([^/]+)(?:\/(shooting-areas|readiness|submit-review|test|publish|pause|generate))?)?$/.exec(path)
     if (!memberships && !quest) return false
 
     const action = quest?.[3]
     const rawQuestId = quest?.[2]
-    const allowed = memberships ? ['GET'] : action === 'shooting-areas' ? ['GET', 'PUT'] :
+    const allowed = memberships ? ['GET'] : action === 'shooting-areas' ? ['GET', 'PUT'] : action === 'readiness' ? ['GET'] :
       action ? ['POST'] : rawQuestId ? ['GET', 'PATCH'] : ['GET', 'POST']
     if (!allowed.includes(request.method ?? '')) {
       response.setHeader('Allow', allowed.join(', '))
@@ -50,12 +50,18 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
     }
     validateQuery(params, [])
     if (action === 'test' && questId !== undefined) {
-      await store.get(uid, orgId, questId)
-      await handlePhotoTest(request, response, { ...photoTest, uid, orgId, questId, send,
+      const readiness = await store.readiness(uid, orgId, questId)
+      if (readiness.missing.length) throw new HttpError(409, 'REVIEW_REQUIRED', '必須項目を入力してください。')
+      await handlePhotoTest(request, response, { ...photoTest, uid, orgId, questId, send, approvedAssets: true,
         recheck: (revision) => store.getAtRevision(uid, orgId, questId, revision) })
       return true
     }
     if (request.method === 'GET' && questId !== undefined) {
+      if (action === 'readiness') {
+        response.setHeader('Cache-Control', 'no-store')
+        send(response, 200, await store.readiness(uid, orgId, questId))
+        return true
+      }
       send(response, 200, action === 'shooting-areas' ? await store.getShootingAreas(uid, orgId, questId) : await store.get(uid, orgId, questId))
       return true
     }
@@ -65,7 +71,8 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
     if (response.destroyed) return true
     try {
       if (questId === undefined) {
-        send(response, 201, await store.create(uid, orgId, parseCreateManagedQuest(body).draft))
+        const { draft, deriveShootingArea } = parseCreateManagedQuest(body)
+        send(response, 201, await store.create(uid, orgId, draft, deriveShootingArea))
       } else if (action === 'shooting-areas') {
         send(response, 200, await store.updateShootingAreas(uid, orgId, questId, parseUpdateShootingAreas(body)))
       } else if (action === 'submit-review') {
@@ -76,7 +83,7 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
         const { draft } = await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
         if (!suggestion) throw new HttpError(503, 'SYSTEM_ERROR', '下書き生成が未接続です。')
         const { referenceAssetId, materials } = draft
-        if (!referenceAssetId || !materials.name.trim() || !materials.photoRights.trim()) invalidInput()
+        if (!referenceAssetId || !materials.name.trim()) invalidInput()
         if (response.destroyed || response.writableEnded) return true
         const { assets, generator } = suggestion
         const release = assets.acquire(uid)
@@ -88,7 +95,7 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
           if (asset?.purpose !== 'reference') invalidInput()
           const reference = await assets.getPhotoOwned(orgId, referenceAssetId)
           // Recheck access after Storage I/O before allowing an external request.
-          await store.getAtRevision(uid, orgId, questId, expectedDraftRevision)
+          await store.assertReferenceApproved(uid, orgId, questId, expectedDraftRevision)
           if (controller.signal.aborted) return true
           const content = reference && await generator.suggest(reference, materials, controller.signal)
           if (controller.signal.aborted) return true
@@ -106,7 +113,7 @@ export function createDurableDraftHandler(store: FirestoreManagedDraftStore, aut
       } else if (action === 'publish' || action === 'pause') {
         if (!publication) throw new HttpError(503, 'SYSTEM_ERROR', '公開・休止の処理が未接続です。')
         const updated = action === 'publish'
-          ? await publication.publish(uid, orgId, questId, parsePublishManagedQuest(body))
+          ? await publication.publish(uid, orgId, questId, parsePublishManagedQuest(body, true))
           : await publication.pause(uid, orgId, questId, parsePauseManagedQuest(body))
         send(response, 200, updated)
       } else {

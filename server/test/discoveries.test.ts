@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createApiClient } from '../../src/shared/api/client'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createDiscoveryHandler } from '../src/discoveries-http'
 import { DemoDiscoveryStore } from '../src/discoveries'
 import { expectError, rawGet, startServer } from './helpers'
 
@@ -61,7 +63,7 @@ test('startup fixture is confined to its owner and stays deleted until restart',
   const { items } = await owner.listDiscoveries({ areaId: 'demo-area' })
   assert.equal(items.length, 1)
   const [record] = items
-  assert.equal(record.placeName, '架空のデモ記録')
+  assert.equal(record.placeName, '広場の時計')
   assert.deepEqual(await owner.getDiscovery(record.discoveryId), record)
   assert.equal((await owner.getDiscoveryPhoto(record.discoveryId)).type, 'image/jpeg')
   assert.deepEqual((await other.listDiscoveries()).items, [])
@@ -156,7 +158,7 @@ test('record pagination is scoped to owner and area and query values are validat
   assert.deepEqual(filtered, { items: [first.discovery], nextCursor: null })
   await expectError(await fetch(base + listPath + '?cursor=' + page.nextCursor, { headers: { Authorization: 'Bearer other' } }), 400, 'INVALID_INPUT')
   await expectError(await fetch(base + listPath + '?areaId=demo-area&cursor=' + page.nextCursor, { headers }), 400, 'INVALID_INPUT')
-  for (const query of ['?limit=0', '?limit=101', '?limit=1&limit=2', '?areaId=', '?areaId=a%2Fb', '?orgId=demo-org']) {
+  for (const query of ['?sort=unknown', '?sort=', '?sort=cleared-asc&sort=cleared-desc', '?limit=0', '?limit=101', '?limit=1&limit=2', '?areaId=', '?areaId=a%2Fb', '?orgId=demo-org']) {
     await expectError(await fetch(base + listPath + query, { headers }), 400, 'INVALID_INPUT')
   }
 })
@@ -208,4 +210,27 @@ test('records expose no HTTP create/update operation and reject bad paths and me
   }
   assert.equal((await rawGet(base, listPath + '/a%2Fb', ['Authorization', 'Bearer owner'])).status, 400)
   await expectError(await fetch(base + listPath + '/missing/photo?uid=owner', { headers }), 400, 'INVALID_INPUT')
+})
+
+
+test('list HTTP handler parses all sorts and rejects invalid values without opening a socket', async () => {
+  const store = new DemoDiscoveryStore()
+  let received: unknown
+  const handler = createDiscoveryHandler({
+    repository: { ...store, storageMode: 'memory',
+      listOwned: async (_uid, query) => { received = query.sort; return { items: [], nextCursor: null } },
+      getOwned: store.getOwned.bind(store), getPhotoOwned: store.getPhotoOwned.bind(store) },
+    authenticate: async () => 'owner', send: (_response, status) => assert.equal(status, 200),
+  })
+  const request = { method: 'GET' } as IncomingMessage
+  const response = { setHeader: () => {} } as unknown as ServerResponse
+  for (const sort of ['cleared-desc', 'cleared-asc', 'prefecture-asc', 'prefecture-desc']) {
+    await handler(request, response, listPath, new URLSearchParams({ sort }))
+    assert.equal(received, sort)
+  }
+  await handler(request, response, listPath, new URLSearchParams())
+  assert.equal(received, 'cleared-desc')
+  for (const query of ['sort=invalid', 'sort=', 'sort=cleared-asc&sort=cleared-desc']) {
+    await assert.rejects(handler(request, response, listPath, new URLSearchParams(query)), { status: 400, code: 'INVALID_INPUT' })
+  }
 })

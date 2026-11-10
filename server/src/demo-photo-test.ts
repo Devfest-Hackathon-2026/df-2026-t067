@@ -1,10 +1,11 @@
+import { matchFixturePngBase64, otherFixturePngBase64 } from '../../src/shared/syntheticPhotoFixtures'
 import { preparePhoto } from './photo-input'
 import { photoSystemError } from './photo-match'
 import type { PhotoMatcher } from './photo-match'
 
 // Generated 2x2 pictures. The first is the reference and matching candidate.
-export const syntheticPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVQImWP4z8DwnwGM/zMwAAAf7gP9qS/A4gAAAABJRU5ErkJggg==', 'base64')
-export const otherSyntheticPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAD0lEQVQImWNgYPgPRmAKABf2A/38FIMyAAAAAElFTkSuQmCC', 'base64')
+export const syntheticPng = Buffer.from(matchFixturePngBase64, 'base64')
+export const otherSyntheticPng = Buffer.from(otherFixturePngBase64, 'base64')
 export const durableFixtureFeatures = ['合成の確認済み特徴'] as const
 
 export async function createFixturePhotoMatcher(): Promise<PhotoMatcher> {

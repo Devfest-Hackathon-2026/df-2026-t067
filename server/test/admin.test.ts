@@ -194,7 +194,7 @@ test('review submission reports missing fields and returns an edited submission 
   }
   admin.update(membership.orgId, initial.questId, { expectedDraftRevision: 1, draft: complete })
   admin.updateShootingAreas(membership.orgId, initial.questId, { expectedDraftRevision: 2,
-    zones: [{ latitude: 0, longitude: 0, radiusMeters: 20 }] })
+    zones: [{ latitude: 0, longitude: 0, radiusMeters: 1000 }] })
   const pending = { ...admin.get(membership.orgId, initial.questId), status: 'review_pending' }
   const submissions = await Promise.all([submit(3), submit(3)])
   for (const response of submissions) {
@@ -240,4 +240,36 @@ test('demo capacity preserves existing edits, returned values are detached, and 
   assert.equal(store.update('demo-org', first.questId, { expectedDraftRevision: 1, draft }).draftRevision, 2)
   assert.equal(store.create({ ...membership, orgId: 'other-org' }, draft).orgId, 'other-org')
   assert.deepEqual(new DemoAdminStore().list('demo-org'), [])
+})
+
+
+test('draft HTTP create and update discard photo notes and accept their omission', async (t) => {
+  const config = options()
+  const { base } = await startServer(t, config)
+  for (const photoNote of ['旧注意\n自由記述', undefined]) {
+    const materials: Record<string, unknown> = { ...draft.materials, photoNote }
+    const input = { ...draft, materials }
+    const createdResponse = await fetch(base + basePath, {
+      method: 'POST', headers, body: JSON.stringify({ draft: input }),
+    })
+    assert.equal(createdResponse.status, 201)
+    const created = await createdResponse.json() as { questId: string }
+    assert.equal(config.admin.get(membership.orgId, created.questId).draft.materials.photoNote, '')
+    const updatedResponse = await fetch(base + basePath + '/' + created.questId, {
+      method: 'PATCH', headers, body: JSON.stringify({ expectedDraftRevision: 1, draft: input }),
+    })
+    assert.equal(updatedResponse.status, 200)
+    assert.equal(config.admin.get(membership.orgId, created.questId).draft.materials.photoNote, '')
+  }
+})
+
+
+test('draft store persists empty photo notes on create and update', () => {
+  const store = new DemoAdminStore()
+  const legacy = { ...draft, materials: { ...draft.materials, photoNote: '旧注意' } }
+  const created = store.create(membership, legacy)
+  assert.equal(store.get(membership.orgId, created.questId).draft.materials.photoNote, '')
+  store.update(membership.orgId, created.questId, { expectedDraftRevision: 1, draft: legacy })
+  assert.equal(store.get(membership.orgId, created.questId).draft.materials.photoNote, '')
+  assert.equal(legacy.materials.photoNote, '旧注意')
 })

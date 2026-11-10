@@ -124,7 +124,8 @@ test('Firestore leases, resumes and atomically commits answers', {
   await t.test('only an owner can read after-clear information from the version they first cleared', async (test) => {
     const fixture = await seedQuest()
     const questId = fixture.quest.id
-    const afterClear = { access: '架空のアクセス案内', hours: '09:00〜17:00', promoComment: '', explanation: '非公開の解説' }
+    const afterClear = { access: '架空のアクセス案内', hours: '09:00〜17:00', promoComment: '', explanation: '非公開の解説',
+      spot: { name: '架空の対象スポット', address: '架空の所在地1', position: { latitude: 0.37, longitude: 0.53 }, googlePlaceId: 'TEST_place' } }
     const version = db.collection('questVersions').doc(questId + ':1')
     await version.update({ afterClear, descriptionSnapshot: afterClear.explanation })
     const pending = await fixture.seedAnswer()
@@ -134,7 +135,8 @@ test('Firestore leases, resumes and atomically commits answers', {
     const stored = db.collection('discoveries').doc(discoveryId)
 
     const newVersion = db.collection('questVersions').doc(questId + ':2')
-    await newVersion.create({ ...(await version.get()).data(), afterClear: { ...afterClear, access: '次の版の案内' } })
+    await newVersion.create({ ...(await version.get()).data(), afterClear: { ...afterClear, access: '次の版の案内',
+      spot: { ...afterClear.spot, address: '架空の所在地2' } } })
     await fixture.quest.update({ publishedVersion: 2, status: 'published' })
     await db.collection('questPublic').doc(questId).create({ quest: { questId, version: 2, title: '公開タイトル',
       clue: '公開問題文', areaId: 'demo-area', hintCount: 1, visitConditions: '架空の訪問条件' }, hints: ['公開ヒント'] })
@@ -157,7 +159,7 @@ test('Firestore leases, resumes and atomically commits answers', {
     const anonymous = await fetch(base + '/api/v1/me/discoveries/' + discoveryId)
     assert.equal(anonymous.status, 401)
     await anonymous.body?.cancel()
-    assert.doesNotMatch(JSON.stringify(await client().getQuest(questId)), /afterClear|アクセス案内|次の版の案内|非公開の解説/)
+    assert.doesNotMatch(JSON.stringify(await client().getQuest(questId)), /afterClear|アクセス案内|次の版の案内|非公開の解説|架空の所在地|TEST_place|0\.37|0\.53/)
     assert.deepEqual(await client().getHint({ questId, expectedVersion: 2, index: 1 }),
       { questId, version: 2, index: 1, text: '公開ヒント' })
 

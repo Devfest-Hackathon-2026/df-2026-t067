@@ -67,7 +67,7 @@ export function createAdminHandler(options: {
       validateQuery(params, [])
       const questId = parseId(decodeURIComponent(actionRoute[2]))
       const action = actionRoute[3]
-      const publisherOnly = action === 'publish' || action === 'pause'
+      const publisherOnly = action === 'pause'
       if (publisherOnly) requirePublisher(membership)
       store.get(orgId, questId)
       if (action !== 'test') {

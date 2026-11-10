@@ -12,7 +12,7 @@ test('anonymous client requests a single numbered hint for the displayed quest v
   const quest = await api.getQuest('demo-quest')
   assert.equal(quest.hintCount, 3)
   const hint = await api.getHint({ questId: quest.questId, expectedVersion: quest.version, index: 1 })
-  assert.deepEqual(hint, { questId: 'demo-quest', version: 1, index: 1, text: '架空の町の広場にあるものを想像してください。' })
+  assert.deepEqual(hint, { questId: 'demo-quest', version: 1, index: 1, text: '町の広場にあるものを探してください。' })
   const response = await fetch(base + '/api/v1/quests/demo-quest/hints/3?expectedVersion=1')
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('X-Quest-Data-Mode'), 'demo')

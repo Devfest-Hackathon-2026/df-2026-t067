@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { AssetPurpose, CaptureZone, ManagedAsset, ManagedQuest, ManagedQuestDraft, ManagedShootingAreas, OrgMembership, ReviewSubmission, UpdateManagedQuest, UpdateShootingAreas } from '../../src/shared/api/admin'
-import { parseManagedAsset, parseManagedQuestDraft, parseUpdateShootingAreas } from '../../src/shared/api/admin'
+import { parseManagedAsset, parseManagedQuestDraft, parseUpdateShootingAreas, shootingAreaStatus } from '../../src/shared/api/admin'
 import { HttpError, invalidInput } from './errors'
 import { draftPhotoFeatures } from './photo-match'
 import type { PauseManagedQuest, PhotoDecision, PublishManagedQuest } from '../../src/shared/api/admin'
@@ -48,12 +48,12 @@ export class DemoAdminStore {
     }
   }
   list(orgId: string): ManagedQuest[] {
-    return structuredClone([...this.quests.values()].filter((quest) => quest.orgId === orgId))
+    return structuredClone([...this.quests.values()].filter((quest) => quest.orgId === orgId).map((quest) => this.withAreaStatus(quest)))
   }
   get(orgId: string, questId: string): ManagedQuest {
     const quest = this.quests.get(questId)
     if (!quest || quest.orgId !== orgId) throw new HttpError(404, 'NOT_FOUND', '見つかりません。')
-    return structuredClone(quest)
+    return structuredClone(this.withAreaStatus(quest))
   }
   create(membership: OrgMembership, input: ManagedQuestDraft): ManagedQuest {
     if (this.quests.size >= 1000 || this.list(membership.orgId).length >= 100) {
@@ -81,7 +81,7 @@ export class DemoAdminStore {
     const quest = this.forUpdate(orgId, questId, parsed.expectedDraftRevision)
     this.shootingAreas.set(questId, parsed.zones)
     this.quests.set(questId, { ...quest, status: 'draft', draftRevision: quest.draftRevision + 1,
-      shootingAreaStatus: parsed.zones.length ? 'configured' : 'unconfigured' })
+      shootingAreaStatus: shootingAreaStatus(parsed.zones) })
     return this.getShootingAreas(orgId, questId)
   }
   submitReview(orgId: string, questId: string, expectedRevision: number): ReviewSubmission {
@@ -154,6 +154,8 @@ export class DemoAdminStore {
     return publication && { orgId: publication.orgId, questVersion: publication.quest.version }
   }
   private reviewMissing(quest: ManagedQuest) {
+    const zones = this.shootingAreas.get(quest.questId) ?? []
+    quest = { ...quest, shootingAreaStatus: shootingAreaStatus(zones) }
     const { orgId } = quest
     const { referenceAssetId, hintAssetId } = quest.draft
     return missingReviewFields(quest, {
@@ -176,6 +178,9 @@ export class DemoAdminStore {
   private hasAsset(orgId: string, assetId: string, purpose: AssetPurpose): boolean {
     const asset = this.assetLookup?.(assetId) ?? this.assets.get(assetId)
     return asset?.orgId === orgId && asset.purpose === purpose
+  }
+  private withAreaStatus(quest: ManagedQuest): ManagedQuest {
+    return { ...quest, shootingAreaStatus: shootingAreaStatus(this.shootingAreas.get(quest.questId) ?? []) }
   }
   private checkedDraft(orgId: string, input: ManagedQuestDraft): ManagedQuestDraft {
     const draft = parseManagedQuestDraft(input)

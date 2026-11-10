@@ -1,3 +1,4 @@
+import { NORMALIZED_PHOTO_MAX_BYTES } from '../../src/shared/mediaLimits'
 import { randomUUID } from 'node:crypto'
 import type { ManagedAsset, OrgAssetMetadata, UploadedOrgAsset } from '../../src/shared/api/admin'
 import { parseUploadedOrgAsset } from '../../src/shared/api/admin'
@@ -56,7 +57,7 @@ export class DemoAssetStore {
   put(orgId: string, uid: string, key: string, digest: string, metadata: OrgAssetMetadata, photo: PreparedPhoto): { created: boolean; asset: UploadedOrgAsset } {
     const previous = this.findReplay(orgId, uid, key, digest)
     if (previous) return { created: false, asset: previous }
-    if (!Buffer.isBuffer(photo.bytes) || photo.bytes.length < 4 || photo.bytes.length > 2 * 1024 * 1024) invalidInput()
+    if (!Buffer.isBuffer(photo.bytes) || photo.bytes.length < 4 || photo.bytes.length > NORMALIZED_PHOTO_MAX_BYTES) invalidInput()
     const orgCount = [...this.assets.values()].filter((item) => item.asset.orgId === orgId).length
     if (this.assets.size >= this.capacity || orgCount >= orgAssetLimits.perOrg || this.bytes + photo.bytes.length > this.maximumBytes) throw this.full()
     const asset = parseUploadedOrgAsset({ ...metadata, assetId: randomUUID(), orgId, contentType: 'image/jpeg', width: photo.width,

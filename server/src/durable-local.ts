@@ -64,15 +64,19 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
       }
       if (!current.exists) {
         tx.create(quest, { publishedVersion: version, status: 'published', orgId })
-        tx.create(published, { placeId, areaId: publicArea.areaId, placeName: '架空の対象',
-          descriptionSnapshot: '永続APIの確認用に作った架空の記録です。', revealedLocation: { latitude: 0, longitude: 0 }, answerMaterial })
+        tx.create(published, { placeId, areaId: publicArea.areaId, placeName: '広場の時計',
+          descriptionSnapshot: '', revealedLocation: { latitude: 0, longitude: 0 }, answerMaterial })
       } else {
         // Older local fixtures have no private reference fields yet.
         if (savedOrg === undefined) tx.update(quest, { orgId })
         if (savedMaterial === undefined) tx.update(published, { answerMaterial })
       }
       if (!areaDoc.exists) tx.create(area, { label: publicArea.label, marker: publicArea.marker,
-        publicGeometryJson: JSON.stringify(publicArea.publicGeometry) })
+        publicGeometryJson: JSON.stringify(publicArea.publicGeometry), boundarySource: 'fixture' })
+      else if (areaDoc.get('boundarySource') === undefined && areaDoc.get('municipalityCode') === undefined &&
+        areaDoc.get('label') === publicArea.label && areaDoc.get('publicGeometryJson') === JSON.stringify(publicArea.publicGeometry)) {
+        tx.update(area, { boundarySource: 'fixture' })
+      }
       if (!publicDoc.exists) tx.create(projection, { quest: publicQuest, hints: catalog.hints.get(questId) ?? [] })
     })
     const material = createPublishedAnswerMaterialLoader(db, photos, locationLimits)
@@ -84,7 +88,7 @@ export async function createDurableLocalRuntime(config: DurableLocalConfig) {
     const uploadLimiter = new DemoAnswerStore()
     const policy = { maximum: 10, windowMs: 60_000 }
     const runtime = createDurableAnswerRuntime({
-      db, photos, verifier, dataMode: config.mode,
+      db, photos, verifier, dataMode: config.mode, spotGeocodingApiKey: config.spotGeocodingApiKey,
       assets: new FirestoreOrgAssetStore(db, photos), drafts: new FirestoreManagedDraftStore(db),
       suggestDraft,
       photoTest: { matcher, source: ledger ? 'real' : 'mock', timeoutMs: ledger ? 30_000 : undefined },

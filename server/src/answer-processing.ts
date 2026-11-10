@@ -1,3 +1,4 @@
+import { PHOTO_UPLOAD_MAX_BYTES } from '../../src/shared/mediaLimits'
 import { createHash } from 'node:crypto'
 import type { CaptureMetadata, Challenge, Position } from '../../src/shared/api/types'
 import { parseCaptureMetadata } from '../../src/shared/api/validation'
@@ -73,7 +74,7 @@ export class DemoAnswerProcessor {
     // Callers pass the unmodified server readAnswerInput output, not a browser
     // digest. Copy before awaiting decoding/matching; later edits cannot alter it.
     const metadata = parseCaptureMetadata(input.metadata)
-    if (!input.photo || !Buffer.isBuffer(input.photo.bytes) || input.photo.bytes.length < 1 || input.photo.bytes.length > 4 * 1024 * 1024) throw photoSystemError(false)
+    if (!input.photo || !Buffer.isBuffer(input.photo.bytes) || input.photo.bytes.length < 1 || input.photo.bytes.length > PHOTO_UPLOAD_MAX_BYTES) throw photoSystemError(false)
     const fingerprint = hash(JSON.stringify([metadata, input.photo.mimeType]), input.photo.bytes)
     const previous = this.jobs.get(attemptId)
     if (previous) {
@@ -233,7 +234,7 @@ export class DemoAnswerProcessor {
         typeof version.descriptionSnapshot !== 'string' || version.descriptionSnapshot.length > 4000 ||
         !Number.isFinite(version.revealedLocation?.latitude) || Math.abs(version.revealedLocation.latitude) > 90 ||
         !Number.isFinite(version.revealedLocation.longitude) || Math.abs(version.revealedLocation.longitude) > 180 ||
-        !Buffer.isBuffer(version.reference?.bytes) || version.reference.bytes.length < 1 || version.reference.bytes.length > 4 * 1024 * 1024 ||
+        !Buffer.isBuffer(version.reference?.bytes) || version.reference.bytes.length < 1 || version.reference.bytes.length > PHOTO_UPLOAD_MAX_BYTES ||
         !Array.isArray(version.features) || version.features.length < 1 || version.features.length > 20 ||
         !version.features.every((value) => typeof value === 'string' && value.trim() && value.length <= 300)) throw photoSystemError(false)
       return { questId: version.questId, version: version.version, status: 'published', placeId: version.placeId, areaId: version.areaId,

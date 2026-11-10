@@ -18,7 +18,7 @@ export async function runVertexTrial(args: readonly string[], env: NodeJS.Proces
     // Latest confirmed campaign total: initial text 1 + image attempts 4.
     // The existing shared ledger remains authoritative; never reinitialize it.
     await initializeTrialLedger(file, 5)
-    return { source: 'vertex-trial', status: 'initialized', used: 5, limit: 20 }
+    return { source: 'vertex-trial', status: 'initialized', used: 5, limit: 50 }
   }
   const controller = new AbortController()
   const abort = () => controller.abort()

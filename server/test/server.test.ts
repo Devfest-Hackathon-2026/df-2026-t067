@@ -75,7 +75,7 @@ test('responses expose only allowlisted public fields and explicitly label demo 
       : ['areaId', 'clue', 'hintCount', 'questId', 'title', 'version', 'visitConditions']
     for (const item of page.items) {
       assert.deepEqual(Object.keys(item).sort(), keys)
-      assert.match(String(item.label ?? item.title), /架空/)
+      assert.doesNotMatch(String(item.label ?? item.title), /架空|デモ/)
     }
   }
 })

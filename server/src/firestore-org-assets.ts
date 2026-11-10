@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { DocumentSnapshot, Firestore, Transaction } from 'firebase-admin/firestore'
 import { parseUploadedOrgAsset } from '../../src/shared/api/admin'
 import type { OrgAssetMetadata } from '../../src/shared/api/admin'
+import { photoApprovalDigest } from './admin-photo-approvals'
 import { DemoAssetStore, orgAssetLimits } from './admin-assets'
 import type { AssetHttpStore } from './admin-assets-http'
 import type { AnswerPhotoStorage } from './answer-photo-storage'
@@ -13,6 +14,7 @@ import type { PreparedPhoto } from './photo-input'
 type AssetPhotos = Pick<AnswerPhotoStorage, 'writeReference' | 'readReference' | 'writeHint' | 'readHint'>
 
 export class FirestoreOrgAssetStore implements AssetHttpStore {
+  readonly approvedAssets = true
   private readonly uploadLimiter = new DemoAssetStore()
 
   constructor(private readonly db: Firestore, private readonly photos: AssetPhotos) {}
@@ -32,7 +34,7 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
     }, true)
   }
 
-  async put(orgId: string, uid: string, key: string, digest: string, metadata: OrgAssetMetadata, photo: PreparedPhoto) {
+  async put(orgId: string, uid: string, key: string, digest: string, metadata: OrgAssetMetadata, photo: PreparedPhoto, approvalDigest = photoApprovalDigest(photo.bytes)) {
     const assetId = hash([orgId, uid, key])
     const ref = this.db.collection('orgAssets').doc(assetId)
     const asset = parseUploadedOrgAsset({ ...metadata, assetId, orgId, contentType: 'image/jpeg', width: photo.width,
@@ -46,7 +48,7 @@ export class FirestoreOrgAssetStore implements AssetHttpStore {
       if (record?.generation) return record.asset
       if (!snapshot.exists) {
         await this.reserveCapacity(tx, orgId, asset.byteLength)
-        tx.create(ref, { asset, digest })
+        tx.create(ref, { asset, digest, approvalDigest })
       } else if (!record) {
         throw processingError()
       }
@@ -121,7 +123,9 @@ export function readOrgAssetRecord(snapshot: DocumentSnapshot, orgId: string) {
   const generation: unknown = data.generation
   if (asset.source !== 'real' || asset.assetId !== snapshot.id || !validDigest(digest) ||
     (generation !== undefined && !usableGeneration(generation))) throw processingError()
-  return { asset, digest, generation }
+  const approvalDigest: unknown = data.approvalDigest ?? digest
+  if (!validDigest(approvalDigest)) throw processingError()
+  return { asset, digest, generation, approvalDigest }
 }
 
 function usableGeneration(value: unknown): value is string {

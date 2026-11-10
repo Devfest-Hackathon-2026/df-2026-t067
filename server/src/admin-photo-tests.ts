@@ -7,6 +7,7 @@ import type { PhotoMatcher } from './photo-match'
 export interface PhotoTestEvidence extends PhotoTestResult { photoDigest: string }
 
 export interface PhotoTestRequest {
+  approvalDigest?: string
   uid: string
   orgId: string
   questId: string

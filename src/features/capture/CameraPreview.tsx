@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { inertBackground } from '../../components/inertBackground'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { QuestHandoff } from '../../components/QuestHandoff'
+import { createPortal } from 'react-dom'
+import { useWideViewport } from '../quests/useWideViewport'
 import { parseCaptureMetadata } from '../../shared/api'
 import type { CaptureMetadata } from '../../shared/api/types'
 import { DemoAnswerSubmission } from './DemoAnswerSubmission'
@@ -6,8 +10,20 @@ import type { DemoAnswerContext } from './DemoAnswerSubmission'
 import { CaptureLocationMap } from './CaptureLocationMap'
 import { isCaptureLocationMapDebugEnabled } from './captureMapDebug'
 
-export function CameraPreview({ onClose, answer }: { onClose: () => void; answer?: DemoAnswerContext }) {
+type CameraPreviewProps = { onClose: () => void; answer?: DemoAnswerContext; handoffUrl?: string; clue?: string; hints?: string[] }
+
+export function CameraPreview(props: CameraPreviewProps) {
+  const wide = useWideViewport()
+  if (wide) return <QuestHandoff value={props.handoffUrl} title={props.answer?.questTitle} />
+  return <MobileCameraPreview {...props} />
+}
+
+function MobileCameraPreview({ onClose, answer, clue, hints = [] }: CameraPreviewProps) {
+  const wide = useWideViewport()
   const showCaptureLocationMapDebug = isCaptureLocationMapDebugEnabled(import.meta.env.DEV, import.meta.env.VITE_CAPTURE_LOCATION_MAP_DEBUG)
+  const closing = useRef(false)
+  const panelRef = useRef<HTMLElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const photoRef = useRef<string | null>(null)
@@ -21,11 +37,52 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
   const [photo, setPhoto] = useState<{ url: string; blob: Blob; originalBlob: Blob; rotation: number } | null>(null)
   const [rotating, setRotating] = useState(false)
   const [submissionStarted, setSubmissionStarted] = useState(false)
+  const [judging, setJudging] = useState(false)
+  const [retakeLocked, setRetakeLocked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<CaptureMetadata | null>(null)
   const [locating, setLocating] = useState(false)
   const [showLocationMap, setShowLocationMap] = useState(false)
   const photoUrl = photo?.url
+
+  function requestClose(fromBack = false) {
+    if (photoRef.current && !submissionStarted && !window.confirm('未送信の写真を破棄して撮影を終了しますか？')) return false
+    closing.current = true
+    if (!fromBack && window.history.state?.camera) {
+      window.history.back()
+    }
+    dispose(); setLocating(false); onClose(); return true
+  }
+  const closeFromEvent = useEffectEvent(requestClose)
+  useEffect(() => {
+    const previous = document.activeElement
+    const releaseBackground = inertBackground(panelRef.current)
+    closeRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (document.querySelector('.clear-screen')) return
+      if (event.key === 'Escape') { event.preventDefault(); closeFromEvent() }
+      if (event.key === 'Tab') {
+        const items = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), summary, [tabindex="0"]') ?? [])
+        const first = items[0], last = items.at(-1)
+        if (event.shiftKey && (document.activeElement === first || !panelRef.current?.contains(document.activeElement))) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && (document.activeElement === last || !panelRef.current?.contains(document.activeElement))) { event.preventDefault(); first?.focus() }
+      }
+    }
+    const onBack = (event: PopStateEvent) => {
+      event.stopImmediatePropagation()
+      if (closing.current) return
+      if (!closeFromEvent(true)) window.history.pushState({ ...window.history.state, camera: true }, '')
+    }
+    if (!window.history.state?.camera) window.history.pushState({ ...window.history.state, camera: true }, '')
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('popstate', onBack, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('popstate', onBack, true)
+      releaseBackground()
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
+    }
+  }, [])
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -75,8 +132,8 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
     }).catch((cause: unknown) => {
       if (own !== generation.current) return
       const name = cause instanceof DOMException || cause instanceof Error ? cause.name : ''
-      fail(name === 'NotAllowedError' ? 'カメラの使用が許可されませんでした。「カメラを再試行」を押すともう一度確認します。確認が表示されない場合は、ブラウザのサイト設定でカメラを許可してから再試行してください。'
-        : 'カメラを起動できませんでした。利用できる環境か確認して再試行してください。')
+      fail(name === 'NotAllowedError' ? 'カメラ未許可。サイト設定で許可'
+        : 'カメラ起動失敗')
     })
     const leave = () => { dispose(); onClose() }
     window.addEventListener('pagehide', leave)
@@ -103,7 +160,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
     if (phase !== 'live') { capturing.current = false; return }
     const video = videoRef.current
     if (!video?.videoWidth || !video.videoHeight || video.readyState < 2) {
-      fail('カメラ映像を準備できませんでした。再試行してください。')
+      fail('カメラ準備失敗')
       return
     }
     setPhase('capturing')
@@ -119,7 +176,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       requestLocation()
       canvas.toBlob((blob) => {
         if (own !== generation.current) return
-        if (!blob) { fail('写真を作成できませんでした。再試行してください。'); return }
+        if (!blob) { fail('写真作成失敗'); return }
         try {
           const url = URL.createObjectURL(blob)
           photoRef.current = url
@@ -129,14 +186,14 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
           setPhoto({ url, blob, originalBlob: blob, rotation: 0 })
           setPhase('photo')
           capturing.current = false
-        } catch { fail('写真を表示できませんでした。再試行してください。') }
+        } catch { fail('写真表示失敗') }
       }, 'image/jpeg', 0.9)
-    } catch { fail('写真を作成できませんでした。再試行してください。') }
+    } catch { fail('写真作成失敗') }
   }
 
   function requestLocation() {
     if (!navigator.geolocation) {
-      setError('この端末では位置情報を取得できません。写真は撮影済みです。')
+      setError('位置情報非対応')
       return
     }
     setLocating(true)
@@ -146,7 +203,7 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       if (ownLocationRequest !== locationGeneration.current) return
       locationGeneration.current++
       setLocating(false)
-      setError(`${message} 写真は撮影済みです。位置情報を再試行できます。`)
+      setError(`${message}`)
     }
     try {
       navigator.geolocation.getCurrentPosition((location) => {
@@ -159,15 +216,16 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
           setMetadata(captureMetadata)
           setLocating(false)
           setError(null)
-        } catch { locationFailed('撮影地の位置情報を確認できませんでした。') }
+        } catch { locationFailed('撮影地取得失敗') }
       }, (cause) => locationFailed(cause.code === cause.PERMISSION_DENIED
-        ? '撮影地の取得が許可されませんでした。ブラウザが再確認を表示しない場合は、アドレスバーのサイト情報から位置情報を許可してから再試行してください。'
-        : '撮影地を取得できませんでした。位置情報を確認してください。'),
+        ? '位置情報未許可。サイト設定で許可'
+        : '撮影地取得失敗'),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
-    } catch { locationFailed('撮影地を取得できませんでした。位置情報を確認してください。') }
+    } catch { locationFailed('撮影地取得失敗') }
   }
 
   function restart() {
+    if (retakeLocked) return
     dispose()
     setRotating(false)
     setLocating(false)
@@ -210,50 +268,49 @@ export function CameraPreview({ onClose, answer }: { onClose: () => void; answer
       setPhoto({ ...photo, url, blob: rotatedBlob, rotation: nextRotation })
       if (oldUrl) URL.revokeObjectURL(oldUrl)
     } catch {
-      if (own === rotationGeneration.current) setError('写真を回転できませんでした。もう一度お試しください。')
+      if (own === rotationGeneration.current) setError('写真回転失敗')
     } finally {
       bitmap?.close()
       if (own === rotationGeneration.current) setRotating(false)
     }
   }
 
-  return (
-    <section className="camera-panel" aria-label="写真撮影と確認">
-      <h4>{photoUrl ? '写真を確認' : '写真を撮影'}</h4>
-      <p className="sample-note">{answer
-        ? answer.dataMode === 'durable-local'
-          ? 'テスト送信を押すと写真・位置・精度・時刻をローカルAPIへ送ります。合成画像と架空の座標を使ってください。'
-          : '撮影時に現在地を1回取得します。「写真と位置をデモ送信」を押すと、写真・位置・精度・時刻を開発用のローカルAPIへ送ります。受付と位置条件の確認までを試せます。'
-        : '撮影時に現在地を1回取得します。写真・位置情報・撮影と測位の時刻はこの画面内だけで保持し、送信・保存・AI判定は行いません。'}</p>
+  const panel = (
+    <section ref={panelRef} role="dialog" aria-modal="true" className={wide ? "camera-panel" : "camera-panel camera-overlay"} aria-label="写真撮影と確認">
+      <header className="camera-heading"><h4>{answer?.questTitle ?? (photoUrl ? '写真確認' : '撮影')}</h4>
+        {(clue || hints.length > 0) && <details><summary>手がかり</summary>{clue && <p>{clue}</p>}{hints.map((hint, index) => <p key={index}>{hint}</p>)}</details>}
+      </header>
       {photoUrl ? <img className="photo-preview" src={photoUrl} alt="撮影した写真のプレビュー" />
         : <video ref={videoRef} className="camera-video" autoPlay playsInline muted aria-label="カメラ映像"
-          onLoadedData={ready} onCanPlay={ready} onError={() => fail('カメラ映像を表示できませんでした。再試行してください。')} />}
-      {phase === 'opening' && <p role="status" className="camera-status">カメラを準備しています。許可の確認が出たら選択してください。</p>}
-      {phase === 'capturing' && <p role="status" className="camera-status">写真を作成しています…</p>}
-      {locating && <p role="status" className="camera-status">撮影地を取得しています…</p>}
-      {rotating && <p role="status" className="camera-status">写真を回転しています…</p>}
-      {photoUrl && metadata && <p className="camera-status" role="status">撮影地を写真に紐づけました（精度 約{Math.round(metadata.position.accuracyMeters)}m）。この画面を閉じると破棄されます。</p>}
+          onLoadedData={ready} onCanPlay={ready} onError={() => fail('カメラ表示失敗')} />}
+      {phase === 'opening' && <p role="status" className="camera-status">カメラの使用を許可</p>}
+      {phase === 'capturing' && <p role="status" className="camera-status">写真作成中</p>}
+      {locating && <p role="status" className="camera-status">撮影地取得中</p>}
+      {rotating && <p role="status" className="camera-status">回転中</p>}
+      {/* 撮影地の紐づけ自体は metadata で行い、精度の一行表示は出さない（表示のみ削除）。 */}
       {showCaptureLocationMapDebug && photoUrl && metadata && <div className="camera-map-reference">
         <button type="button" className="secondary-button" aria-expanded={showLocationMap}
-          onClick={() => setShowLocationMap((visible) => !visible)}>{showLocationMap ? '地図を閉じる' : '撮影地を見る'}</button>
-        <p className="sample-note">地図を表示すると撮影地の座標がGoogle Mapsに送信されます。</p>
+          onClick={() => setShowLocationMap((visible) => !visible)}>撮影地</button>
         {showLocationMap && <CaptureLocationMap latitude={metadata.position.latitude} longitude={metadata.position.longitude} />}
       </div>}
       {error && <p className="camera-error" role="alert">{error}</p>}
-      {photo && <div className="camera-actions photo-rotation-actions" aria-label="写真の向き">
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted}>反時計回りに回転</button>
-        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted}>時計回りに回転</button>
+      {photo && !submissionStarted && <div className="camera-actions photo-rotation-actions" aria-label="写真の向き">
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(-1)} disabled={rotating || submissionStarted}>左に回す</button>
+        <button type="button" className="secondary-button" onClick={() => void rotatePhoto(1)} disabled={rotating || submissionStarted}>右に回す</button>
       </div>}
-      {answer && photo && metadata && <DemoAnswerSubmission context={answer} photo={photo.blob} metadata={metadata} disabled={rotating}
-        onSubmissionStarted={() => setSubmissionStarted(true)} />}
-      <div className="camera-actions">
-        {!photoUrl && <button type="button" className="primary-button" onClick={capture} disabled={phase !== 'live'}>{phase === 'capturing' ? '写真を作成しています…' : '撮影する'}</button>}
-        {photoUrl && !metadata && <button type="button" className="primary-button" onClick={requestLocation} disabled={locating}>{locating ? '撮影地を取得中…' : '位置情報を再試行'}</button>}
-        {photoUrl && !answer && <button type="button" className="primary-button" disabled>解答を送信する（準備中）</button>}
-        {photoUrl && <button type="button" className="secondary-button" onClick={restart}>撮り直す</button>}
-        {phase === 'error' && <button type="button" className="secondary-button" onClick={restart}>カメラを再試行</button>}
-        <button type="button" className="secondary-button" onClick={() => { dispose(); setLocating(false); onClose() }}>撮影を終了</button>
-      </div>
+      {answer && photo && metadata && <DemoAnswerSubmission initialSubmitLabel="送る" context={answer} photo={photo.blob} metadata={metadata} disabled={rotating}
+        onSubmissionStarted={() => { setSubmissionStarted(true); setRetakeLocked(true) }}
+        onSubmissionResolved={() => setRetakeLocked(false)}
+        onWaitingChange={setJudging} />}
+      {!judging && <div className="camera-actions">
+        {!photoUrl && phase !== 'error' && <div className="camera-shutter-controls"><button type="button" className="primary-button camera-shutter" aria-label="撮影" onClick={capture} disabled={phase !== 'live'} /></div>}
+        {photoUrl && !metadata && <button type="button" className="secondary-button" onClick={requestLocation} disabled={locating}>位置を再取得</button>}
+        {photoUrl && (!answer || !metadata) && <button type="button" className="primary-button" disabled>送る</button>}
+        {photoUrl && <button type="button" className={submissionStarted && !retakeLocked ? "primary-button" : "secondary-button"} onClick={restart} disabled={retakeLocked}>撮り直す</button>}
+        {phase === 'error' && <button type="button" className="primary-button" onClick={restart}>カメラを再試行</button>}
+        <button ref={closeRef} type="button" className="secondary-button" onClick={() => requestClose()}>撮影を終了</button>
+      </div>}
     </section>
   )
+  return wide ? panel : createPortal(panel, document.body)
 }

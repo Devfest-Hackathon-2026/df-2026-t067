@@ -20,7 +20,7 @@ export function useQuestConnection(source: DataSource, api: ApiClient) {
   const read = useCallback(async (signal: AbortSignal): Promise<QuestContent> => {
     const quest = await api.getQuest('demo-quest', { signal })
     if (quest.questId !== 'demo-quest') throw new ApiError('INVALID_RESPONSE')
-    return { ...quest, areaLabel: '架空のデモ地域' }
+    return { ...quest, areaLabel: '地域' }
   }, [api])
   const remote = useRemote(source === 'local-api', read)
   const result: Remote<QuestContent> = source === 'preview' ? { status: 'ready', value: { ...demoQuest, areaLabel: demoAreaLabel } }
@@ -37,4 +37,17 @@ export function useServerIdentity(enabled: boolean, api: ApiClient, auth: AuthSn
   }, [api, uid])
   const remote = useRemote(enabled && uid !== null, read)
   return { ...remote, result: enabled && uid !== null ? remote.result : null }
+}
+
+// 管理画面への入口を出すかどうかだけに使う所属の有無。保護は従来どおり
+// サーバー側の所属チェックが担い、ここで読めない・所属がない場合は出さない。
+export function useAdminMembership(enabled: boolean, api: ApiClient, auth: AuthSnapshot) {
+  const uid = auth.status === 'signed-in' ? auth.user.uid : null
+  const read = useCallback(async (signal: AbortSignal) => {
+    if (uid === null) return false
+    const page = await api.listMemberships({ limit: 1 }, { signal })
+    return page.items.length > 0
+  }, [api, uid])
+  const remote = useRemote(enabled && uid !== null, read)
+  return enabled && uid !== null && remote.result.status === 'ready' ? remote.result.value : false
 }

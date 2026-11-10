@@ -1,19 +1,40 @@
 export interface GoogleMapsApi {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance
-  Marker?: new (options: Record<string, unknown>) => unknown
+  Marker?: new (options: Record<string, unknown>) => MarkerInstance
   Circle?: new (options: Record<string, unknown>) => { setMap(map: MapInstance | null): void }
   Data: new () => DataLayer
   LatLngBounds: new () => Bounds
-  event: { addListener(target: unknown, name: string, callback: (event?: { latLng?: { lat(): number; lng(): number } }) => void): { remove(): void } }
+  importLibrary?(name: 'places'): Promise<{ Place: new (options: { id: string }) => {
+    fetchFields(options: { fields: string[] }): Promise<unknown>; displayName?: string | null; formattedAddress?: string | null
+  } }>
+  event: { addListener(target: unknown, name: string, callback: (event?: { latLng?: { lat(): number; lng(): number }; placeId?: string; stop?(): void }) => void): { remove(): void }; trigger?(target: unknown, name: string): void }
 }
 
 export interface Bounds { extend(point: { lat: number; lng: number }): void }
+
+export interface MapLatLng { lat(): number; lng(): number }
+
+export interface MapBounds { getNorthEast(): MapLatLng; getSouthWest(): MapLatLng }
 
 export interface MapInstance {
   setZoom(value: number): void
   getZoom(): number | undefined
   setCenter(value: { lat: number; lng: number }): void
-  fitBounds(bounds: Bounds): void
+  getCenter?(): MapLatLng | undefined
+  fitBounds(bounds: Bounds, padding?: number | { top?: number; right?: number; bottom?: number; left?: number }): void
+  getProjection?(): { fromLatLngToPoint(position: MapLatLng | { lat: number; lng: number }): { x: number; y: number } | null } | undefined
+  panBy?(x: number, y: number): void
+  getBounds?(): MapBounds | undefined
+  addListener(name: string, callback: () => void): { remove(): void }
+}
+
+export interface MarkerInstance {
+  setMap(map: MapInstance | null): void
+  setPosition?(position: { lat: number; lng: number }): void
+  setTitle?(title: string): void
+  setZIndex?(zIndex: number): void
+  setOptions?(options: Record<string, unknown>): void
+  setIcon?(icon: { url: string }): void
   addListener(name: string, callback: () => void): { remove(): void }
 }
 

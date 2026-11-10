@@ -1,7 +1,7 @@
 import { ATTEMPT_OUTCOMES, ATTEMPT_STATES, REPORT_CATEGORIES } from './types'
 import type {
   AfterClearContent, AttemptResult, CaptureMetadata, Challenge, Decoder, DeletionReceipt, DeletionStatus, Discovery, LngLat,
-  ManagedReport, Page, Position, PublicArea, PublicGeometry, PublicQuest, QuestHint, ReportInput, ReportReceipt, SessionIdentity,
+  ManagedReport, Page, Position, PublicArea, PublicAreaBoundary, PublicGeometry, PublicQuest, QuestHint, ReportInput, ReportReceipt, SessionIdentity,
   ShootingConditions,
 } from './types'
 
@@ -102,13 +102,43 @@ function geometry(input: unknown): PublicGeometry {
   throw new ContractError('geometry.type')
 }
 
+export function isPrefectureCode(input: unknown): input is string {
+  return typeof input === 'string' && /^[0-9]{2}$/u.test(input) && Number(input) >= 1 && Number(input) <= 47
+}
+
+export function isMunicipalityCode(input: unknown): input is string {
+  return typeof input === 'string' && /^[0-9]{5}$/u.test(input)
+}
+
+function parsePublicAreaBoundary(input: unknown): PublicAreaBoundary {
+  const d = object(input, ['source', 'year'], 'PublicArea.boundary')
+  if (d.source === 'fixture') {
+    if (d.year !== undefined) throw new ContractError('PublicArea.boundary.year')
+    return { source: 'fixture' }
+  }
+  if (d.source !== 'N03') throw new ContractError('PublicArea.boundary.source')
+  const year = integer(d.year, 'PublicArea.boundary.year', 1000)
+  if (year > 9999) throw new ContractError('PublicArea.boundary.year')
+  return { source: 'N03', year }
+}
+
 export function parsePublicArea(input: unknown): PublicArea {
-  const d = object(input, ['areaId', 'label', 'publicGeometry', 'marker', 'publishedCount'], 'PublicArea')
-  return {
+  const d = object(input, ['areaId', 'label', 'publicGeometry', 'marker', 'publishedCount', 'prefectureCode', 'municipalityCode', 'boundary'], 'PublicArea')
+  const result: PublicArea = {
     areaId: text(d.areaId, 'areaId'), label: text(d.label, 'label'),
     publicGeometry: geometry(d.publicGeometry), marker: position(d.marker, 'marker'),
     publishedCount: integer(d.publishedCount, 'publishedCount'),
   }
+  if (d.prefectureCode !== undefined) {
+    if (!isPrefectureCode(d.prefectureCode)) throw new ContractError('PublicArea.prefectureCode')
+    result.prefectureCode = d.prefectureCode
+  }
+  if (d.municipalityCode !== undefined) {
+    if (!isMunicipalityCode(d.municipalityCode)) throw new ContractError('PublicArea.municipalityCode')
+    result.municipalityCode = d.municipalityCode
+  }
+  if (d.boundary !== undefined) result.boundary = parsePublicAreaBoundary(d.boundary)
+  return result
 }
 
 export function parseShootingConditions(input: unknown): ShootingConditions {
@@ -117,12 +147,27 @@ export function parseShootingConditions(input: unknown): ShootingConditions {
   return { requiresBoat, requiresPaidFacility }
 }
 
+export function isQuestNumber(input: unknown): input is string {
+  if (typeof input !== 'string') return false
+  const match = /^([0-9]{2})-([0-9]{2,})$/u.exec(input)
+  return match !== null && isPrefectureCode(match[1]) && Number(match[2]) >= 1
+}
+
+export function formatQuestNumber(prefectureCode: string, serial: number): string {
+  if (!isPrefectureCode(prefectureCode) || !Number.isSafeInteger(serial) || serial < 1) throw new ContractError('questNumber')
+  return `${prefectureCode}-${String(serial).padStart(2, '0')}`
+}
+
 export function parsePublicQuest(input: unknown): PublicQuest {
-  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'optionalHintImage', 'hintImages', 'visitConditions', 'hintCount', 'shootingConditions'], 'PublicQuest')
+  const d = object(input, ['questId', 'version', 'title', 'clue', 'areaId', 'questNumber', 'optionalHintImage', 'hintImages', 'visitConditions', 'hintCount', 'shootingConditions'], 'PublicQuest')
   const result: PublicQuest = {
     questId: text(d.questId, 'questId'), version: integer(d.version, 'version', 1),
     title: text(d.title, 'title'), clue: text(d.clue, 'clue'), areaId: text(d.areaId, 'areaId'),
-    visitConditions: text(d.visitConditions, 'visitConditions'), hintCount: integer(d.hintCount, 'hintCount'),
+    visitConditions: text(d.visitConditions, 'visitConditions', true), hintCount: integer(d.hintCount, 'hintCount'),
+  }
+  if (d.questNumber !== undefined) {
+    if (!isQuestNumber(d.questNumber)) throw new ContractError('PublicQuest.questNumber')
+    result.questNumber = d.questNumber
   }
   if (d.optionalHintImage !== undefined) result.optionalHintImage = imageUrl(d.optionalHintImage, 'optionalHintImage')
   if (d.hintImages !== undefined) {
@@ -173,20 +218,33 @@ export function parseAttemptResult(input: unknown): AttemptResult {
 }
 
 export function parseAfterClearContent(input: unknown): AfterClearContent {
-  const d = object(input, ['access', 'hours', 'promoComment', 'explanation'], 'afterClear')
-  function read(key: keyof AfterClearContent, maximum: number) {
+  const d = object(input, ['access', 'hours', 'promoComment', 'explanation', 'spot'], 'afterClear')
+  function read(key: Exclude<keyof AfterClearContent, 'spot'>, maximum: number) {
     const path = 'afterClear.' + key
     const value = text(d[key], path, true)
     if (value.length > maximum) throw new ContractError(path)
     return value
   }
-  return { access: read('access', 2000), hours: read('hours', 2000), promoComment: read('promoComment', 2000), explanation: read('explanation', 4000) }
+  return { access: read('access', 2000), hours: read('hours', 2000), promoComment: read('promoComment', 2000), explanation: read('explanation', 4000),
+    ...(d.spot === undefined ? {} : { spot: parseConfirmedSpot(d.spot) }) }
+}
+
+function parseConfirmedSpot(input: unknown): NonNullable<AfterClearContent['spot']> {
+  const d = object(input, ['name', 'address', 'position', 'googlePlaceId'], 'afterClear.spot')
+  const name = text(d.name, 'spot.name').trim()
+  const address = text(d.address, 'spot.address').trim()
+  if (name.length > 200 || address.length > 1000) throw new ContractError('afterClear.spot')
+  const googlePlaceId = d.googlePlaceId === undefined ? undefined : text(d.googlePlaceId, 'spot.googlePlaceId')
+  if (googlePlaceId !== undefined && !/^[A-Za-z0-9_-]{1,512}$/.test(googlePlaceId)) throw new ContractError('spot.googlePlaceId')
+  return { name, address, position: position(d.position, 'spot.position'), ...(googlePlaceId ? { googlePlaceId } : {}) }
 }
 
 export function parseDiscovery(input: unknown): Discovery {
   const d = object(input, ['discoveryId', 'placeId', 'questId', 'questVersion', 'firstClearedAt',
-    'placeName', 'descriptionSnapshot', 'ownerPhoto', 'revealedLocation', 'afterClear'], 'Discovery')
+    'placeName', 'descriptionSnapshot', 'ownerPhoto', 'revealedLocation', 'afterClear', 'prefectureCode'], 'Discovery')
+  if (d.prefectureCode !== undefined && !isPrefectureCode(d.prefectureCode)) throw new ContractError('Discovery.prefectureCode')
   return {
+    ...(d.prefectureCode === undefined ? {} : { prefectureCode: d.prefectureCode as string }),
     discoveryId: text(d.discoveryId, 'discoveryId'), placeId: text(d.placeId, 'placeId'),
     questId: text(d.questId, 'questId'), questVersion: integer(d.questVersion, 'questVersion', 1),
     firstClearedAt: utcDate(d.firstClearedAt, 'firstClearedAt'), placeName: text(d.placeName, 'placeName'),

@@ -1,3 +1,9 @@
+import { DemoAnswerSubmission } from './DemoAnswerSubmission'
+import { openedHints, readReceipt, receiptKey } from './captureContinuity'
+import { QuestHandoff } from '../../components/QuestHandoff'
+import { questHandoffUrl } from '../quests/questHandoffUrl'
+import { useWideViewport } from '../quests/useWideViewport'
+import type { ComponentProps } from 'react'
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ApiError } from '../../shared/api'
 import type { ApiClient, Challenge, LocalApiDataMode, PublicQuest } from '../../shared/api'
@@ -12,27 +18,39 @@ function failure(cause: unknown): Extract<StartState, { status: 'error' }> {
   const error = cause instanceof ApiError ? cause : new ApiError('SYSTEM_ERROR')
   const status = 'error'
   switch (error.code) {
-    case 'QUEST_CHANGED': return { status, reload: true, message: '問題が更新されました。読み直してから挑戦してください。' }
+    case 'QUEST_CHANGED': return { status, reload: true, message: '問題更新' }
     case 'NOT_FOUND':
-    case 'QUEST_UNAVAILABLE': return { status, reload: true, message: 'この問題では挑戦を始められません。問題を読み直してください。' }
-    case 'UNAUTHENTICATED': return { status, message: 'ログインを確認できませんでした。再試行するか、一度ログアウトしてログインし直してください。' }
-    case 'AUTH_UNAVAILABLE': return { status, message: '現在ログイン確認を利用できません。時間をおいて再試行してください。' }
-    case 'RATE_LIMITED': return { status, message: '開始の操作が多いため、少しお待ちください。', retryAt: Date.now() + (error.retryAfterSeconds ?? 60) * 1000 }
-    case 'NETWORK_ERROR': return { status, message: '通信状況を確認して、もう一度お試しください。' }
-    default: return { status, message: '挑戦の開始を確認できませんでした。時間をおいて再試行してください。' }
+    case 'QUEST_UNAVAILABLE': return { status, reload: true, message: '挑戦受付終了' }
+    case 'UNAUTHENTICATED': return { status, message: 'ログイン確認失敗' }
+    case 'AUTH_UNAVAILABLE': return { status, message: 'ログイン確認停止' }
+    case 'RATE_LIMITED': return { status, message: '開始回数上限', retryAt: Date.now() + (error.retryAfterSeconds ?? 60) * 1000 }
+    case 'NETWORK_ERROR': return { status, message: '通信失敗' }
+    default: return { status, message: '開始確認失敗' }
   }
 }
 
 // The parent keys this component by verified user, selected quest/version and
 // navigation revision. Leaving any of them disposes the operation and camera.
-export function ChallengeCapture({ api, quest, onReloadQuest, onOpenDiscovery, autoStart = false, canAutoStart, onAutoStartConsumed, dataMode = 'demo' }: {
-  api: ApiClient; quest: PublicQuest; onReloadQuest: () => void; autoStart?: boolean; canAutoStart?: () => boolean; onAutoStartConsumed?: () => void; dataMode?: LocalApiDataMode; onOpenDiscovery?: (id: string) => void
+export function ChallengeCapture(props: ComponentProps<typeof MobileChallengeCapture>) {
+  const wide = useWideViewport()
+  if (wide) return <QuestHandoff value={questHandoffUrl(props.quest)} title={props.quest.title} />
+  return <MobileChallengeCapture {...props} />
+}
+
+function MobileChallengeCapture({ api, quest, onReloadQuest, onOpenDiscovery, onReturnToMap, autoStart = false, canAutoStart, onAutoStartConsumed, dataMode = 'demo', ownerKey = 'session', placeName }: {
+  placeName?: string; ownerKey?: string; api: ApiClient; quest: PublicQuest; onReloadQuest: () => void; autoStart?: boolean; canAutoStart?: () => boolean; onAutoStartConsumed?: () => void; dataMode?: LocalApiDataMode; onOpenDiscovery?: (id: string, alreadyCleared?: boolean) => void
+  // クリア画面の「地図に戻る」が押された通知。カメラを閉じた後に呼び出し側へ返す。
+  onReturnToMap?: (discoveryId?: string) => void
 }) {
   const [state, setState] = useState<StartState>({ status: 'idle' })
+  const storageKey = dataMode === 'durable-local' || dataMode === 'team-preview' ? receiptKey(ownerKey, quest.questId) : undefined
+  const [savedReceipt, setSavedReceipt] = useState(() => readReceipt(storageKey))
+  const [receiptResolved, setReceiptResolved] = useState(false)
+  const [resume, setResume] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [clock, setClock] = useState(0)
   const active = useRef<Operation | null>(null)
-  const closeCamera = useCallback(() => setCameraOpen(false), [])
+  const closeCamera = useCallback(() => { setCameraOpen(false); setSavedReceipt(readReceipt(storageKey)) }, [storageKey])
 
   function abort() {
     const operation = active.current
@@ -55,14 +73,14 @@ export function ChallengeCapture({ api, quest, onReloadQuest, onOpenDiscovery, a
   }, [clock, retryAt])
 
   async function start() {
-    if (active.current || cameraOpen || (state.status === 'error' && (state.reload || (state.retryAt ?? 0) > Date.now()))) return
+    if ((savedReceipt && !receiptResolved) || active.current || cameraOpen || (state.status === 'error' && (state.reload || (state.retryAt ?? 0) > Date.now()))) return
     const operation: Operation = { controller: new AbortController() }
     active.current = operation
     setState({ status: 'starting' })
     operation.deadline = setTimeout(() => {
       if (active.current !== operation) return
       abort()
-      setState({ status: 'error', message: '開始の確認に時間がかかっています。通信状況を確認して再試行してください。' })
+      setState({ status: 'error', message: '開始確認の時間切れ' })
     }, 10_000)
     try {
       const challenge = await api.createChallenge({ questId: quest.questId, expectedVersion: quest.version }, { signal: operation.controller.signal })
@@ -92,22 +110,18 @@ export function ChallengeCapture({ api, quest, onReloadQuest, onOpenDiscovery, a
   }, [autoStart])
 
   return <>
-    <button type="button" className="primary-button" onClick={start} aria-describedby="challenge-note"
-      disabled={state.status === 'starting' || cameraOpen || seconds > 0 || (state.status === 'error' && state.reload)}>
-      {state.status === 'starting' ? '挑戦を開始しています…' : cameraOpen ? '撮影中' : state.status === 'ready' ? '撮影を再開' : '挑戦を始める'}
-    </button>
-    <p id="challenge-note" className="unavailable-note" role="status">
-      {state.status === 'ready' ? (dataMode === 'durable-local' ? '挑戦を開始しました。写真と位置を確認してからテスト送信できます。'
-        : '挑戦を開始しました。写真と位置を確認してからデモ送信できます。')
-        : state.status === 'starting' ? 'サーバーで挑戦の開始を確認しています…'
-          : dataMode === 'durable-local' ? 'ログインを確認しました。合成素材で回答と判定を試せます。' : 'ログインを確認しました。デモの回答受付を試せます。'}
-    </p>
-    {state.status === 'starting' && <button type="button" className="retry-button" onClick={() => { abort(); setState({ status: 'idle' }) }}>開始をキャンセル</button>}
+    {savedReceipt && !cameraOpen && !resume && <div><p role="status">判定中</p><button type="button" className="primary-button" onClick={() => setResume(true)}>判定を確認</button></div>}
+    {savedReceipt && !cameraOpen && resume && <DemoAnswerSubmission context={{ api, challengeId: '', questId: quest.questId, questTitle: quest.title, placeName, storageKey, dataMode, onReloadQuest, onOpenDiscovery, onReturnToMap }} initialAttemptId={savedReceipt} onSubmissionResolved={() => setReceiptResolved(true)} disabled={false} onSubmissionStarted={() => {}} />}
+    {(!savedReceipt || receiptResolved) && <button type="button" className={savedReceipt && !receiptResolved ? "secondary-button" : "primary-button"} onClick={start}
+      disabled={Boolean(savedReceipt && !receiptResolved) || state.status === 'starting' || cameraOpen || seconds > 0 || (state.status === 'error' && state.reload)}>
+      {state.status === 'starting' ? '開始中' : cameraOpen ? '撮影中' : state.status === 'ready' ? '撮影を再開' : '挑戦する'}
+    </button>}
+    {state.status === 'starting' && <button type="button" className="retry-button" onClick={() => { abort(); setState({ status: 'idle' }) }}>キャンセル</button>}
     {state.status === 'error' && <div className="auth-feedback">
-      <p role="alert">{state.message}{seconds > 0 && ` ${seconds}秒後に再試行できます。`}</p>
-      {state.reload && <button type="button" className="retry-button" onClick={onReloadQuest}>問題を読み直す</button>}
+      <p role="alert">{state.message}{seconds > 0 && ` ${seconds}秒後に再試行`}</p>
+      {state.reload && <button type="button" className="retry-button" onClick={onReloadQuest}>問題を再読込</button>}
     </div>}
-    {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera}
-      answer={{ api, challengeId: state.challenge.challengeId, onReloadQuest, dataMode, onOpenDiscovery }} />}
+    {state.status === 'ready' && cameraOpen && <CameraPreview onClose={closeCamera} handoffUrl={questHandoffUrl(quest)}
+      clue={quest.clue} hints={Object.values(openedHints.get(`${quest.questId}:${quest.version}`) ?? {})} answer={{ placeName, storageKey, questId: quest.questId, api, challengeId: state.challenge.challengeId, onReloadQuest, dataMode, onOpenDiscovery, questTitle: quest.title, onReturnToMap: (discoveryId) => { closeCamera(); onReturnToMap?.(discoveryId) } }} />}
   </>
 }

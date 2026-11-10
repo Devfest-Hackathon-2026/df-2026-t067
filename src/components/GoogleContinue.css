@@ -1,0 +1,5 @@
+.google-continue { display: flex; align-items: center; justify-content: center; gap: var(--sp-12); width: 100%; min-height: 48px; background: #fff; color: #202124; border: 1px solid var(--ui-line); border-radius: 8px; padding: var(--sp-12) var(--sp-32); cursor: pointer; }
+.google-continue svg { flex: none; }
+.google-continue:disabled { opacity: .6; cursor: default; }
+.google-continue:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.login-terms { font-size: var(--fs-12); color: var(--ui-muted); margin-top: var(--sp-16); }

@@ -25,7 +25,7 @@ function authFixture(initial: AuthSnapshot = { status: 'signed-out', user: null 
 
 async function openQuest() {
   const user = userEvent.setup()
-  await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+  await user.click(screen.getByRole('button', { name: '問題を見る' }))
   return { user, details: screen.getByRole('region', { name: 'サンプル問題の詳細' }) }
 }
 
@@ -39,9 +39,10 @@ describe('Google sign-in from the selected quest', () => {
       '三角屋根の下にある、丸い文字盤が目印です。(仮)',
       '船の出入りとともに、街へ時を知らせる時計のある建物です。(仮)',
     ]
+    await user.click(within(details).getByRole('button', { name: 'ヒントを見る' }))
     for (let index = 1; index <= hints.length; index++) {
-      await user.click(within(details).getByRole('button', { name: `ヒント${index}を見る` }))
       expect(await within(details).findByText(hints[index - 1])).toBeVisible()
+      if (index < hints.length) await user.click(within(details).getByRole('button', { name: String(index + 1) }))
     }
   })
 
@@ -50,12 +51,14 @@ describe('Google sign-in from the selected quest', () => {
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user, details } = await openQuest()
     expect(client.signInWithGoogle).not.toHaveBeenCalled()
-    await user.click(within(details).getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(within(details).getByRole('button', { name: 'Googleでログイン' }))
     expect(client.signInWithGoogle).toHaveBeenCalledTimes(1)
     expect(details).toBeVisible()
-    expect(details).toHaveTextContent('この場所はどこ？')
-    expect(await screen.findByText('Googleログイン済み')).toBeVisible()
-    expect(within(details).getByRole('button', { name: '挑戦を開始する' })).toBeEnabled()
+    expect(details).toHaveTextContent('謎')
+    // ログイン完了は、状態表示ではなくヘッダーのアカウントアイコンで分かる。
+    expect(await screen.findByRole('button', { name: 'アカウントメニュー' })).toBeVisible()
+    expect(screen.queryByText('Googleログイン済み')).not.toBeInTheDocument()
+    expect(within(details).getByRole('button', { name: '挑戦する' })).toBeEnabled()
     expect(onStartChallenge).toHaveBeenCalledWith({ questId: 'demo-harbor-clock', expectedVersion: 1 })
   })
   it('keeps the selected question after cancellation and permits another attempt', async () => {
@@ -63,11 +66,11 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockRejectedValue(new AuthError('cancelled'))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user, details } = await openQuest()
-    await user.click(within(details).getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(within(details).getByRole('button', { name: 'Googleでログイン' }))
     expect(await screen.findByText('ログインをキャンセルしました。問題の閲覧を続けられます。')).toBeVisible()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(details).toBeVisible()
-    expect(within(details).getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    expect(within(details).getByRole('button', { name: 'Googleでログイン' })).toBeEnabled()
     expect(onStartChallenge).not.toHaveBeenCalled()
   })
   it('shows a useful error without losing the selected question', async () => {
@@ -75,10 +78,10 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockRejectedValue(new AuthError('popup-blocked'))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user, details } = await openQuest()
-    await user.click(within(details).getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(within(details).getByRole('button', { name: 'Googleでログイン' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('ポップアップを許可')
     expect(details).toBeVisible()
-    expect(within(details).getByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    expect(within(details).getByRole('button', { name: 'Googleでログイン' })).toBeEnabled()
     expect(onStartChallenge).not.toHaveBeenCalled()
   })
   it('waits for session restoration without blocking reading', async () => {
@@ -86,21 +89,25 @@ describe('Google sign-in from the selected quest', () => {
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { details } = await openQuest()
     expect(details).toBeVisible()
-    expect(screen.getByText('ログイン状態を確認中')).toBeVisible()
-    expect(within(details).getByRole('button', { name: 'Googleログインして挑戦する' })).toBeDisabled()
+    // 確認中はヘッダーに状態表示を出さず、ログインアイコンは無効のままスロットに残る。
+    expect(screen.queryByText('ログイン状態を確認中')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ログイン' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'アカウントメニュー' })).not.toBeInTheDocument()
+    expect(within(details).getByRole('button', { name: 'Googleでログイン' })).toBeDisabled()
   })
   it('restores an existing session, avoids another sign-in, and supports sign-out', async () => {
     const { client, onStartChallenge } = authFixture({ status: 'signed-in', user: { uid: 'restored-user', displayName: 'テスト利用者' } })
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user, details } = await openQuest()
-    expect(screen.getByText('Googleログイン済み')).toBeVisible()
-    expect(within(details).getByRole('button', { name: '挑戦を開始する' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'アカウントメニュー' })).toBeVisible()
+    expect(within(details).getByRole('button', { name: '挑戦する' })).toBeEnabled()
     expect(client.signInWithGoogle).not.toHaveBeenCalled()
-    await user.click(within(details).getByRole('button', { name: '挑戦を開始する' }))
+    await user.click(within(details).getByRole('button', { name: '挑戦する' }))
     expect(onStartChallenge).toHaveBeenCalledWith({ questId: 'demo-harbor-clock', expectedVersion: 1 })
-    await user.click(screen.getByRole('button', { name: 'ログアウト' }))
+    await user.click(screen.getByRole('button', { name: 'アカウントメニュー' }))
+    await user.click(screen.getByRole('menuitem', { name: 'ログアウト' }))
     await waitFor(() => expect(client.signOut).toHaveBeenCalledTimes(1))
-    expect(await within(details).findByRole('button', { name: 'Googleログインして挑戦する' })).toBeEnabled()
+    expect(await within(details).findByRole('button', { name: 'Googleでログイン' })).toBeEnabled()
     expect(details).toBeVisible()
   })
   it('does not echo unknown raw authentication errors into the page', async () => {
@@ -108,7 +115,7 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockRejectedValue(new Error('private-token-and-email'))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user, details } = await openQuest()
-    await user.click(within(details).getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(within(details).getByRole('button', { name: 'Googleでログイン' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('ログイン処理を完了できませんでした')
     expect(document.body).not.toHaveTextContent('private-token-and-email')
     expect(onStartChallenge).not.toHaveBeenCalled()
@@ -118,10 +125,10 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signOut).mockRejectedValue(new AuthError('network'))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'ログアウト' }))
+    await user.click(screen.getByRole('button', { name: 'アカウントメニュー' }))
+    await user.click(screen.getByRole('menuitem', { name: 'ログアウト' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('通信を確認')
-    expect(screen.getByText('Googleログイン済み')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'ログアウト' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'アカウントメニュー' })).toBeEnabled()
   })
 
 
@@ -133,8 +140,8 @@ describe('Google sign-in from the selected quest', () => {
     render(<App authClient={client} onStartChallenge={onStartChallenge} quest={quest} areaLabel="テスト地域" />)
     const { user } = await openQuest()
     expect(screen.getByRole('heading', { name: '更新された問題' })).toBeVisible()
-    expect(within(screen.getByRole('article', { name: '更新された問題' })).getByText('テスト地域')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    expect(within(screen.getByRole('article', { name: '更新された問題' })).queryByText('テスト地域')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     resolvePopup()
     await waitFor(() => expect(client.signInWithGoogle).toHaveResolved())
     expect(onStartChallenge).not.toHaveBeenCalled()
@@ -149,7 +156,7 @@ describe('Google sign-in from the selected quest', () => {
     const first = { ...demoQuest, questId: 'first', version: 1 }
     const { rerender } = render(<App authClient={client} onStartChallenge={onStartChallenge} quest={first} />)
     const { user } = await openQuest()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     rerender(<App authClient={client} onStartChallenge={onStartChallenge} quest={{ ...demoQuest, questId: 'second', version: 3 }} />)
     resolvePopup()
     emit({ status: 'signed-in', user: { uid: 'confirmed-user', displayName: null } })
@@ -164,7 +171,7 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockImplementation(() => new Promise((resolve) => { resolvePopup = resolve }))
     const { rerender } = render(<App authClient={client} onStartChallenge={onStartChallenge} quest={{ ...demoQuest, questId: 'same', version: 4 }} />)
     const { user } = await openQuest()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     rerender(<App authClient={client} onStartChallenge={onStartChallenge} quest={{ ...demoQuest, questId: 'same', version: 5 }} />)
     resolvePopup()
     emit({ status: 'signed-in', user: { uid: 'confirmed-user', displayName: null } })
@@ -179,11 +186,11 @@ describe('Google sign-in from the selected quest', () => {
     let resolveSignIn!: () => void
     vi.mocked(client.signInWithGoogle).mockImplementation(() => new Promise<void>((resolve) => { resolveSignIn = resolve }))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
-    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: '問題を見る' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     await waitFor(() => expect(resolveSignIn).toBeDefined())
-    await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
-    await user.click(screen.getByRole('button', { name: '問題を見てみる' }))
+    await user.click(screen.getByRole('button', { name: '問題を見る' }))
+    await user.click(screen.getByRole('button', { name: '問題を見る' }))
     await act(async () => {
       resolveSignIn()
       emit({ status: 'signed-in', user: { uid: 'test-user', displayName: null } })
@@ -198,8 +205,8 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockImplementation(() => new Promise((resolve) => { resolvePopup = resolve }))
     render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user } = await openQuest()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
-    await user.click(screen.getByRole('button', { name: '問題を閉じる' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
+    await user.click(screen.getByRole('button', { name: '問題を見る' }))
     resolvePopup()
     emit({ status: 'signed-in', user: { uid: 'confirmed-user', displayName: null } })
     await waitFor(() => expect(client.getSnapshot().status).toBe('signed-in'))
@@ -212,7 +219,7 @@ describe('Google sign-in from the selected quest', () => {
     onStartChallenge.mockImplementation(() => new Promise<void>((resolve) => { resolveStart = resolve }))
     render(<App authClient={client} onStartChallenge={onStartChallenge} quest={{ ...demoQuest, questId: 'other', version: 8 }} />)
     const { user, details } = await openQuest()
-    const start = within(details).getByRole('button', { name: '挑戦を開始する' })
+    const start = within(details).getByRole('button', { name: '挑戦する' })
     await user.click(start)
     await user.click(start)
     expect(onStartChallenge).toHaveBeenCalledTimes(1)
@@ -227,9 +234,9 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(first.client.signInWithGoogle).mockImplementation(() => new Promise<void>((resolve) => { resolvePopup = resolve }))
     const { rerender } = render(<App authClient={first.client} onStartChallenge={first.onStartChallenge} />)
     const { user } = await openQuest()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     rerender(<App authClient={next.client} onStartChallenge={next.onStartChallenge} />)
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     await waitFor(() => expect(next.onStartChallenge).toHaveBeenCalledTimes(1))
     await act(async () => {
       first.emit({ status: 'signed-in', user: { uid: 'old-user', displayName: null } })
@@ -244,7 +251,7 @@ describe('Google sign-in from the selected quest', () => {
     vi.mocked(client.signInWithGoogle).mockImplementation(() => new Promise<void>((resolve) => { resolvePopup = resolve }))
     const { unmount } = render(<App authClient={client} onStartChallenge={onStartChallenge} />)
     const { user } = await openQuest()
-    await user.click(screen.getByRole('button', { name: 'Googleログインして挑戦する' }))
+    await user.click(screen.getByRole('button', { name: 'Googleでログイン' }))
     unmount()
     await act(async () => {
       emit({ status: 'signed-in', user: { uid: 'test-user', displayName: null } })

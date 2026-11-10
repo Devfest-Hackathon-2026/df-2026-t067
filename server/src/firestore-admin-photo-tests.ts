@@ -12,7 +12,7 @@ import { photoSystemError } from './photo-match'
 
 const maximumPhotoTests = 128
 const pendingMs = 60_000
-const failureStatus = { INVALID_INPUT: 400, MEDIA_TOO_LARGE: 413, FORBIDDEN: 403, NOT_FOUND: 404, DRAFT_CONFLICT: 409, SYSTEM_ERROR: 503 } as const
+const failureStatus = { INVALID_INPUT: 400, MEDIA_TOO_LARGE: 413, FORBIDDEN: 403, PHOTO_APPROVAL_REQUIRED: 403, NOT_FOUND: 404, DRAFT_CONFLICT: 409, SYSTEM_ERROR: 503 } as const
 type Reservation = { result: PhotoTestResult } | { deadline: number; referenceAssetId: string; referenceGeneration: string }
 
 export class FirestorePhotoTestStore {
@@ -33,7 +33,7 @@ export class FirestorePhotoTestStore {
         const current = await this.readReference(tx, input)
         if (current.referenceAssetId !== started.referenceAssetId || current.referenceGeneration !== started.referenceGeneration) throw processingError()
         if (Date.now() >= started.deadline) throw photoSystemError(false)
-        tx.create(proof, { ...checked, ...current, photoDigest })
+        tx.create(proof, { ...checked, ...current, photoDigest, approvalDigest: input.approvalDigest })
         tx.update(job, { state: 'completed', result: checked })
         return checked
       })

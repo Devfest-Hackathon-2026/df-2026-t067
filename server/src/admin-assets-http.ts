@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { photoApprovalDigest } from './admin-photo-approvals'
 import { parseOrgAssetMetadata } from '../../src/shared/api/admin'
 import type { OrgAssetMetadata, UploadedOrgAsset } from '../../src/shared/api/admin'
 import { ContractError } from '../../src/shared/api/validation'
@@ -12,9 +13,10 @@ import type { PreparedPhoto } from './photo-input'
 interface AssetWrite { created: boolean; asset: UploadedOrgAsset }
 export interface AssetHttpStore {
   readonly mode?: 'memory'
+  readonly approvedAssets?: true
   acquire(uid: string): () => void
   findReplay(orgId: string, uid: string, key: string, digest: string): UploadedOrgAsset | null | Promise<UploadedOrgAsset | null>
-  put(orgId: string, uid: string, key: string, digest: string, metadata: OrgAssetMetadata, photo: PreparedPhoto): AssetWrite | Promise<AssetWrite>
+  put(orgId: string, uid: string, key: string, digest: string, metadata: OrgAssetMetadata, photo: PreparedPhoto, approvalDigest?: string): AssetWrite | Promise<AssetWrite>
   getOwned(orgId: string, assetId: string): UploadedOrgAsset | null | Promise<UploadedOrgAsset | null>
   getPhotoOwned(orgId: string, assetId: string): Buffer | null | Promise<Buffer | null>
 }
@@ -52,7 +54,7 @@ export async function handleAssetRequest(request: IncomingMessage, response: Ser
   try {
     const form = await readPhotoForm(request)
     let metadata
-    try { metadata = parseOrgAssetMetadata(JSON.parse(form.metadata)) }
+    try { metadata = parseOrgAssetMetadata(JSON.parse(form.metadata), store.approvedAssets === true) }
     catch (error) { if (error instanceof ContractError || error instanceof SyntaxError) invalidInput(); throw error }
     const digest = createHash('sha256').update(JSON.stringify([input.orgId, metadata, form.mimeType])).update('\0').update(form.image).digest('hex')
     await input.recheck()
@@ -61,7 +63,7 @@ export async function handleAssetRequest(request: IncomingMessage, response: Ser
     const prepared = await preparePhoto({ bytes: form.image, mimeType: form.mimeType })
     await input.recheck()
     if (response.destroyed) invalidInput()
-    const result = await store.put(input.orgId, input.uid, key, digest, metadata, prepared)
+    const result = await store.put(input.orgId, input.uid, key, digest, metadata, prepared, photoApprovalDigest(form.image))
     input.send(response, result.created ? 201 : 200, result.asset)
   } finally { release() }
 }

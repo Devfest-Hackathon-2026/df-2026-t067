@@ -16,6 +16,7 @@ interface DemoServerConfig {
 
 export interface DurableLocalConfig {
   mode: 'durable-local'
+  spotGeocodingApiKey?: string
   port: number
   firebaseProjectId: string
   storageEndpoint: string
@@ -27,6 +28,7 @@ export const teamPreviewDatabase = 'quest-team-preview'
 
 export interface TeamPreviewConfig {
   mode: 'team-preview'
+  spotGeocodingApiKey?: string
   port: number
   firebaseProjectId: string
   projectNumber: string
@@ -145,7 +147,7 @@ function readTeamPreviewConfig(env: NodeJS.ProcessEnv, port: number): TeamPrevie
   if (env.QUEST_TEAM_ANSWER_TRIAL !== undefined && env.QUEST_TEAM_ANSWER_TRIAL !== 'vertex-trial') {
     throw new Error('QUEST_TEAM_ANSWER_TRIAL must be vertex-trial when set.')
   }
-  return { mode: 'team-preview', port, firebaseProjectId, projectNumber, allowedUids,
+  return { mode: 'team-preview', port, firebaseProjectId, projectNumber, allowedUids, ...spotGeocodingSettings(env),
     answerTrial: env.QUEST_TEAM_ANSWER_TRIAL === 'vertex-trial' }
 }
 
@@ -163,7 +165,7 @@ function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLo
   if (env.STORAGE_EMULATOR_HOST !== undefined || env.FIREBASE_STORAGE_EMULATOR_HOST !== undefined) {
     throw new Error('Unset STORAGE_EMULATOR_HOST and FIREBASE_STORAGE_EMULATOR_HOST for durable-local.')
   }
-  const config: DurableLocalConfig = { mode: 'durable-local', port, firebaseProjectId, storageEndpoint }
+  const config: DurableLocalConfig = { mode: 'durable-local', port, firebaseProjectId, storageEndpoint, ...spotGeocodingSettings(env) }
   const matcher = env.QUEST_DURABLE_PHOTO_MATCHER ?? 'fixtures'
   const generator = env.QUEST_DURABLE_DRAFT_GENERATOR ?? 'fixtures'
   if (matcher !== 'fixtures' && matcher !== 'vertex-trial') throw new Error('QUEST_DURABLE_PHOTO_MATCHER must be fixtures or vertex-trial.')
@@ -177,6 +179,12 @@ function readDurableLocalConfig(env: NodeJS.ProcessEnv, port: number): DurableLo
   if (matcher === 'vertex-trial') config.vertexTrialLedger = file
   if (generator === 'vertex-trial') config.vertexDraftTrialLedger = file
   return config
+}
+
+function spotGeocodingSettings(env: NodeJS.ProcessEnv): { spotGeocodingApiKey?: string } {
+  const key = env.QUEST_GOOGLE_GEOCODING_API_KEY
+  // A misconfigured optional lookup must not prevent the other APIs from starting.
+  return key && /^[A-Za-z0-9_-]{16,128}$/.test(key) ? { spotGeocodingApiKey: key } : {}
 }
 
 function isLoopbackHost(host: string | undefined): boolean {

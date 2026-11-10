@@ -1,3 +1,4 @@
+import { PHOTO_UPLOAD_MAX_BYTES, PHOTO_UPLOAD_MIME_TYPES, PHOTO_METADATA_MAX_BYTES, PHOTO_MULTIPART_OVERHEAD_MAX_BYTES } from '../../src/shared/mediaLimits'
 import type { IncomingMessage } from 'node:http'
 import { HttpError, invalidInput } from './errors'
 import { readBody, tooLarge } from './request-body'
@@ -11,7 +12,7 @@ export async function readPhotoForm(request: IncomingMessage): Promise<{ image: 
   if (!/^multipart\/form-data\s*;/i.test(contentType) || (encoding !== undefined && encoding.toLowerCase() !== 'identity')) {
     throw new HttpError(415, 'HTTP_ERROR', '写真と撮影情報をmultipart形式で送信してください。')
   }
-  const bytes = await readBody(request, 4 * 1024 * 1024 + 16 * 1024)
+  const bytes = await readBody(request, PHOTO_UPLOAD_MAX_BYTES + PHOTO_MULTIPART_OVERHEAD_MAX_BYTES)
   let form: FormData
   try {
     form = await new Request('http://localhost/photo-input', { method: 'POST', headers: { 'Content-Type': contentType }, body: new Uint8Array(bytes) }).formData()
@@ -22,9 +23,9 @@ export async function readPhotoForm(request: IncomingMessage): Promise<{ image: 
   const photo = form.get('photo')
   const metadata = form.get('metadata')
   if (!(photo instanceof File) || !photo.size || typeof metadata !== 'string') invalidInput()
-  if (photo.size > 4 * 1024 * 1024 || Buffer.byteLength(metadata) > 4096) throw tooLarge()
+  if (photo.size > PHOTO_UPLOAD_MAX_BYTES || Buffer.byteLength(metadata) > PHOTO_METADATA_MAX_BYTES) throw tooLarge()
   const mime = photo.type.toLowerCase()
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) throw new HttpError(415, 'HTTP_ERROR', 'JPEG・PNG・WebPで送信してください。')
+  if (!PHOTO_UPLOAD_MIME_TYPES.includes(mime)) throw new HttpError(415, 'HTTP_ERROR', 'JPEG・PNG・WebPで送信してください。')
   const image = Buffer.from(await photo.arrayBuffer())
   const matches = mime === 'image/jpeg' ? image.length >= 4 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff
     : mime === 'image/png' ? image.length >= 8 && image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))

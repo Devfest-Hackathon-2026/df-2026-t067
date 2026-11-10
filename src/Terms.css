@@ -1,0 +1,10 @@
+.terms-page { width: min(100%, 720px); margin: 0 auto; padding: 24px 16px 64px; color: var(--ui-ink); }
+.terms-page .brand { width: fit-content; min-height: 44px; padding: 4px 12px 4px 4px; border: 2px solid var(--ui-line); border-radius: 16px; background: var(--ui-surface); }
+.terms-page .brand-mark { width: 32px; height: 32px; }
+.terms-page .brand-copy { font-size: 14px; }
+.terms-page main { margin-top: 32px; padding: 24px; border: 2px solid var(--ui-line); border-radius: 16px; background: var(--ui-surface); }
+.terms-page h1 { font-size: 28px; }
+.terms-page section { margin-top: 32px; }
+.terms-page h2 { font-size: 20px; }
+.terms-page ul { margin: 16px 0 0; padding-left: 24px; font-size: 16px; line-height: 1.75; }
+.terms-page li + li { margin-top: 12px; }

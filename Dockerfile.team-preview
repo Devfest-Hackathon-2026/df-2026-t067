@@ -4,7 +4,9 @@ COPY .npmrc package.json package-lock.json ./
 COPY server/.npmrc server/package.json server/package-lock.json ./server/
 RUN npm ci --ignore-scripts && npm --prefix server ci --ignore-scripts
 COPY index.html vite.config.ts tsconfig*.json ./
+COPY public/ ./public/
 COPY src/ ./src/
+COPY scripts/prerender.mjs ./scripts/prerender.mjs
 COPY server/tsconfig*.json ./server/
 COPY server/src/ ./server/src/
 

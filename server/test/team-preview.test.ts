@@ -8,7 +8,25 @@ import { publicHintImagePath } from '../src/admin-publication'
 import { readConfig } from '../src/config'
 import { createDemoData } from '../src/demo-data'
 import { createDurableAnswerServer } from '../src/durable-answer-http'
+import { preparePhoto } from '../src/photo-input'
+import { answerTrialPhotoTest, teamTrialLocationLimits } from '../src/team-preview'
+import { evaluateLocation } from '../src/location'
+import { createVertexPhotoMatcher } from '../src/vertex-match'
+import { createFirestoreVertexTrialTransport } from '../src/vertex-trial-firestore'
+import { syntheticPng } from './photo-fixtures'
 import { listenServer } from './helpers'
+
+test('team-preview accepts accuracy up to 100m without weakening safe area containment', () => {
+  assert.equal(teamTrialLocationLimits.maxAccuracyMeters, 100)
+  const capturedAt = '2026-11-05T06:00:00Z'
+  const capture = { capturedAt, position: { latitude: 0, longitude: 0, accuracyMeters: 70, measuredAt: capturedAt } }
+  const policy = (radiusMeters: number) => ({ ...teamTrialLocationLimits, zones: [{ latitude: 0, longitude: 0, radiusMeters }] })
+  const now = Date.parse(capturedAt)
+  assert.equal(evaluateLocation(capture, policy(50), now), 'LOCATION_UNCERTAIN')
+  assert.equal(evaluateLocation(capture, policy(70), now), 'WITHIN_AREA')
+  assert.equal(evaluateLocation({ ...capture, position: { ...capture.position, accuracyMeters: 100 } }, policy(100), now), 'WITHIN_AREA')
+  assert.equal(evaluateLocation({ ...capture, position: { ...capture.position, accuracyMeters: 101 } }, policy(200), now), 'LOCATION_UNCERTAIN')
+})
 
 const teamEnv = {
   QUEST_DATA_MODE: 'team-preview', NODE_ENV: 'production', FIREBASE_PROJECT_ID: 'test-project',
@@ -50,7 +68,7 @@ test('team preview serves public catalog reads and protects membership, private 
   const quest = { ...fixture, optionalHintImage: hintImage }
   const published = { status: 'published', publishedVersion: quest.version, orgId: 'org-a', internal: '管理専用データ' }
   const rows = new Map<string, Record<string, unknown>>([
-    ['areas/' + area.areaId, { label: area.label, marker: area.marker, publicGeometryJson: JSON.stringify(area.publicGeometry) }],
+    ['areas/' + area.areaId, { label: area.label, marker: area.marker, boundarySource: 'fixture', publicGeometryJson: JSON.stringify(area.publicGeometry) }],
     ['quests/' + quest.questId, published],
     ['questPublic/' + quest.questId, { quest, hints: hints.get(quest.questId), internal: '管理専用データ' }],
     ['questVersions/' + quest.questId + ':' + quest.version, { publicHintImage: { orgId: 'org-a', assetId: 'hint', generation: '1' } }],
@@ -117,6 +135,78 @@ test('team preview serves public catalog reads and protects membership, private 
   for (const path of ['/api/v1/challenges', '/api/v1/challenges/fixture/answers', '/api/v1/reports', '/api/v1/me/discoveries']) {
     assert.equal((await fetch(base + path, { method: 'POST', headers: { Authorization: 'Bearer publisher' } })).status, 404)
   }
+})
+
+test('answer trial photo tests are wired to the shared Vertex matcher as real results', () => {
+  const matcher = async () => 'MATCH' as const
+  const options = answerTrialPhotoTest(matcher)
+  assert.equal(options.source, 'real')
+  assert.equal(options.matcher, matcher)
+  assert.equal(options.timeoutMs, 30_000)
+})
+
+const trialIdentity = { version: 1, trial: 'vertex-photo-2026-11-05', project: 'tour-513804', model: 'gemini-3.8-flash', location: 'global', limit: 50 }
+
+function fakeTrialCounterDb(initial?: Record<string, unknown>) {
+  let stored = initial
+  const ref = { path: 'vertexTrialCounters/vertex-photo-2026-11-05' }
+  const db = {
+    collection: () => ({ doc: () => ref }),
+    runTransaction: async (work: (tx: unknown) => Promise<unknown>) => work({
+      get: async () => ({ exists: stored !== undefined, data: () => stored }),
+      update: (_ref: unknown, data: Record<string, unknown>) => { stored = { ...stored, ...data } },
+    }),
+  }
+  return { db: db as unknown as Firestore, read: () => stored }
+}
+
+const vertexReply = (verdict: string) => new Response(JSON.stringify({
+  candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ verdict }) }] } }],
+}), { status: 200, headers: { 'content-type': 'application/json' } })
+
+async function comparison() {
+  const photo = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
+  return { reference: photo, candidate: photo, features: ['架空の対象'] }
+}
+
+test('a photo test send through the trial transport consumes one shared counter slot', async () => {
+  const counter = fakeTrialCounterDb({ ...trialIdentity, used: 7 })
+  let calls = 0
+  const transport = createFirestoreVertexTrialTransport(counter.db, {
+    getAccessToken: async () => 'test-token',
+    http: async () => { calls++; return vertexReply('match') },
+  })
+  const options = answerTrialPhotoTest(createVertexPhotoMatcher(transport))
+  assert.equal(await options.matcher(await comparison(), { signal: new AbortController().signal }), 'MATCH')
+  assert.equal(calls, 1)
+  assert.equal(counter.read()?.used, 8)
+})
+
+test('photo test sends fail closed without reaching Vertex when the counter is unseeded or exhausted', async () => {
+  for (const initial of [undefined, { ...trialIdentity, used: 50 }]) {
+    const counter = fakeTrialCounterDb(initial)
+    let calls = 0
+    const transport = createFirestoreVertexTrialTransport(counter.db, {
+      getAccessToken: async () => 'test-token',
+      http: async () => { calls++; return vertexReply('match') },
+    })
+    await assert.rejects(
+      createVertexPhotoMatcher(transport)(await comparison(), { signal: new AbortController().signal }),
+      { code: 'SYSTEM_ERROR' })
+    assert.equal(calls, 0)
+  }
+})
+
+test('a failed photo test send still consumes its shared counter slot', async () => {
+  const counter = fakeTrialCounterDb({ ...trialIdentity, used: 19 })
+  const transport = createFirestoreVertexTrialTransport(counter.db, {
+    getAccessToken: async () => 'test-token',
+    http: async () => new Response('private-cloud-details', { status: 429 }),
+  })
+  await assert.rejects(
+    createVertexPhotoMatcher(transport)(await comparison(), { signal: new AbortController().signal }),
+    { code: 'SYSTEM_ERROR' })
+  assert.equal(counter.read()?.used, 20)
 })
 
 test('answer trial opens traveler routes only to invited accounts and keeps reports closed', async (t) => {

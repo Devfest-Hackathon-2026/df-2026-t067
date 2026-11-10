@@ -9,6 +9,8 @@ import { assertNoAuthEmulator } from './config'
 import type { DraftSuggester } from './draft-suggester'
 import { createDiscoveryHandler } from './discoveries-http'
 import { createDurableDraftHandler } from './durable-admin-drafts-http'
+import { createSpotAddressHandler } from './spot-address-http'
+import { createSpotAddressGeocoder } from './spot-address-geocoding'
 import { createDurableReportHandler } from './durable-reports-http'
 import { HttpError } from './errors'
 import type { IdTokenVerifier } from './firebase-auth'
@@ -41,6 +43,7 @@ interface DurableAnswerHttpOptions {
   answerTrial?: boolean
   assets?: FirestoreOrgAssetStore
   drafts?: FirestoreManagedDraftStore
+  spotGeocodingApiKey?: string
   suggestDraft?: DraftSuggester
   photoTest?: AdminPhotoTestOptions
   publication?: PublicationPhotos
@@ -75,6 +78,11 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
   const suggestion = dataMode !== 'real' && assets && options.suggestDraft
     ? { assets, generator: options.suggestDraft } : undefined
   const draftHandler = drafts && createDurableDraftHandler(drafts, authenticate, photoTest, publication, suggestion)
+  const spotAddressHandler = dataMode !== 'real' && drafts ? createSpotAddressHandler({
+    authenticate,
+    assertMember: (uid, orgId) => drafts.assertMember(uid, orgId),
+    lookup: options.spotGeocodingApiKey ? createSpotAddressGeocoder(options.spotGeocodingApiKey) : undefined,
+  }) : undefined
   const reportHandler = dataMode === 'durable-local' ? createDurableReportHandler(new FirestoreReportStore(options.db), authenticate) : undefined
   return createQuestHttpServer(dataMode, async (request, response) => {
     const { path, params } = requestTarget(request)
@@ -99,6 +107,7 @@ export function createDurableAnswerServer(options: DurableAnswerHttpOptions) {
     if (!allowCatalogBeforeAuth && await handlePublicCatalog(options.db, request, response, path, params, publicationPhotos)) return
     if (await discoveryHandler(request, response, path, params)) return
     if (await draftHandler?.(request, response, path, params)) return
+    if (await spotAddressHandler?.(request, response, path, params)) return
     if (await reportHandler?.(request, response, path, params)) return
     const asset = assets && matchAssetRoute(path)
     if (asset) {

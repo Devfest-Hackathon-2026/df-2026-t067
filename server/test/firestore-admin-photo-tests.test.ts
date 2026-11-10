@@ -27,7 +27,8 @@ test('durable photo tests deduplicate across servers and store evidence only for
   const memberId = createHash('sha256').update(JSON.stringify([uid, orgId])).digest('hex')
   const reference = await preparePhoto({ bytes: syntheticPng, mimeType: 'image/png' })
   const batch = db.batch()
-  batch.create(db.collection('areas').doc(areaId), { label: '架空の地域' })
+  batch.create(db.collection('areas').doc(areaId), { label: '架空の地域', marker: { latitude: 0, longitude: 0 }, prefectureCode: '13',
+    boundarySource: 'fixture', publicGeometryJson: JSON.stringify({ type: 'Polygon', coordinates: [[[0, 0], [0, 1], [1, 1], [0, 0]]] }) })
   batch.create(db.collection('memberships').doc(memberId), { uid, orgId, active: true, role: 'editor', label: '架空の自治体', areaId })
   batch.create(db.collection('orgAssets').doc(assetId), { generation: '1', digest: 'a'.repeat(64),
     asset: { assetId, orgId, purpose: 'reference', photoRights: '架空', contentType: 'image/jpeg', width: reference.width,
@@ -84,6 +85,7 @@ test('durable photo tests deduplicate across servers and store evidence only for
     idempotencyKey: 'photo-test-match', photo: new Blob([Uint8Array.from(syntheticPng)], { type: 'image/png' }) }
   await assert.rejects(second('traveler').testManagedQuest(orgId, questId, candidate), { code: 'FORBIDDEN' })
 
+  assert.equal(matches, 0)
   const pending = editor.testManagedQuest(orgId, questId, candidate)
   try {
     await Promise.race([started, pending.then(() => { throw new Error('Matcher was never called') })])
